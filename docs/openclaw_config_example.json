@@ -1,0 +1,251 @@
+{
+  "meta": {
+    "lastTouchedVersion": "2026.3.13",
+    "lastTouchedAt": "2026-03-18T08:00:00.000Z"
+  },
+  "logging": {
+    "level": "info",
+    "file": "D:\\Projects\\workspace\\.openclaw\\logs\\openclaw-2026.log",
+    "maxFileBytes": 52428800,
+    "consoleLevel": "debug",
+    "consoleStyle": "pretty"
+  },
+  "browser": {
+    "enabled": true,
+    "evaluateEnabled": true,
+    "executablePath": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+    "defaultProfile": "user",
+    "profiles": {
+      "openclaw": {
+        "cdpPort": 9222,
+        "color": "#FF4500"
+      },
+      "user": {
+        "cdpPort": 9223,
+        "color": "#00FF00"
+      }
+    }
+  },
+  "auth": {
+    "profiles": {
+      "volcengine:default": {
+        "provider": "volcengine",
+        "mode": "api_key"
+      }
+    }
+  },
+  "models": {
+    "providers": {
+      "volcengine": {
+        "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+        "apiKey": "your_api_key_here",
+        "auth": "api-key",
+        "api": "openai-completions",
+        "models": []
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "workspace": "D:\\Projects\\workspace",
+      "model": {
+        "primary": "volcengine/doubao-seed-2-0-mini-260215"
+      },
+      "models": {
+        "volcengine/doubao-seed-code-preview-251028": {},
+        "volcengine/doubao-seed-2-0-mini-260215": {}
+      },
+      "contextTokens": 100000,
+      "memorySearch": {
+        "enabled": true,
+        "provider": "gemini",
+        "model": "text-embedding-004"
+      },
+      "contextPruning": {
+        "mode": "cache-ttl",
+        "ttl": "1h",
+        "keepLastAssistants": 3
+      },
+      "compaction": {
+        "mode": "safeguard",
+        "reserveTokensFloor": 5000
+      },
+      "typingMode": "never",
+      "heartbeat": {
+        "every": "15m",
+        "model": "volcengine/doubao-seed-1-8-251228",
+        "session": "main",
+        "includeReasoning": true
+      },
+      "subagents": {
+        "maxConcurrent": 8,
+        "maxSpawnDepth": 3,
+        "runTimeoutSeconds": 600
+      }
+    },
+    "list": [
+      {
+        "id": "orchestrator",
+        "default": true,
+        "name": "总调度",
+        "model": "volcengine/doubao-seed-2-0-mini-260215",
+        "subagents": {
+          "allowAgents": ["*"]
+        },
+        "tools": {
+          "allow": ["*"]
+        }
+      }
+    ]
+  },
+  "tools": {
+    "profile": "full",
+    "agentToAgent": {
+      "enabled": true,
+      "allow": ["*"]
+    },
+    "exec": {
+      "host": "gateway",
+      "security": "full",
+      "ask": "on-miss"
+    },
+    "fs": {
+      "workspaceOnly": false
+    },
+    "sessions_spawn": {
+      "attachments": {
+        "enabled": true
+      }
+    }
+  },
+  "bindings": [
+    {
+      "type": "route",
+      "agentId": "orchestrator",
+      "match": {
+        "channel": "discord",
+        "accountId": "default"
+      }
+    }
+  ],
+  "messages": {
+    "queue": {
+      "cap": 500,
+      "drop": "old"
+    },
+    "inbound": {
+      "debounceMs": 0
+    },
+    "ackReactionScope": "all"
+  },
+  "commands": {
+    "native": "auto",
+    "nativeSkills": "auto",
+    "restart": false,
+    "ownerDisplay": "raw"
+  },
+  "session": {
+    "dmScope": "per-channel-peer",
+    "reset": {
+      "mode": "daily"
+    },
+    "maintenance": {}
+  },
+  "channels": {
+    "discord": {
+      "enabled": true,
+      "commands": {
+        "native": false
+      },
+      "token": "your_discord_bot_token_here",
+      "proxy": "http://127.0.0.1:7890",
+      "allowBots": false,
+      "groupPolicy": "open",
+      "streaming": "off",
+      "retry": {
+        "attempts": 30,
+        "minDelayMs": 1000,
+        "maxDelayMs": 10000,
+        "jitter": 0.5
+      },
+      "replyToMode": "first",
+      "guilds": {
+        "1479108494622851196": {
+          "requireMention": false,
+          "channels": {
+            "*": {
+              "allow": true
+            }
+          }
+        }
+      },
+      "threadBindings": {
+        "enabled": true
+      },
+      "inboundWorker": {
+        "runTimeoutMs": 1800000
+      }
+    },
+    "whatsapp": {
+      "enabled": false,
+      "dmPolicy": "allowlist",
+      "allowFrom": ["+15551234567"],
+      "groupPolicy": "allowlist",
+      "debounceMs": 0,
+      "mediaMaxMb": 50
+    }
+  },
+  "gateway": {
+    "port": 18789,
+    "mode": "local",
+    "bind": "loopback",
+    "auth": {
+      "mode": "token",
+      "token": "your_gateway_token_here"
+    },
+    "tailscale": {
+      "mode": "off",
+      "resetOnExit": false
+    },
+    "nodes": {
+      "denyCommands": [
+        "camera.snap",
+        "camera.clip",
+        "screen.record",
+        "contacts.add",
+        "calendar.add",
+        "reminders.add",
+        "sms.send"
+      ]
+    }
+  },
+  "memory": {
+    "citations": "off"
+  },
+  "skills": {
+    "allowBundled": [],
+    "load": {
+      "watch": true
+    },
+    "install": {
+      "nodeManager": "npm"
+    },
+    "entries": {
+      "weather": {
+        "enabled": true
+      },
+      "coding-agent": {
+        "enabled": true
+      },
+      "model-usage": {
+        "enabled": true
+      },
+      "exa-web-search-free": {
+        "enabled": true
+      },
+      "summarize": {
+        "enabled": true
+      }
+    }
+  }
+}

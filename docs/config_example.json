@@ -1,0 +1,72 @@
+{
+  "name": "OpenClaw性能优化配置",
+  "version": "1.0.0",
+  "description": "针对Windows系统优化的高性能配置",
+  "timeout": 30000,
+  "max_retries": 3,
+  "memory_limit": 2147483648,
+  "cpu_limit": 0.8,
+  "enable_logging": true,
+  "log_level": "info",
+  "api_key": "your_secure_api_key_here",
+  "enable_ssl": true,
+  "debug_mode": false,
+  "allow_cors": "https://yourdomain.com",
+  "cache_enabled": true,
+  "cache_ttl": 3600,
+  "connection_pool_size": 10,
+  "requirements": {
+    "min_memory": 2,
+    "min_cpu_cores": 2,
+    "min_disk_space": 10
+  },
+  "os_specific": {
+    "Windows": {
+      "service_name": "OpenClawService",
+      "install_path": "C:\\Program Files\\OpenClaw",
+      "auto_start": true
+    },
+    "macOS": {
+      "service_name": "com.openclaw.service",
+      "install_path": "/Applications/OpenClaw.app",
+      "auto_start": true
+    },
+    "Linux": {
+      "service_name": "openclaw",
+      "install_path": "/opt/openclaw",
+      "auto_start": true,
+      "systemd_unit": "/etc/systemd/system/openclaw.service"
+    }
+  },
+  "features": {
+    "auto_update": true,
+    "auto_backup": true,
+    "backup_interval": 86400,
+    "max_backups": 5,
+    "compression_enabled": true
+  },
+  "security": {
+    "encryption_enabled": true,
+    "encryption_algorithm": "AES-256",
+    "token_expiry": 86400,
+    "rate_limiting": {
+      "enabled": true,
+      "max_requests_per_minute": 60
+    }
+  },
+  "network": {
+    "proxy_enabled": false,
+    "proxy_url": "",
+    "timeout": 30000,
+    "retry_strategy": "exponential_backoff"
+  },
+  "monitoring": {
+    "enabled": true,
+    "metrics_interval": 60,
+    "alert_threshold": {
+      "cpu_usage": 80,
+      "memory_usage": 85,
+      "disk_usage": 90
+    }
+  }
+}
