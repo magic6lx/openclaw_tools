@@ -46,3 +46,6 @@ backend/logs/
 # Temporary files
 tmp/
 temp/
+
+# Requirements docs (private)
+docs/requirements/
