@@ -10,6 +10,7 @@ import InvitationCodeManagement from './pages/InvitationCodeManagement';
 import UserManagement from './pages/UserManagement';
 import OpenClawInstall from './pages/OpenClawInstall';
 import RuntimeMonitor from './pages/RuntimeMonitor';
+import ClientMonitor from './pages/ClientMonitor';
 import MainLayout from './components/MainLayout';
 import ProtectedRoute from './components/ProtectedRoute';
 
@@ -36,6 +37,7 @@ function App() {
             <Route path="users" element={<UserManagement />} />
             <Route path="openclaw-install" element={<OpenClawInstall />} />
             <Route path="runtime-monitor" element={<RuntimeMonitor />} />
+            <Route path="client-monitor" element={<ClientMonitor />} />
           </Route>
         </Routes>
       </Content>

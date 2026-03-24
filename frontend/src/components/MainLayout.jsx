@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Layout, Menu, Avatar, Dropdown, Space, Divider, Tag } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -16,6 +16,7 @@ import {
   MonitorOutlined,
 } from '@ant-design/icons';
 import { authService } from '../services/auth';
+import clientMonitorService from '../services/clientMonitorService';
 
 const { Header, Sider, Content } = Layout;
 
@@ -26,6 +27,15 @@ function MainLayout() {
 
   const user = authService.getUser();
   const isAdmin = user?.role === 'admin';
+
+  useEffect(() => {
+    if (user) {
+      clientMonitorService.startHeartbeat(30000);
+    }
+    return () => {
+      clientMonitorService.stopHeartbeat();
+    };
+  }, [user]);
 
   const userMenuItems = [
     {
@@ -70,6 +80,11 @@ function MainLayout() {
       key: '/logs',
       icon: <FileTextOutlined />,
       label: '日志管理',
+    },
+    {
+      key: '/client-monitor',
+      icon: <MonitorOutlined />,
+      label: '客户端监控',
     },
   ];
 

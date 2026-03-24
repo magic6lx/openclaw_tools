@@ -14,6 +14,7 @@ import {
   EyeOutlined,
   SearchOutlined,
 } from '@ant-design/icons';
+import api from '../services/api';
 
 const { Option } = Select;
 
@@ -34,10 +35,10 @@ function UserManagement() {
   const loadUsers = async () => {
     setLoading(true);
     try {
-      const response = await fetch('http://localhost:3000/api/users');
-      const data = await response.json();
+      const response = await api.get('/users');
+      const data = response.data;
       
-      let filteredUsers = data.data?.users || [];
+      let filteredUsers = data.users || [];
       
       if (filters.status !== 'all') {
         filteredUsers = filteredUsers.filter(user => user.status === filters.status);
