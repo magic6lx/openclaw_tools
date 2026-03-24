@@ -49,6 +49,3 @@ temp/
 
 # Requirements docs (private)
 docs/requirements/
-
-# Git guide (private notes)
-docs/GIT_GUIDE.md
