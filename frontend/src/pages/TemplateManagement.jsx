@@ -31,7 +31,7 @@ import {
   FolderOutlined,
 } from '@ant-design/icons';
 import { configTemplateService } from '../services/configTemplate';
-import localConfigService from '../services/localConfigService';
+import configValidator from '../services/configValidator';
 import LocalConfigImport from './LocalConfigImport';
 
 const { Panel } = Collapse;
@@ -267,7 +267,7 @@ function TemplateManagement() {
 
       // 调用验证服务
       const fileName = selectedFile.fileName || selectedFile.title;
-      const result = await localConfigService.validateConfig(configToValidate, fileName);
+      const result = configValidator.validateConfig(configToValidate, fileName);
       
       if (result.success) {
         const { errors, warnings, security, summary } = result.data;
