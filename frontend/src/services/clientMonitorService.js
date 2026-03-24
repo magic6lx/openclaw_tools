@@ -15,7 +15,7 @@ const ClientMonitorService = {
     const screen = window.screen;
     const document = window.document;
 
-    const getBrowserInfo() {
+    function getBrowserInfo() {
       const ua = navigator.userAgent;
       let browserName = 'Unknown';
       let browserVersion = 'Unknown';
@@ -40,7 +40,7 @@ const ClientMonitorService = {
       return { browserName, browserVersion };
     }
 
-    const getOSInfo() {
+    function getOSInfo() {
       const ua = navigator.userAgent;
       let osName = 'Unknown';
       let osVersion = 'Unknown';
@@ -77,7 +77,7 @@ const ClientMonitorService = {
       return { osName, osVersion };
     }
 
-    const getDeviceType() {
+    function getDeviceType() {
       const ua = navigator.userAgent;
       if (/tablet|ipad|playbook|silk/i.test(ua)) {
         return 'tablet';
@@ -88,7 +88,7 @@ const ClientMonitorService = {
       return 'desktop';
     }
 
-    const getConnectionType() {
+    function getConnectionType() {
       const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
       return connection?.effectiveType || connection?.type || 'Unknown';
     }
@@ -124,9 +124,9 @@ const ClientMonitorService = {
 
   async submitClientInfo() {
     try {
-      const clientInfo = this.getClientSystemInfo();
-      const response = await api.post('/client-monitor/submit', clientInfo);
-      return response;
+      const clientData = this.getClientSystemInfo();
+      const response = await api.post('/client-monitor/submit', clientData);
+      return response.data;
     } catch (error) {
       console.error('提交客户端信息失败:', error);
       throw error;
@@ -136,7 +136,7 @@ const ClientMonitorService = {
   async getClientList(params = {}) {
     try {
       const response = await api.get('/client-monitor/list', { params });
-      return response;
+      return response.data;
     } catch (error) {
       console.error('获取客户端列表失败:', error);
       throw error;
@@ -146,23 +146,25 @@ const ClientMonitorService = {
   async getClientDetail(deviceId) {
     try {
       const response = await api.get(`/client-monitor/detail/${deviceId}`);
-      return response;
+      return response.data;
     } catch (error) {
       console.error('获取客户端详情失败:', error);
       throw error;
     }
   },
 
+  heartbeatTimer: null,
+
   startHeartbeat(intervalMs = 30000) {
     this.submitClientInfo();
+
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+    }
 
     this.heartbeatTimer = setInterval(() => {
       this.submitClientInfo();
     }, intervalMs);
-
-    window.addEventListener('beforeunload', () => {
-      this.submitClientInfo();
-    });
   },
 
   stopHeartbeat() {
