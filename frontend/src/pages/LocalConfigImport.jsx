@@ -3,6 +3,7 @@ import { Card, Form, Input, Button, Alert, Steps, Descriptions, Tag, Space, mess
 import { FolderOpenOutlined, CheckCircleOutlined, WarningOutlined, FileTextOutlined, InfoCircleOutlined, SyncOutlined, ReloadOutlined } from '@ant-design/icons';
 import openClawGatewayService from '../services/openClawGatewayService';
 import clientMonitorService from '../services/clientMonitorService';
+import localLauncherService from '../services/localLauncherService';
 
 const { Step } = Steps;
 const { TextArea } = Input;
@@ -153,10 +154,10 @@ const LocalConfigImport = ({ onComplete }) => {
             description={
               <div>
                 <Paragraph>
-                  请确保OpenClaw桌面应用正在运行。
+                  请先运行OpenClaw Launcher来启动OpenClaw服务
                 </Paragraph>
                 <Paragraph type="secondary">
-                  连接地址: ws://127.0.0.1:18789
+                  Launcher会自动检测OpenClaw安装状态
                 </Paragraph>
               </div>
             }

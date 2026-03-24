@@ -3,6 +3,7 @@ import { Card, Row, Col, Statistic, Table, Tag, Button, Space, Alert, Descriptio
 import { ReloadOutlined, CheckCircleOutlined, CloseCircleOutlined, WarningOutlined, DesktopOutlined, ChromeOutlined, WindowsOutlined, AppleOutlined, LinuxOutlined, MobileOutlined, GlobalOutlined } from '@ant-design/icons';
 import clientMonitorService from '../services/clientMonitorService';
 import openClawGatewayService from '../services/openClawGatewayService';
+import localLauncherService from '../services/localLauncherService';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -206,10 +207,10 @@ const RuntimeMonitor = () => {
             description={
               <div>
                 <Paragraph>
-                  请确保OpenClaw桌面应用正在运行，并且Gateway端口(18789)未被防火墙阻止。
+                  {error}
                 </Paragraph>
                 <Paragraph type="secondary">
-                  连接地址: ws://127.0.0.1:18789
+                  请运行OpenClaw Launcher来检测本机OpenClaw状态
                 </Paragraph>
               </div>
             }

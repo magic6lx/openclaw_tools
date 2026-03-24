@@ -1,6 +1,6 @@
 import React from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
-import { Layout } from 'antd';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { Layout, Spin } from 'antd';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import ConfigWizard from './pages/ConfigWizard';
@@ -13,10 +13,12 @@ import RuntimeMonitor from './pages/RuntimeMonitor';
 import ClientMonitor from './pages/ClientMonitor';
 import MainLayout from './components/MainLayout';
 import ProtectedRoute from './components/ProtectedRoute';
+import { LauncherProvider, useLauncher } from './services/LauncherProvider';
+import LauncherBlocker from './services/LauncherBlocker';
 
 const { Content } = Layout;
 
-function App() {
+const MainRoutes = () => {
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <Content>
@@ -43,6 +45,45 @@ function App() {
       </Content>
     </Layout>
   );
+};
+
+function App() {
+  return (
+    <LauncherProvider>
+      <AppRoutes />
+    </LauncherProvider>
+  );
 }
+
+const AppRoutes = () => {
+  const location = useLocation();
+  const { isLauncherReady, loading } = useLauncher();
+
+  const isLoginPage = location.pathname === '/login';
+
+  if (loading) {
+    return (
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        height: '100vh',
+        background: '#f5f5f5'
+      }}>
+        <Spin size="large" tip="检查 Launcher 状态..." />
+      </div>
+    );
+  }
+
+  if (isLoginPage) {
+    return <Login />;
+  }
+
+  if (!isLauncherReady) {
+    return <LauncherBlocker />;
+  }
+
+  return <MainRoutes />;
+};
 
 export default App;

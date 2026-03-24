@@ -1,0 +1,14 @@
+{
+  "name": "openclaw-launcher",
+  "version": "1.0.0",
+  "description": "OpenClaw本地启动器 - 轻量级服务",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  }
+}

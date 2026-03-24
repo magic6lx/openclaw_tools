@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, Button, Steps, Alert, Descriptions, Tag, Space, message, Spin, Typography, List } from 'antd';
 import { CheckCircleOutlined, DownloadOutlined, ExclamationCircleOutlined, InfoCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 import openClawGatewayService from '../services/openClawGatewayService';
+import localLauncherService from '../services/localLauncherService';
 
 const { Step } = Steps;
 const { Title, Paragraph, Text } = Typography;
@@ -33,13 +34,33 @@ const OpenClawInstall = () => {
     setConnecting(true);
     setError(null);
 
+    const launcherStatus = await localLauncherService.checkOpenClawStatus();
+
+    if (launcherStatus.available && launcherStatus.installed) {
+      setSystemCheck({
+        platform: launcherStatus.platform,
+        arch: launcherStatus.arch,
+        nodeVersion: 'N/A',
+        npmVersion: 'N/A',
+        openclawInstalled: true,
+        openclawVersion: launcherStatus.version,
+        openclawDirectory: launcherStatus.directory,
+        gatewayRunning: launcherStatus.gatewayRunning,
+        gatewayPort: launcherStatus.gatewayPort
+      });
+    }
+
     try {
       await openClawGatewayService.connect();
       setConnected(true);
       await checkSystem();
     } catch (err) {
       setConnected(false);
-      setError('无法连接到OpenClaw Gateway。请确保OpenClaw已启动。');
+      if (launcherStatus.available && launcherStatus.installed) {
+        setError('Gateway未启动。请在OpenClaw Launcher中启动OpenClaw，或手动启动OpenClaw桌面应用。');
+      } else {
+        setError('无法连接到OpenClaw。请先运行OpenClaw Launcher。');
+      }
     } finally {
       setConnecting(false);
     }
@@ -140,14 +161,14 @@ const OpenClawInstall = () => {
       return (
         <Card>
           <Alert
-            message="无法连接到OpenClaw Gateway"
+            message="无法连接到OpenClaw"
             description={
               <div>
                 <Paragraph>
-                  请确保OpenClaw桌面应用正在运行，并且Gateway端口(18789)未被防火墙阻止。
+                  {error}
                 </Paragraph>
                 <Paragraph type="secondary">
-                  连接地址: ws://127.0.0.1:18789
+                  如果未安装Launcher，请先下载并运行OpenClaw Launcher
                 </Paragraph>
               </div>
             }
