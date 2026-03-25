@@ -9,7 +9,12 @@ const LauncherBlocker = () => {
   const { refreshLauncherStatus, launcherStatus } = useLauncher();
 
   const handleDownload = () => {
-    window.open('/OpenClaw-Setup.exe', '_blank');
+    const link = document.createElement('a');
+    link.href = '/OpenClaw-Launcher.exe';
+    link.download = 'OpenClaw-Launcher.exe';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const handleRetry = () => {
