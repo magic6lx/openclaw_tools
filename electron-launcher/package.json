@@ -1,0 +1,45 @@
+{
+  "name": "openclaw-launcher",
+  "version": "1.0.0",
+  "description": "OpenClaw本地启动器 - 轻量级服务",
+  "main": "src/main.js",
+  "author": "OpenClaw Team",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "dependencies": {
+    "electron-log": "^5.0.0"
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId": "com.openclaw.launcher",
+    "productName": "OpenClaw Launcher",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "protocols": {
+      "name": "OpenClaw Protocol",
+      "schemes": ["openclaw"]
+    },
+    "files": [
+      "src/**/*"
+    ]
+  }
+}

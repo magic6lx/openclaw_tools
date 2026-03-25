@@ -36,13 +36,13 @@ const OpenClawInstall = () => {
 
     const launcherStatus = await localLauncherService.checkOpenClawStatus();
 
-    if (launcherStatus.available && launcherStatus.installed) {
+    if (launcherStatus.available) {
       setSystemCheck({
         platform: launcherStatus.platform,
         arch: launcherStatus.arch,
         nodeVersion: 'N/A',
         npmVersion: 'N/A',
-        openclawInstalled: true,
+        openclawInstalled: launcherStatus.commandAvailable,
         openclawVersion: launcherStatus.version,
         openclawDirectory: launcherStatus.directory,
         gatewayRunning: launcherStatus.gatewayRunning,
@@ -56,8 +56,10 @@ const OpenClawInstall = () => {
       await checkSystem();
     } catch (err) {
       setConnected(false);
-      if (launcherStatus.available && launcherStatus.installed) {
+      if (launcherStatus.available && launcherStatus.commandAvailable) {
         setError('Gateway未启动。请在OpenClaw Launcher中启动OpenClaw，或手动启动OpenClaw桌面应用。');
+      } else if (launcherStatus.available) {
+        setError('OpenClaw未安装。点击下方"一键安装"按钮安装OpenClaw。');
       } else {
         setError('无法连接到OpenClaw。请先运行OpenClaw Launcher。');
       }
@@ -81,46 +83,80 @@ const OpenClawInstall = () => {
   };
 
   const handleInstall = async () => {
-    if (!connected) {
-      message.error('Gateway未连接');
-      return;
-    }
-
     setInstallStatus('installing');
     setProgress(0);
     setError(null);
+    setLoading(true);
 
     try {
-      const result = await openClawGatewayService.installOpenClaw(false);
-      setInstallResult(result);
-      setInstallStatus('success');
-      message.success('安装成功！');
+      const result = await localLauncherService.installOpenClaw();
+      if (result.success) {
+        setInstallResult(result);
+        setInstallStatus('success');
+        message.success('安装成功！');
+      } else {
+        setInstallStatus('error');
+        setError(result.error || '安装失败');
+        message.error('安装失败: ' + (result.error || '未知错误'));
+      }
     } catch (err) {
       setInstallStatus('error');
       setError(err.message || '安装失败');
       message.error('安装失败: ' + err.message);
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleUpgrade = async () => {
-    if (!connected) {
-      message.error('Gateway未连接');
-      return;
-    }
-
     setInstallStatus('installing');
     setProgress(0);
     setError(null);
+    setLoading(true);
 
     try {
-      const result = await openClawGatewayService.installOpenClaw(true);
-      setInstallResult(result);
-      setInstallStatus('success');
-      message.success('升级成功！');
+      const result = await localLauncherService.upgradeOpenClaw();
+      if (result.success) {
+        setInstallResult(result);
+        setInstallStatus('success');
+        message.success('升级成功！');
+      } else {
+        setInstallStatus('error');
+        setError(result.error || '升级失败');
+        message.error('升级失败: ' + (result.error || '未知错误'));
+      }
     } catch (err) {
       setInstallStatus('error');
       setError(err.message || '升级失败');
       message.error('升级失败: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLauncherUpgrade = async () => {
+    setInstallStatus('installing');
+    setProgress(0);
+    setError(null);
+    setLoading(true);
+
+    try {
+      const result = await localLauncherService.autoUpgradeLauncher();
+      if (result.success) {
+        setInstallResult(result);
+        setInstallStatus('success');
+        message.success('Launcher升级成功！请重启Launcher使更新生效。');
+      } else {
+        setInstallStatus('error');
+        setError(result.error || '升级失败');
+        message.error('Launcher升级失败: ' + (result.error || '未知错误'));
+      }
+    } catch (err) {
+      setInstallStatus('error');
+      setError(err.message || '升级失败');
+      message.error('Launcher升级失败: ' + err.message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -311,6 +347,14 @@ const OpenClawInstall = () => {
               disabled={!connected || loading}
             >
               验证安装
+            </Button>
+
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={handleLauncherUpgrade}
+              disabled={loading}
+            >
+              升级Launcher
             </Button>
           </Space>
         </Space>
