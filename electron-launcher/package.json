@@ -24,15 +24,15 @@
       "output": "dist"
     },
     "win": {
-      "target": "nsis",
-      "icon": "assets/icon.ico"
+      "target": [
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ]
     },
-    "nsis": {
-      "oneClick": false,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+    "portable": {
+      "artifactName": "OpenClaw-Launcher.exe"
     },
     "protocols": {
       "name": "OpenClaw Protocol",
@@ -40,6 +40,7 @@
     },
     "files": [
       "src/**/*"
-    ]
+    ],
+    "asar": true
   }
 }
