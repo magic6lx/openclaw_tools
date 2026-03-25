@@ -24,7 +24,10 @@ const apiProxyRouter = require('./routes/apiProxy');
 
 const app = express();
 
-app.use(cors());
+app.use(cors({
+  origin: ['http://134.175.18.139:3001', 'http://134.175.18.139:3002'],
+  credentials: true
+}));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
