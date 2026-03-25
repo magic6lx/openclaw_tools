@@ -82,6 +82,35 @@ app.get('/', (req, res) => {
   });
 });
 
+app.get('/api/launcher-check', async (req, res) => {
+  try {
+    const { execSync } = require('child_process');
+    const currentVersion = execSync('npm list -g openclaw-launcher --depth=0 2>/dev/null || npm list -g electron --depth=0 2>/dev/null || echo "unknown"', { encoding: 'utf8' });
+    
+    let localVersion = 'unknown';
+    const match = currentVersion.match(/(openclaw-launcher|electron)@(\d+\.\d+\.\d+)/);
+    if (match) {
+      localVersion = match[2];
+    }
+
+    res.json({
+      success: true,
+      version: localVersion,
+      latestVersion: localVersion,
+      needsUpdate: false,
+      downloadUrl: '/OpenClaw-Launcher.exe'
+    });
+  } catch (error) {
+    res.json({
+      success: true,
+      version: '1.0.0',
+      latestVersion: '1.0.0',
+      needsUpdate: false,
+      downloadUrl: '/OpenClaw-Launcher.exe'
+    });
+  }
+});
+
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(500).json({
