@@ -26,13 +26,10 @@
     "win": {
       "target": [
         {
-          "target": "portable",
+          "target": "dir",
           "arch": ["x64"]
         }
       ]
-    },
-    "portable": {
-      "artifactName": "OpenClaw-Launcher.exe"
     },
     "protocols": {
       "name": "OpenClaw Protocol",

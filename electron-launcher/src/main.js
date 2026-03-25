@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, protocol } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -11,6 +11,7 @@ log.transports.file.resolvePathFn = () => path.join(app.getPath('userData'), 'lo
 log.info('=== OpenClaw Launcher 启动 ===');
 
 let mainWindow = null;
+let tray = null;
 let httpServer = null;
 
 const HTTP_PORT = 18790;
@@ -173,11 +174,63 @@ function createWindow() {
 
   mainWindow.loadFile('src/index.html');
 
-  mainWindow.on('closed', () => {
-    mainWindow = null;
+  mainWindow.on('close', (event) => {
+    if (!app.isQuiting) {
+      event.preventDefault();
+      mainWindow.hide();
+      log.info('窗口已隐藏到托盘');
+    }
   });
 
   log.info('主窗口已创建');
+}
+
+function createTray() {
+  const iconPath = path.join(__dirname, '..', 'assets', 'icon.png');
+  let trayIcon;
+
+  try {
+    if (fs.existsSync(iconPath)) {
+      trayIcon = nativeImage.createFromPath(iconPath);
+    } else {
+      trayIcon = nativeImage.createFromDataURL('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAAbwAAAG8B8aLcQwAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAAFhSURBVDiNpZM9SwNBEIa/uZRLiYUgaGFhYWNhYSX4A/wFNhYWFv4AFhZWVhYWFv4AFhZWFhYWFv4AFhZWFhYWgoiFYFPkLnbW7tzu3l0uHELLwjDz5s2bN7M7C/+xqVoUBMHtRqNxNAzDy+l0+r7T6XwYDocX4/E4bbfbjvC6KIqT0WjUAuDVaDR6Nx6P3w6HwzfT6fRDo9G4kM7Z8Twv7XQ6LwF8G41G78bj8dvZbPah1+sdm81mU9M0bdu27XQ63Qbgy3g8fjsej9/1+/1X3W73yMnJCVc9fvw4BXA8mUze3t/fv2232y9PT0+5jo+Pj7lx40Ya4HK5fPfp06f3tVrt6OLi4oVOp3PG2dnZOTdJJpPJ+1ar9bper/9eq9WeN5vNF81m84Vz6f8X/gAw7P2bN3qZIgAAAABJRU5ErkJggg==');
+    }
+  } catch (e) {
+    trayIcon = nativeImage.createEmpty();
+  }
+
+  tray = new Tray(trayIcon);
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: '显示窗口',
+      click: () => {
+        if (mainWindow) {
+          mainWindow.show();
+          mainWindow.focus();
+        }
+      }
+    },
+    {
+      label: '退出',
+      click: () => {
+        app.isQuiting = true;
+        app.quit();
+      }
+    }
+  ]);
+
+  tray.setToolTip('OpenClaw Launcher');
+  tray.setContextMenu(contextMenu);
+
+  tray.on('double-click', () => {
+    if (mainWindow) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+
+  log.info('系统托盘已创建');
 }
 
 function registerProtocol() {
@@ -213,6 +266,7 @@ app.whenReady().then(() => {
   registerProtocol();
   startHttpServer();
   createWindow();
+  createTray();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -229,6 +283,7 @@ app.on('open-url', (event, url) => {
 app.on('second-instance', (event, commandLine) => {
   if (mainWindow) {
     if (mainWindow.isMinimized()) mainWindow.restore();
+    if (!mainWindow.isVisible()) mainWindow.show();
     mainWindow.focus();
   }
 

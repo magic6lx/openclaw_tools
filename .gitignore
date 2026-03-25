@@ -1,17 +1,10 @@
+*.exe
+*.dmg
+*.pkg
+
 node_modules/
 dist/
-dist_build/
-dist_old/
+build/
 *.log
-
-# Electron Launcher
-electron-launcher/dist/
-electron-launcher/node_modules/
-
-# Temporary files
-tmp/
-temp/
-
-# Requirements docs (private)
-docs/requirements/
-docs/GIT_GUIDE.md
+.env
+.env.local

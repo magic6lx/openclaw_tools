@@ -46,15 +46,23 @@ class LocalLauncherService {
     try {
       const response = await fetch(`${LAUNCHER_API_BASE}/api/launch`, {
         method: 'POST',
-        mode: 'cors'
+        mode: 'cors',
+        timeout: 10000
       });
+
+      if (!response.ok) {
+        return {
+          success: false,
+          error: 'Launcher未运行，请双击桌面图标重新打开'
+        };
+      }
 
       const data = await response.json();
       return data;
     } catch (error) {
       return {
         success: false,
-        error: error.message
+        error: 'Launcher未运行，请双击桌面图标重新打开'
       };
     }
   }
