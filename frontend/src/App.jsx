@@ -75,12 +75,12 @@ const AppRoutes = () => {
     );
   }
 
-  if (isLoginPage) {
-    return <Login />;
-  }
-
   if (!isLauncherReady) {
     return <LauncherBlocker />;
+  }
+
+  if (isLoginPage) {
+    return <Login />;
   }
 
   return <MainRoutes />;
