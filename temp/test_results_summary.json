@@ -1,0 +1,87 @@
+{
+  "total_tests": 14,
+  "passed": 3,
+  "failed": 11,
+  "pass_rate": 0.214,
+  "failed_tests": [
+    {
+      "test": "绑定设备",
+      "error": "数据库连接失败",
+      "reason": "需要配置MySQL数据库连接"
+    },
+    {
+      "test": "获取设备列表",
+      "error": "数据库连接失败",
+      "reason": "需要配置MySQL数据库连接"
+    },
+    {
+      "test": "禁用邀请码",
+      "error": "数据库连接失败",
+      "reason": "需要配置MySQL数据库连接"
+    },
+    {
+      "test": "启用邀请码",
+      "error": "数据库连接失败",
+      "reason": "需要配置MySQL数据库连接"
+    },
+    {
+      "test": "使用邀请码登录",
+      "error": "数据库连接失败",
+      "reason": "需要配置MySQL数据库连接"
+    },
+    {
+      "test": "获取用户信息",
+      "error": "数据库连接失败",
+      "reason": "需要配置MySQL数据库连接"
+    },
+    {
+      "test": "刷新Token",
+      "error": "数据库连接失败",
+      "reason": "需要配置MySQL数据库连接"
+    },
+    {
+      "test": "更新用户信息",
+      "error": "数据库连接失败",
+      "reason": "需要配置MySQL数据库连接"
+    },
+    {
+      "test": "登出",
+      "error": "数据库连接失败",
+      "reason": "需要配置MySQL数据库连接"
+    },
+    {
+      "test": "未授权访问受保护的路由",
+      "error": "数据库连接失败",
+      "reason": "需要配置MySQL数据库连接"
+    },
+    {
+      "test": "获取API文档",
+      "error": "Swagger UI返回HTML而非纯文本",
+      "reason": "测试断言需要调整"
+    }
+  ],
+  "passed_tests": [
+    {
+      "test": "生成邀请码",
+      "status": "passed"
+    },
+    {
+      "test": "验证邀请码",
+      "status": "passed"
+    },
+    {
+      "test": "获取根路径信息",
+      "status": "passed"
+    }
+  ],
+  "issues": [
+    "需要配置MySQL数据库连接",
+    "需要创建数据库表结构",
+    "API文档测试断言需要调整"
+  ],
+  "recommendations": [
+    "配置.env文件中的数据库连接信息",
+    "运行database/schema.sql创建数据库表",
+    "调整API文档测试的断言逻辑"
+  ]
+}
