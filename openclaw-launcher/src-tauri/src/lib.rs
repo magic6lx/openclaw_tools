@@ -1,10 +1,13 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{Read, Write};
-use std::net::TcpListener;
+use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::process::Command;
 use tauri::{Manager, Emitter, AppHandle, WebviewWindow, tray::{TrayIconBuilder, MouseButton, MouseButtonState, TrayIconEvent}, menu::{Menu, MenuItem}};
+
+const LAUNCHER_HTTP_PORT: u16 = 18790;
+const GATEWAY_PORTS: &[u16] = &[18789, 18790, 18791, 18792, 18793, 18794, 18795];
 
 #[derive(Debug, Serialize, Deserialize)]
 struct OpenClawStatus {
@@ -23,8 +26,6 @@ struct LaunchResult {
     success: bool,
     error: Option<String>,
 }
-
-static HTTP_PORT: u16 = 18790;
 
 fn get_openclaw_directories() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
@@ -54,10 +55,15 @@ fn get_openclaw_directories() -> Vec<PathBuf> {
 
 fn check_openclaw_installed() -> (bool, Option<String>, Option<String>) {
     for dir in get_openclaw_directories() {
-        if dir.exists() && dir.is_dir() {
-            let version_file = dir.join("version");
-            let version = if version_file.exists() {
-                fs::read_to_string(&version_file).ok().map(|v| v.trim().to_string())
+        let config_file = dir.join("openclaw.json");
+        if config_file.exists() && dir.is_dir() {
+            let version = if let Ok(content) = fs::read_to_string(&config_file) {
+                serde_json::from_str::<serde_json::Value>(&content)
+                    .ok()
+                    .and_then(|v| v.get("meta").and_then(|m| m.get("lastTouchedVersion")))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .or(Some("unknown".to_string()))
             } else {
                 Some("unknown".to_string())
             };
@@ -67,13 +73,16 @@ fn check_openclaw_installed() -> (bool, Option<String>, Option<String>) {
     (false, None, None)
 }
 
-fn check_port_available(port: u16) -> bool {
-    TcpListener::bind(format!("127.0.0.1:{}", port)).is_ok()
+fn is_port_open(port: u16) -> bool {
+    if port == LAUNCHER_HTTP_PORT {
+        return false;
+    }
+    TcpStream::connect(format!("127.0.0.1:{}", port)).is_ok()
 }
 
 fn check_gateway_port() -> Option<u16> {
-    for port in 18789..18796 {
-        if !check_port_available(port) {
+    for &port in GATEWAY_PORTS {
+        if port != LAUNCHER_HTTP_PORT && is_port_open(port) {
             return Some(port);
         }
     }
@@ -125,8 +134,8 @@ fn handle_http_request(req: &str) -> Option<String> {
 
 fn start_http_server() {
     std::thread::spawn(move || {
-        let listener = TcpListener::bind(format!("127.0.0.1:{}", HTTP_PORT)).expect("Failed to bind port");
-        log::info!("HTTP API Server started on http://127.0.0.1:{}", HTTP_PORT);
+        let listener = TcpListener::bind(format!("127.0.0.1:{}", LAUNCHER_HTTP_PORT)).expect("Failed to bind port");
+        log::info!("HTTP API Server started on http://127.0.0.1:{}", LAUNCHER_HTTP_PORT);
 
         for stream in listener.incoming() {
             match stream {
@@ -186,7 +195,7 @@ fn launch_openclaw() -> LaunchResult {
 
 #[tauri::command]
 fn check_port(port: u16) -> bool {
-    !check_port_available(port)
+    is_port_open(port)
 }
 
 #[tauri::command]
