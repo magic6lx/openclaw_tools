@@ -26,8 +26,8 @@ class LocalLauncherService {
         commandAvailable: data.commandAvailable || false,
         directory: data.directory || null,
         version: data.version || 'unknown',
-        gatewayRunning: data.gatewayRunning || false,
-        gatewayPort: data.gatewayPort || null,
+        gatewayRunning: data.gateway_running || false,
+        gatewayPort: data.gateway_port || null,
         platform: data.platform || 'unknown',
         arch: data.arch || 'unknown'
       };
