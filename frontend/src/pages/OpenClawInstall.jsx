@@ -35,18 +35,20 @@ const OpenClawInstall = () => {
     setError(null);
 
     const launcherStatus = await localLauncherService.checkOpenClawStatus();
+    const launcherSysInfo = await localLauncherService.getSystemInfo();
 
     if (launcherStatus.available) {
       setSystemCheck({
-        platform: launcherStatus.platform,
-        arch: launcherStatus.arch,
-        nodeVersion: 'N/A',
-        npmVersion: 'N/A',
-        openclawInstalled: launcherStatus.commandAvailable,
-        openclawVersion: launcherStatus.version,
-        openclawDirectory: launcherStatus.directory,
-        gatewayRunning: launcherStatus.gatewayRunning,
-        gatewayPort: launcherStatus.gatewayPort
+        platform: launcherSysInfo?.platform || launcherStatus.platform,
+        arch: launcherSysInfo?.arch || launcherStatus.arch,
+        nodeVersion: launcherSysInfo?.nodeVersion || null,
+        npmVersion: launcherSysInfo?.npmVersion || null,
+        diskSpace: launcherSysInfo?.diskSpaceGb || null,
+        openclawInstalled: launcherSysInfo?.openclawInstalled || false,
+        openclawVersion: launcherSysInfo?.openclawVersion || launcherStatus.version,
+        openclawDirectory: launcherSysInfo?.openclawDirectory || launcherStatus.directory,
+        gatewayRunning: launcherSysInfo?.gatewayRunning || false,
+        gatewayPort: launcherSysInfo?.gatewayPort || launcherStatus.gatewayPort
       });
     }
 
@@ -56,7 +58,7 @@ const OpenClawInstall = () => {
       await checkSystem();
     } catch (err) {
       setConnected(false);
-      if (launcherStatus.available && launcherStatus.commandAvailable) {
+      if (launcherStatus.available && (launcherSysInfo?.openclawInstalled || launcherStatus.commandAvailable)) {
         setError('Gateway未启动。请在OpenClaw Launcher中启动OpenClaw，或手动启动OpenClaw桌面应用。');
       } else if (launcherStatus.available) {
         setError('OpenClaw未安装。点击下方"一键安装"按钮安装OpenClaw。');
@@ -249,8 +251,8 @@ const OpenClawInstall = () => {
       },
       {
         label: '网络连接',
-        value: systemCheck.networkConnection ? '正常' : '异常',
-        status: systemCheck.networkConnection ? 'success' : 'error'
+        value: connected ? (systemCheck.networkConnection ? '正常' : '异常') : '需Gateway',
+        status: connected ? (systemCheck.networkConnection ? 'success' : 'error') : 'warning'
       },
       {
         label: 'OpenClaw状态',

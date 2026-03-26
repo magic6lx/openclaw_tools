@@ -67,6 +67,38 @@ class LocalLauncherService {
     }
   }
 
+  async getSystemInfo() {
+    try {
+      const response = await fetch(`${LAUNCHER_API_BASE}/api/system-info`, {
+        method: 'GET',
+        mode: 'cors',
+        timeout: 5000
+      });
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const data = await response.json();
+      return {
+        success: true,
+        platform: data.platform,
+        arch: data.arch,
+        nodeVersion: data.node_version,
+        npmVersion: data.npm_version,
+        diskSpaceGb: data.disk_space_gb,
+        openclawInstalled: data.openclaw_installed,
+        openclawVersion: data.openclaw_version,
+        openclawDirectory: data.openclaw_directory,
+        gatewayRunning: data.gateway_running,
+        gatewayPort: data.gateway_port
+      };
+    } catch (error) {
+      console.log('获取系统信息失败:', error.message);
+      return null;
+    }
+  }
+
   async installOpenClaw() {
     try {
       const response = await fetch(`${LAUNCHER_API_BASE}/api/install`, {

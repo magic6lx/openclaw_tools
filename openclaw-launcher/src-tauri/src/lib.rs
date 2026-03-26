@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::process::Command;
-use tauri::{Manager, Emitter, AppHandle, WebviewWindow, tray::{TrayIconBuilder, MouseButton, MouseButtonState, TrayIconEvent}, menu::{Menu, MenuItem}};
+use tauri::{Manager, Emitter, AppHandle, tray::{TrayIconBuilder, MouseButton, MouseButtonState, TrayIconEvent}, menu::{Menu, MenuItem}};
 
 const LAUNCHER_HTTP_PORT: u16 = 18790;
 const GATEWAY_PORTS: &[u16] = &[18789, 18790, 18791, 18792, 18793, 18794, 18795];
@@ -25,6 +25,81 @@ struct OpenClawStatus {
 struct LaunchResult {
     success: bool,
     error: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SystemInfo {
+    success: bool,
+    platform: String,
+    arch: String,
+    node_version: Option<String>,
+    npm_version: Option<String>,
+    disk_space_gb: Option<f64>,
+    openclaw_installed: bool,
+    openclaw_version: Option<String>,
+    openclaw_directory: Option<String>,
+    gateway_running: bool,
+    gateway_port: Option<u16>,
+}
+
+fn get_node_version() -> Option<String> {
+    let output = Command::new("node").args(["--version"]).output().ok()?;
+    String::from_utf8(output.stdout).ok()?.trim().strip_prefix('v').map(|s| s.to_string())
+}
+
+fn get_npm_version() -> Option<String> {
+    let output = Command::new("npm").args(["--version"]).output().ok()?;
+    String::from_utf8(output.stdout).ok()?.trim().to_string().into()
+}
+
+fn get_disk_space() -> Option<f64> {
+    #[cfg(target_os = "windows")]
+    {
+        let output = Command::new("cmd")
+            .args(["/C", "wmic logicaldisk where \"DeviceID='C:'\" get FreeSpace /value"])
+            .output()
+            .ok()?;
+        let text = String::from_utf8_lossy(&output.stdout);
+        if let Some(line) = text.lines().find(|l| l.starts_with("FreeSpace=")) {
+            let bytes: u64 = line.split('=').nth(1)?.parse().ok()?;
+            return Some(bytes as f64 / 1024.0 / 1024.0 / 1024.0);
+        }
+        None
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let output = Command::new("df")
+            .args(["-BG", "/"])
+            .output()
+            .ok()?;
+        let text = String::from_utf8_lossy(&output.stdout);
+        text.lines()
+            .nth(1)?
+            .split_whitespace()
+            .nth(3)?
+            .strip_suffix('G')?
+            .parse()
+            .ok()
+    }
+}
+
+fn get_system_info() -> SystemInfo {
+    let (installed, directory, version) = check_openclaw_installed();
+    let gateway_port = check_gateway_port();
+
+    SystemInfo {
+        success: true,
+        platform: std::env::consts::OS.to_string(),
+        arch: std::env::consts::ARCH.to_string(),
+        node_version: get_node_version(),
+        npm_version: get_npm_version(),
+        disk_space_gb: get_disk_space(),
+        openclaw_installed: installed,
+        openclaw_version: version,
+        openclaw_directory: directory,
+        gateway_running: gateway_port.is_some(),
+        gateway_port,
+    }
 }
 
 fn get_openclaw_directories() -> Vec<PathBuf> {
@@ -58,15 +133,17 @@ fn check_openclaw_installed() -> (bool, Option<String>, Option<String>) {
         let config_file = dir.join("openclaw.json");
         if config_file.exists() && dir.is_dir() {
             let version = if let Ok(content) = fs::read_to_string(&config_file) {
-                serde_json::from_str::<serde_json::Value>(&content)
-                    .ok()
-                    .and_then(|v| v.get("meta").and_then(|m| m.get("lastTouchedVersion")))
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string())
-                    .or(Some("unknown".to_string()))
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                    json.get("meta")
+                        .and_then(|m| m.get("lastTouchedVersion"))
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                } else {
+                    None
+                }
             } else {
-                Some("unknown".to_string())
-            };
+                None
+            }.or(Some("unknown".to_string()));
             return (true, Some(dir.to_string_lossy().to_string()), version);
         }
     }
@@ -108,6 +185,14 @@ fn handle_http_request(req: &str) -> Option<String> {
         return Some(format!(
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\n\r\n{}",
             serde_json::to_string(&status).unwrap()
+        ));
+    }
+
+    if req.starts_with("GET /api/system-info") {
+        let sys_info = get_system_info();
+        return Some(format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\n\r\n{}",
+            serde_json::to_string(&sys_info).unwrap()
         ));
     }
 
@@ -218,7 +303,7 @@ fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let _tray = TrayIconBuilder::new()
         .icon(app.default_window_icon().unwrap().clone())
         .menu(&menu)
-        .menu_on_left_click(false)
+        .show_menu_on_left_click(false)
         .on_menu_event(|app, event| {
             match event.id.as_ref() {
                 "show" => show_window(app),
