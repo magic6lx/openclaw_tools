@@ -10,8 +10,8 @@ const LauncherBlocker = () => {
 
   const handleDownload = () => {
     const link = document.createElement('a');
-    link.href = '/OpenClaw-Launcher.exe';
-    link.download = 'OpenClaw-Launcher.exe';
+    link.href = '/OpenClaw-Launcher-v1.0.1.exe';
+    link.download = 'OpenClaw-Launcher-v1.0.1.exe';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

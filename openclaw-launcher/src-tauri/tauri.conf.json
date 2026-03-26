@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "OpenClaw Launcher",
-  "version": "1.0.0",
+  "productName": "OpenClaw Launcher v1.0.1",
+  "version": "1.0.1",
   "identifier": "com.openclaw.launcher",
   "build": {
     "frontendDist": "../dist",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "OpenClaw Launcher",
+        "title": "OpenClaw Launcher v1.0.1",
         "width": 500,
         "height": 400,
         "resizable": false,
