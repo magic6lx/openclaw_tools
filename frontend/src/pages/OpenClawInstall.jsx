@@ -1,413 +1,310 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Steps, Alert, Descriptions, Tag, Space, message, Spin, Typography, List } from 'antd';
-import { CheckCircleOutlined, DownloadOutlined, ExclamationCircleOutlined, InfoCircleOutlined, ReloadOutlined } from '@ant-design/icons';
-import openClawGatewayService from '../services/openClawGatewayService';
+import { Card, Button, Alert, Space, message, Typography, Divider, Tag, Progress } from 'antd';
+import { CheckCircleOutlined, CloseCircleOutlined, DownloadOutlined, ReloadOutlined, PlayCircleOutlined, CloudUploadOutlined } from '@ant-design/icons';
 import localLauncherService from '../services/localLauncherService';
 
-const { Step } = Steps;
-const { Title, Paragraph, Text } = Typography;
+const { Title, Text, Paragraph } = Typography;
 
 const OpenClawInstall = () => {
   const [loading, setLoading] = useState(false);
-  const [connected, setConnected] = useState(false);
-  const [connecting, setConnecting] = useState(true);
+  const [actionLoading, setActionLoading] = useState(false);
   const [systemCheck, setSystemCheck] = useState(null);
-  const [installStatus, setInstallStatus] = useState('idle');
-  const [installResult, setInstallResult] = useState(null);
-  const [progress, setProgress] = useState(0);
-  const [error, setError] = useState(null);
+  const [status, setStatus] = useState({
+    launcherAvailable: false,
+    openclawInstalled: false,
+    gatewayRunning: false,
+    openclawVersion: null
+  });
+  const [actionResult, setActionResult] = useState(null);
 
   useEffect(() => {
-    initGateway();
-
-    openClawGatewayService.on('installProgress', (data) => {
-      if (data.progress) setProgress(data.progress);
-      if (data.message) message.info(data.message);
-    });
-
-    return () => {
-      openClawGatewayService.off('installProgress');
-    };
+    checkStatus();
   }, []);
 
-  const initGateway = async () => {
-    setConnecting(true);
-    setError(null);
+  const checkStatus = async () => {
+    setLoading(true);
+    try {
+      const [launcherStatus, launcherSysInfo] = await Promise.all([
+        localLauncherService.checkOpenClawStatus(),
+        localLauncherService.getSystemInfo()
+      ]);
 
-    const launcherStatus = await localLauncherService.checkOpenClawStatus();
-    const launcherSysInfo = await localLauncherService.getSystemInfo();
+      const launcherAvailable = launcherStatus.available;
+      const openclawInstalled = launcherSysInfo?.openclawInstalled || false;
+      const gatewayRunning = launcherSysInfo?.gatewayRunning || false;
+      const openclawVersion = launcherSysInfo?.openclawVersion || null;
 
-    if (launcherStatus.available) {
+      setStatus({
+        launcherAvailable,
+        openclawInstalled,
+        gatewayRunning,
+        openclawVersion
+      });
+
       setSystemCheck({
-        platform: launcherSysInfo?.platform || launcherStatus.platform,
-        arch: launcherSysInfo?.arch || launcherStatus.arch,
+        platform: launcherSysInfo?.platform || launcherStatus.platform || 'unknown',
+        arch: launcherSysInfo?.arch || launcherStatus.arch || 'unknown',
         nodeVersion: launcherSysInfo?.nodeVersion || null,
         npmVersion: launcherSysInfo?.npmVersion || null,
         diskSpace: launcherSysInfo?.diskSpaceGb || null,
-        openclawInstalled: launcherSysInfo?.openclawInstalled || false,
-        openclawVersion: launcherSysInfo?.openclawVersion || launcherStatus.version,
-        openclawDirectory: launcherSysInfo?.openclawDirectory || launcherStatus.directory,
-        gatewayRunning: launcherSysInfo?.gatewayRunning || false,
-        gatewayPort: launcherSysInfo?.gatewayPort || launcherStatus.gatewayPort
+        openclawVersion: launcherSysInfo?.openclawVersion || launcherStatus.version || null
       });
-    }
-
-    try {
-      await openClawGatewayService.connect();
-      setConnected(true);
-      await checkSystem();
     } catch (err) {
-      setConnected(false);
-      if (launcherStatus.available && (launcherSysInfo?.openclawInstalled || launcherStatus.commandAvailable)) {
-        setError('Gateway未启动。请在OpenClaw Launcher中启动OpenClaw，或手动启动OpenClaw桌面应用。');
-      } else if (launcherStatus.available) {
-        setError('OpenClaw未安装。点击下方"一键安装"按钮安装OpenClaw。');
-      } else {
-        setError('无法连接到OpenClaw。请先运行OpenClaw Launcher。');
-      }
-    } finally {
-      setConnecting(false);
-    }
-  };
-
-  const checkSystem = async () => {
-    if (!connected) return;
-
-    setLoading(true);
-    try {
-      const result = await openClawGatewayService.checkSystem();
-      setSystemCheck(result);
-    } catch (err) {
-      message.error('系统检查失败: ' + err.message);
+      message.error('检查状态失败: ' + err.message);
     } finally {
       setLoading(false);
     }
   };
 
   const handleInstall = async () => {
-    setInstallStatus('installing');
-    setProgress(0);
-    setError(null);
-    setLoading(true);
+    if (!status.launcherAvailable) {
+      message.error('Launcher未运行，请先运行OpenClaw Launcher');
+      return;
+    }
+
+    setActionLoading(true);
+    setActionResult(null);
 
     try {
       const result = await localLauncherService.installOpenClaw();
+      setActionResult(result);
+
       if (result.success) {
-        setInstallResult(result);
-        setInstallStatus('success');
         message.success('安装成功！');
+        await checkStatus();
       } else {
-        setInstallStatus('error');
-        setError(result.error || '安装失败');
         message.error('安装失败: ' + (result.error || '未知错误'));
       }
     } catch (err) {
-      setInstallStatus('error');
-      setError(err.message || '安装失败');
       message.error('安装失败: ' + err.message);
+      setActionResult({ success: false, error: err.message });
     } finally {
-      setLoading(false);
+      setActionLoading(false);
     }
   };
 
   const handleUpgrade = async () => {
-    setInstallStatus('installing');
-    setProgress(0);
-    setError(null);
-    setLoading(true);
-
-    try {
-      const result = await localLauncherService.upgradeOpenClaw();
-      if (result.success) {
-        setInstallResult(result);
-        setInstallStatus('success');
-        message.success('升级成功！');
-      } else {
-        setInstallStatus('error');
-        setError(result.error || '升级失败');
-        message.error('升级失败: ' + (result.error || '未知错误'));
-      }
-    } catch (err) {
-      setInstallStatus('error');
-      setError(err.message || '升级失败');
-      message.error('升级失败: ' + err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleLauncherUpgrade = async () => {
-    setInstallStatus('installing');
-    setProgress(0);
-    setError(null);
-    setLoading(true);
-
-    try {
-      const result = await localLauncherService.autoUpgradeLauncher();
-      if (result.success) {
-        setInstallResult(result);
-        setInstallStatus('success');
-        message.success('Launcher升级成功！请重启Launcher使更新生效。');
-      } else {
-        setInstallStatus('error');
-        setError(result.error || '升级失败');
-        message.error('Launcher升级失败: ' + (result.error || '未知错误'));
-      }
-    } catch (err) {
-      setInstallStatus('error');
-      setError(err.message || '升级失败');
-      message.error('Launcher升级失败: ' + err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleVerify = async () => {
-    if (!connected) {
-      message.error('Gateway未连接');
+    if (!status.launcherAvailable) {
+      message.error('Launcher未运行，请先运行OpenClaw Launcher');
       return;
     }
 
-    setLoading(true);
+    setActionLoading(true);
+    setActionResult(null);
+
     try {
-      const result = await openClawGatewayService.verifyInstallation();
-      setInstallResult(result);
-      if (result.installed) {
-        message.success('OpenClaw已安装，版本: ' + result.version);
+      const result = await localLauncherService.upgradeOpenClaw();
+      setActionResult(result);
+
+      if (result.success) {
+        message.success('升级成功！');
+        await checkStatus();
       } else {
-        message.info('OpenClaw未安装');
+        message.error('升级失败: ' + (result.error || '未知错误'));
       }
     } catch (err) {
-      message.error('验证失败: ' + err.message);
+      message.error('升级失败: ' + err.message);
+      setActionResult({ success: false, error: err.message });
     } finally {
-      setLoading(false);
+      setActionLoading(false);
     }
   };
 
-  const renderConnectionStatus = () => {
-    if (connecting) {
-      return (
-        <Card>
-          <div style={{ textAlign: 'center', padding: 40 }}>
-            <Spin tip="正在连接OpenClaw Gateway..." />
-          </div>
-        </Card>
-      );
+  const handleLaunch = async () => {
+    if (!status.launcherAvailable) {
+      message.error('Launcher未运行');
+      return;
     }
 
-    if (error) {
-      return (
-        <Card>
-          <Alert
-            message="无法连接到OpenClaw"
-            description={
-              <div>
-                <Paragraph>
-                  {error}
-                </Paragraph>
-                <Paragraph type="secondary">
-                  如果未安装Launcher，请先下载并运行OpenClaw Launcher
-                </Paragraph>
-              </div>
-            }
-            type="error"
-            showIcon
-            action={
-              <Button size="small" icon={<ReloadOutlined />} onClick={initGateway}>
-                重试
-              </Button>
-            }
-          />
-        </Card>
-      );
-    }
+    setActionLoading(true);
 
-    return null;
-  };
-
-  const renderSystemCheck = () => {
-    if (!systemCheck) return null;
-
-    const items = [
-      {
-        label: '操作系统',
-        value: `${systemCheck.platform} (${systemCheck.arch})`,
-        status: 'success'
-      },
-      {
-        label: 'Node.js版本',
-        value: systemCheck.nodeVersion || '未检测到',
-        status: systemCheck.nodeVersion ? 'success' : 'error'
-      },
-      {
-        label: 'npm版本',
-        value: systemCheck.npmVersion || '未检测到',
-        status: systemCheck.npmInstalled ? 'success' : 'error'
-      },
-      {
-        label: '磁盘空间',
-        value: systemCheck.diskSpace ? `${systemCheck.diskSpace}GB可用` : '检查失败',
-        status: systemCheck.diskSpace > 5 ? 'success' : 'error'
-      },
-      {
-        label: '网络连接',
-        value: connected ? (systemCheck.networkConnection ? '正常' : '异常') : '需Gateway',
-        status: connected ? (systemCheck.networkConnection ? 'success' : 'error') : 'warning'
-      },
-      {
-        label: 'OpenClaw状态',
-        value: systemCheck.openclawInstalled ? `已安装 (v${systemCheck.openclawVersion})` : '未安装',
-        status: systemCheck.openclawInstalled ? 'success' : 'warning'
+    try {
+      const result = await localLauncherService.launchOpenClaw();
+      if (result.success) {
+        message.success('OpenClaw 启动命令已发送');
+        setTimeout(checkStatus, 2000);
+      } else {
+        message.error('启动失败: ' + (result.error || '未知错误'));
       }
-    ];
-
-    return (
-      <Card title="系统检查" extra={<Button size="small" icon={<ReloadOutlined />} onClick={checkSystem} loading={loading}>重新检查</Button>}>
-        <Descriptions column={2} size="small">
-          {items.map((item, index) => (
-            <Descriptions.Item
-              key={index}
-              label={item.label}
-            >
-              <Space>
-                {item.status === 'success' && <CheckCircleOutlined style={{ color: '#52c41a' }} />}
-                {item.status === 'error' && <ExclamationCircleOutlined style={{ color: '#ff4d4f' }} />}
-                {item.status === 'warning' && <InfoCircleOutlined style={{ color: '#faad14' }} />}
-                <Text>{item.value}</Text>
-              </Space>
-            </Descriptions.Item>
-          ))}
-        </Descriptions>
-      </Card>
-    );
+    } catch (err) {
+      message.error('启动失败: ' + err.message);
+    } finally {
+      setActionLoading(false);
+    }
   };
 
-  const renderInstallAction = () => {
+  const renderStatusTags = () => {
+    const tags = [];
+
+    if (status.launcherAvailable) {
+      tags.push(<Tag key="launcher" color="blue" icon={<CheckCircleOutlined />}>Launcher 运行中</Tag>);
+    } else {
+      tags.push(<Tag key="launcher" color="red" icon={<CloseCircleOutlined />}>Launcher 未运行</Tag>);
+    }
+
+    if (status.openclawInstalled) {
+      tags.push(<Tag key="openclaw" color="green" icon={<CheckCircleOutlined />}>OpenClaw 已安装 (v{status.openclawVersion})</Tag>);
+    } else {
+      tags.push(<Tag key="openclaw" color="orange" icon={<CloseCircleOutlined />}>OpenClaw 未安装</Tag>);
+    }
+
+    if (status.gatewayRunning) {
+      tags.push(<Tag key="gateway" color="green" icon={<CheckCircleOutlined />}>Gateway 运行中</Tag>);
+    } else {
+      tags.push(<Tag key="gateway" color="gray" icon={<CloseCircleOutlined />}>Gateway 未启动</Tag>);
+    }
+
+    return tags;
+  };
+
+  const renderSystemInfo = () => {
     if (!systemCheck) return null;
 
-    const isInstalled = systemCheck.openclawInstalled;
+    const items = [];
+
+    if (systemCheck.nodeVersion) {
+      items.push(<Text key="node">Node.js: <Text code>{systemCheck.nodeVersion}</Text></Text>);
+    }
+
+    if (systemCheck.npmVersion) {
+      items.push(<Text key="npm">npm: <Text code>{systemCheck.npmVersion}</Text></Text>);
+    }
+
+    if (systemCheck.platform) {
+      items.push(<Text key="platform">{systemCheck.platform} ({systemCheck.arch})</Text>);
+    }
+
+    if (systemCheck.diskSpace) {
+      items.push(<Text key="disk">磁盘: {systemCheck.diskSpace.toFixed(1)}GB可用</Text>);
+    }
 
     return (
-      <Card title="安装操作">
-        <Space direction="vertical" style={{ width: '100%' }} size="large">
-          {installStatus === 'installing' && (
-            <div>
-              <Text>正在{isInstalled ? '升级' : '安装'}...</Text>
-              <div style={{ marginTop: 8 }}>
-                <progress value={progress} max="100" style={{ width: '100%' }} />
-                <Text type="secondary">{progress}%</Text>
-              </div>
-            </div>
-          )}
-
-          {installStatus === 'error' && error && (
-            <Alert
-              message="安装失败"
-              description={error}
-              type="error"
-              showIcon
-            />
-          )}
-
-          {installStatus === 'success' && installResult && (
-            <Alert
-              message="安装成功"
-              description={`OpenClaw ${installResult.version} 已成功${isInstalled ? '升级' : '安装'}`}
-              type="success"
-              showIcon
-            />
-          )}
-
-          <Space>
-            {!isInstalled ? (
-              <Button
-                type="primary"
-                icon={<DownloadOutlined />}
-                onClick={handleInstall}
-                loading={installStatus === 'installing'}
-                disabled={!connected || loading}
-                size="large"
-              >
-                一键安装
-              </Button>
-            ) : (
-              <Button
-                type="primary"
-                icon={<DownloadOutlined />}
-                onClick={handleUpgrade}
-                loading={installStatus === 'installing'}
-                disabled={!connected || loading}
-                size="large"
-              >
-                升级OpenClaw
-              </Button>
-            )}
-
-            <Button
-              icon={<CheckCircleOutlined />}
-              onClick={handleVerify}
-              disabled={!connected || loading}
-            >
-              验证安装
-            </Button>
-
-            <Button
-              icon={<ReloadOutlined />}
-              onClick={handleLauncherUpgrade}
-              disabled={loading}
-            >
-              升级Launcher
-            </Button>
-          </Space>
-        </Space>
-      </Card>
+      <Space size="large" wrap>
+        {items}
+      </Space>
     );
   };
 
-  const renderDownloadInfo = () => {
+  const renderActionButtons = () => {
+    if (!status.launcherAvailable) {
+      return (
+        <Alert
+          type="warning"
+          message="Launcher 未运行"
+          description="请先下载并运行 OpenClaw Launcher，然后刷新此页面"
+        />
+      );
+    }
+
+    if (!status.openclawInstalled) {
+      return (
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          <Text>点击下方按钮一键安装 OpenClaw（包含 Node.js 等依赖）</Text>
+          <Button
+            type="primary"
+            icon={<DownloadOutlined />}
+            onClick={handleInstall}
+            loading={actionLoading}
+            size="large"
+          >
+            一键安装 OpenClaw
+          </Button>
+        </Space>
+      );
+    }
+
     return (
-      <Card title="手动下载安装">
-        <Paragraph type="secondary">
-          如果自动安装失败，您可以手动下载并安装OpenClaw：
-        </Paragraph>
-        <List size="small" bordered>
-          <List.Item>
-            <Text>Windows: </Text>
-            <Text type="secondary">从服务器下载 OpenClaw-Setup-Windows.exe</Text>
-          </List.Item>
-          <List.Item>
-            <Text>macOS: </Text>
-            <Text type="secondary">从服务器下载 OpenClaw-Setup-Mac.dmg</Text>
-          </List.Item>
-          <List.Item>
-            <Text>Linux: </Text>
-            <Text type="secondary">从服务器下载 OpenClaw-Setup-Linux.AppImage</Text>
-          </List.Item>
-        </List>
-      </Card>
+      <Space size="middle" wrap>
+        {!status.gatewayRunning && (
+          <Button
+            type="primary"
+            icon={<PlayCircleOutlined />}
+            onClick={handleLaunch}
+            loading={actionLoading}
+            size="large"
+          >
+            启动服务
+          </Button>
+        )}
+
+        <Button
+          icon={<ReloadOutlined />}
+          onClick={handleUpgrade}
+          loading={actionLoading}
+          size="large"
+        >
+          检查更新 / 升级
+        </Button>
+
+        <Button
+          icon={<CloudUploadOutlined />}
+          onClick={async () => {
+            const result = await localLauncherService.autoUpgradeLauncher();
+            if (result.success) {
+              message.success('Launcher 升级成功，请重启应用');
+            } else {
+              message.error('Launcher 升级失败');
+            }
+          }}
+          loading={actionLoading}
+        >
+          升级 Launcher
+        </Button>
+      </Space>
+    );
+  };
+
+  const renderActionResult = () => {
+    if (!actionResult) return null;
+
+    if (actionResult.success) {
+      return (
+        <Alert
+          type="success"
+          message="操作成功"
+          description={actionResult.message || actionResult.error || '操作已完成'}
+          style={{ marginTop: 16 }}
+          showIcon
+        />
+      );
+    }
+
+    return (
+      <Alert
+        type="error"
+        message="操作失败"
+        description={actionResult.error || '请查看错误信息'}
+        style={{ marginTop: 16 }}
+        showIcon
+      />
     );
   };
 
   return (
-    <div style={{ padding: '24px' }}>
-      <Title level={2}>OpenClaw 安装</Title>
-      <Paragraph type="secondary">
-        在您的本地机器上安装或升级OpenClaw
-      </Paragraph>
+    <div style={{ padding: '24px', maxWidth: 800, margin: '0 auto' }}>
+      <Title level={2}>OpenClaw 安装与升级</Title>
 
-      {renderConnectionStatus()}
+      <Card
+        style={{ marginBottom: 16 }}
+        extra={
+          <Button icon={<ReloadOutlined />} onClick={checkStatus} loading={loading}>
+            刷新状态
+          </Button>
+        }
+      >
+        <Space size="middle" wrap style={{ marginBottom: 16 }}>
+          {renderStatusTags()}
+        </Space>
 
-      <div style={{ marginTop: 16 }}>
-        {renderSystemCheck()}
-      </div>
+        <Divider style={{ margin: '12px 0' }} />
 
-      <div style={{ marginTop: 16 }}>
-        {renderInstallAction()}
-      </div>
+        {renderSystemInfo()}
+      </Card>
 
-      <div style={{ marginTop: 16 }}>
-        {renderDownloadInfo()}
-      </div>
+      <Card title="操作">
+        {renderActionButtons()}
+        {renderActionResult()}
+      </Card>
     </div>
   );
 };
