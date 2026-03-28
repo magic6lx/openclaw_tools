@@ -207,8 +207,8 @@ fn install_openclaw() -> InstallResult {
 }
 
 fn upgrade_openclaw() -> InstallResult {
-    let output = Command::new("npm")
-        .args(["install", "-g", "openclaw-cn@latest"])
+    let output = Command::new("cmd")
+        .args(["/C", "npm", "install", "-g", "openclaw-cn@latest"])
         .output();
 
     match output {
@@ -221,10 +221,11 @@ fn upgrade_openclaw() -> InstallResult {
                 }
             } else {
                 let stderr = String::from_utf8_lossy(&out.stderr);
+                let stdout = String::from_utf8_lossy(&out.stdout);
                 InstallResult {
                     success: false,
                     message: "".to_string(),
-                    error: Some(stderr.to_string()),
+                    error: Some(format!("{} {}", stderr, stdout)),
                 }
             }
         }
@@ -272,6 +273,14 @@ fn check_gateway_port() -> Option<u16> {
         }
     }
     None
+}
+
+fn auto_upgrade_launcher() -> InstallResult {
+    InstallResult {
+        success: true,
+        message: "请手动下载新版 Launcher".to_string(),
+        error: Some("Launcher 升级需要手动下载安装".to_string()),
+    }
 }
 
 fn handle_http_request(req: &str) -> Option<String> {
@@ -327,6 +336,14 @@ fn handle_http_request(req: &str) -> Option<String> {
         return Some(format!(
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\n\r\n{}",
             serde_json::to_string(&install_result).unwrap()
+        ));
+    }
+
+    if req.starts_with("POST /api/auto-upgrade") {
+        let upgrade_result = auto_upgrade_launcher();
+        return Some(format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\n\r\n{}",
+            serde_json::to_string(&upgrade_result).unwrap()
         ));
     }
 
