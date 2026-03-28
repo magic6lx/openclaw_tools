@@ -229,7 +229,15 @@ const OpenClawInstall = () => {
 
         <Button
           icon={<ReloadOutlined />}
-          onClick={handleUpgrade}
+          onClick={() => {
+            Modal.confirm({
+              title: '升级 OpenClaw CLI',
+              content: '确定要升级 OpenClaw CLI 吗？升级可能需要管理员权限。',
+              okText: '确定升级',
+              cancelText: '取消',
+              onOk: () => handleUpgrade()
+            });
+          }}
           loading={actionLoading}
           size="large"
         >
