@@ -249,8 +249,8 @@ const OpenClawInstall = () => {
           onClick={() => {
             Modal.confirm({
               title: '升级 Launcher',
-              content: 'Launcher 升级需要手动下载安装包。是否前往下载？',
-              okText: '前往下载',
+              content: '升级前请先关闭当前运行的 Launcher 程序（右键点击托盘图标，选择"退出"），然后再点击确定下载新版本。',
+              okText: '我已关闭，继续下载',
               cancelText: '取消',
               onOk: () => {
                 window.open('http://134.175.18.139:3001/OpenClaw-Launcher-v1.0.2.exe', '_blank');

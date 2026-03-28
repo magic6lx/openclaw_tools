@@ -62,6 +62,17 @@ fn get_npm_version() -> Option<String> {
     String::from_utf8(output.stdout).ok()?.trim().to_string().into()
 }
 
+fn get_openclaw_npm_version() -> Option<String> {
+    let output = Command::new("cmd")
+        .args(["/C", "npm", "show", "openclaw-cn", "version"])
+        .output()
+        .ok()?;
+    if output.status.success() {
+        return String::from_utf8(output.stdout).ok()?.trim().to_string().into();
+    }
+    None
+}
+
 fn get_disk_space() -> Option<f64> {
     #[cfg(target_os = "windows")]
     {
@@ -98,7 +109,8 @@ fn get_disk_space() -> Option<f64> {
 }
 
 fn get_system_info() -> SystemInfo {
-    let (installed, directory, version) = check_openclaw_installed();
+    let (_, _, _) = check_openclaw_installed();
+    let (npm_installed, npm_version) = check_openclaw_npm_installed();
     let gateway_port = check_gateway_port();
 
     SystemInfo {
@@ -108,9 +120,9 @@ fn get_system_info() -> SystemInfo {
         node_version: get_node_version(),
         npm_version: get_npm_version(),
         disk_space_gb: get_disk_space(),
-        openclaw_installed: installed,
-        openclaw_version: version,
-        openclaw_directory: directory,
+        openclaw_installed: npm_installed,
+        openclaw_version: npm_version,
+        openclaw_directory: None,
         gateway_running: gateway_port.is_some(),
         gateway_port,
     }
@@ -259,6 +271,25 @@ fn check_openclaw_installed() -> (bool, Option<String>, Option<String>) {
     (false, None, None)
 }
 
+fn check_openclaw_npm_installed() -> (bool, Option<String>) {
+    let output = match Command::new("cmd")
+        .args(["/C", "npm", "list", "-g", "openclaw-cn", "--depth=0"])
+        .output()
+    {
+        Ok(out) => out,
+        Err(_) => return (false, None),
+    };
+
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if stdout.contains("openclaw-cn") {
+            let version = get_openclaw_npm_version();
+            return (true, version);
+        }
+    }
+    (false, None)
+}
+
 fn is_port_open(port: u16) -> bool {
     if port == LAUNCHER_HTTP_PORT {
         return false;
@@ -315,7 +346,9 @@ fn handle_http_request(req: &str) -> Option<String> {
 
     if req.starts_with("POST /api/launch") {
         #[cfg(target_os = "windows")]
-        let result = Command::new("cmd").args(["/C", "start", "openclaw"]).spawn();
+        let result = Command::new("cmd")
+            .args(["/C", "openclaw"])
+            .spawn();
 
         #[cfg(not(target_os = "windows"))]
         let result = Command::new("openclaw").spawn();
@@ -400,7 +433,9 @@ fn check_openclaw_status() -> OpenClawStatus {
 #[tauri::command]
 fn launch_openclaw() -> LaunchResult {
     #[cfg(target_os = "windows")]
-    let result = Command::new("cmd").args(["/C", "start", "openclaw"]).spawn();
+    let result = Command::new("cmd")
+        .args(["/C", "openclaw"])
+        .spawn();
 
     #[cfg(not(target_os = "windows"))]
     let result = Command::new("openclaw").spawn();
