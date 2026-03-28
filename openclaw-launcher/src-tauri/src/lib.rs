@@ -55,7 +55,10 @@ fn get_node_version() -> Option<String> {
 }
 
 fn get_npm_version() -> Option<String> {
-    let output = Command::new("npm").args(["--version"]).output().ok()?;
+    let output = Command::new("cmd")
+        .args(["/C", "npm", "--version"])
+        .output()
+        .ok()?;
     String::from_utf8(output.stdout).ok()?.trim().to_string().into()
 }
 
@@ -63,15 +66,19 @@ fn get_disk_space() -> Option<f64> {
     #[cfg(target_os = "windows")]
     {
         let output = Command::new("cmd")
-            .args(["/C", "wmic logicaldisk where \"DeviceID='C:'\" get FreeSpace /value"])
+            .args(["/C", "for /f \"tokens=3\" %a in ('wmic logicaldisk where \"DeviceID='C:'\" get FreeSpace /value ^| find \"FreeSpace\"') do @echo %a"])
             .output()
             .ok()?;
-        let text = String::from_utf8_lossy(&output.stdout);
-        if let Some(line) = text.lines().find(|l| l.starts_with("FreeSpace=")) {
-            let bytes: u64 = line.split('=').nth(1)?.parse().ok()?;
+        let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if let Ok(bytes) = text.parse::<u64>() {
             return Some(bytes as f64 / 1024.0 / 1024.0 / 1024.0);
         }
-        None
+        let output2 = Command::new("powershell")
+            .args(["-Command", "(Get-PSDrive C).Free / 1GB"])
+            .output()
+            .ok()?;
+        let text2 = String::from_utf8_lossy(&output2.stdout).trim().to_string();
+        text2.parse::<f64>().ok()
     }
     #[cfg(not(target_os = "windows"))]
     {
