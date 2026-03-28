@@ -28,6 +28,13 @@ struct LaunchResult {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+struct InstallResult {
+    success: bool,
+    message: String,
+    error: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct SystemInfo {
     success: bool,
     platform: String,
@@ -128,6 +135,100 @@ fn get_openclaw_directories() -> Vec<PathBuf> {
     dirs
 }
 
+fn install_openclaw() -> InstallResult {
+    #[cfg(target_os = "windows")]
+    {
+        let output = Command::new("powershell")
+            .args(["-Command", "iwr -useb https://clawd.org.cn/install.ps1 | iex"])
+            .output();
+
+        match output {
+            Ok(out) => {
+                if out.status.success() {
+                    InstallResult {
+                        success: true,
+                        message: "OpenClaw 安装成功".to_string(),
+                        error: None,
+                    }
+                } else {
+                    let stderr = String::from_utf8_lossy(&out.stderr);
+                    InstallResult {
+                        success: false,
+                        message: "".to_string(),
+                        error: Some(stderr.to_string()),
+                    }
+                }
+            }
+            Err(e) => InstallResult {
+                success: false,
+                message: "".to_string(),
+                error: Some(e.to_string()),
+            },
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let output = Command::new("bash")
+            .args(["-c", "curl -fsSL https://clawd.org.cn/install.sh | bash"])
+            .output();
+
+        match output {
+            Ok(out) => {
+                if out.status.success() {
+                    InstallResult {
+                        success: true,
+                        message: "OpenClaw 安装成功".to_string(),
+                        error: None,
+                    }
+                } else {
+                    let stderr = String::from_utf8_lossy(&out.stderr);
+                    InstallResult {
+                        success: false,
+                        message: "".to_string(),
+                        error: Some(stderr.to_string()),
+                    }
+                }
+            }
+            Err(e) => InstallResult {
+                success: false,
+                message: "".to_string(),
+                error: Some(e.to_string()),
+            },
+        }
+    }
+}
+
+fn upgrade_openclaw() -> InstallResult {
+    let output = Command::new("npm")
+        .args(["install", "-g", "openclaw-cn@latest"])
+        .output();
+
+    match output {
+        Ok(out) => {
+            if out.status.success() {
+                InstallResult {
+                    success: true,
+                    message: "OpenClaw 升级成功".to_string(),
+                    error: None,
+                }
+            } else {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                InstallResult {
+                    success: false,
+                    message: "".to_string(),
+                    error: Some(stderr.to_string()),
+                }
+            }
+        }
+        Err(e) => InstallResult {
+            success: false,
+            message: "".to_string(),
+            error: Some(e.to_string()),
+        },
+    }
+}
+
 fn check_openclaw_installed() -> (bool, Option<String>, Option<String>) {
     for dir in get_openclaw_directories() {
         let config_file = dir.join("openclaw.json");
@@ -214,6 +315,22 @@ fn handle_http_request(req: &str) -> Option<String> {
         ));
     }
 
+    if req.starts_with("POST /api/install") {
+        let install_result = install_openclaw();
+        return Some(format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\n\r\n{}",
+            serde_json::to_string(&install_result).unwrap()
+        ));
+    }
+
+    if req.starts_with("POST /api/upgrade") {
+        let upgrade_result = upgrade_openclaw();
+        return Some(format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\n\r\n{}",
+            serde_json::to_string(&upgrade_result).unwrap()
+        ));
+    }
+
     Some("HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n{\"error\":\"Not Found\"}".to_string())
 }
 
@@ -237,14 +354,6 @@ fn start_http_server() {
             }
         }
     });
-}
-
-#[tauri::command]
-fn get_system_info() -> serde_json::Value {
-    serde_json::json!({
-        "platform": std::env::consts::OS,
-        "arch": std::env::consts::ARCH,
-    })
 }
 
 #[tauri::command]
@@ -371,7 +480,6 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            get_system_info,
             check_openclaw_status,
             launch_openclaw,
             check_port,
