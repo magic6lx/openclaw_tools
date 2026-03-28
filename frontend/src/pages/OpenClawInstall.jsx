@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Alert, Space, message, Typography, Divider, Tag, Progress } from 'antd';
+import { Card, Button, Alert, Space, message, Typography, Divider, Tag, Modal } from 'antd';
 import { CheckCircleOutlined, CloseCircleOutlined, DownloadOutlined, ReloadOutlined, PlayCircleOutlined, CloudUploadOutlined } from '@ant-design/icons';
 import localLauncherService from '../services/localLauncherService';
 
@@ -238,10 +238,17 @@ const OpenClawInstall = () => {
 
         <Button
           icon={<CloudUploadOutlined />}
-          onClick={async () => {
-            message.info('请手动下载新版 Launcher 安装包来升级');
+          onClick={() => {
+            Modal.confirm({
+              title: '升级 Launcher',
+              content: 'Launcher 升级需要手动下载安装包。是否前往下载？',
+              okText: '前往下载',
+              cancelText: '取消',
+              onOk: () => {
+                window.open('http://134.175.18.139:3001/OpenClaw-Launcher-v1.0.2.exe', '_blank');
+              }
+            });
           }}
-          loading={actionLoading}
         >
           升级 Launcher（本程序）
         </Button>
