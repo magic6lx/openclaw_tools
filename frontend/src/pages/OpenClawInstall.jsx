@@ -233,22 +233,17 @@ const OpenClawInstall = () => {
           loading={actionLoading}
           size="large"
         >
-          检查更新 / 升级
+          升级 OpenClaw CLI
         </Button>
 
         <Button
           icon={<CloudUploadOutlined />}
           onClick={async () => {
-            const result = await localLauncherService.autoUpgradeLauncher();
-            if (result.success) {
-              message.success('Launcher 升级成功，请重启应用');
-            } else {
-              message.error('Launcher 升级失败');
-            }
+            message.info('请手动下载新版 Launcher 安装包来升级');
           }}
           loading={actionLoading}
         >
-          升级 Launcher
+          升级 Launcher（本程序）
         </Button>
       </Space>
     );
