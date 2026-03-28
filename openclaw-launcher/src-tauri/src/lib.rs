@@ -208,7 +208,7 @@ fn install_openclaw() -> InstallResult {
 
 fn upgrade_openclaw() -> InstallResult {
     let output = Command::new("cmd")
-        .args(["/C", "npm", "install", "-g", "openclaw-cn@latest"])
+        .args(["/C", "npm", "install", "-g", "openclaw-cn@latest", "--force"])
         .output();
 
     match output {
