@@ -330,6 +330,24 @@ fn check_openclaw_npm_installed() -> (bool, Option<String>) {
     (false, None)
 }
 
+fn fix_openclaw_config() -> bool {
+    #[cfg(target_os = "windows")]
+    let output = Command::new("cmd")
+        .args(["/C", "openclaw", "doctor", "--fix"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+
+    #[cfg(not(target_os = "windows"))]
+    let output = Command::new("openclaw")
+        .args(["doctor", "--fix"])
+        .output();
+
+    match output {
+        Ok(out) => out.status.success(),
+        Err(_) => false,
+    }
+}
+
 fn is_port_open(port: u16) -> bool {
     if port == LAUNCHER_HTTP_PORT {
         return false;
@@ -385,6 +403,8 @@ fn handle_http_request(req: &str) -> Option<String> {
     }
 
     if req.starts_with("POST /api/launch") {
+        fix_openclaw_config();
+
         #[cfg(target_os = "windows")]
         let result = Command::new("cmd")
             .args(["/C", "openclaw", "gateway", "--port", "18789"])
@@ -475,6 +495,8 @@ fn check_openclaw_status() -> OpenClawStatus {
 
 #[tauri::command]
 fn launch_openclaw() -> LaunchResult {
+    fix_openclaw_config();
+
     #[cfg(target_os = "windows")]
     let result = Command::new("cmd")
         .args(["/C", "openclaw", "gateway", "--port", "18789"])
