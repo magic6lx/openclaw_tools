@@ -13,6 +13,7 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 const LAUNCHER_HTTP_PORT: u16 = 18790;
 const GATEWAY_PORTS: &[u16] = &[18789, 18790, 18791, 18792, 18793, 18794, 18795];
+const SERVER_API_BASE: &str = "http://134.175.18.139:3001";
 
 #[derive(Debug, Serialize, Deserialize)]
 struct OpenClawStatus {
@@ -348,6 +349,76 @@ fn fix_openclaw_config() -> bool {
     }
 }
 
+fn fix_openclaw_config_with_output() -> String {
+    #[cfg(target_os = "windows")]
+    let output = Command::new("cmd")
+        .args(["/C", "openclaw", "doctor", "--fix"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+
+    #[cfg(not(target_os = "windows"))]
+    let output = Command::new("openclaw")
+        .args(["doctor", "--fix"])
+        .output();
+
+    match output {
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+            let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+            format!("stdout: {}\nstderr: {}\nsuccess: {}", stdout, stderr, out.status.success())
+        }
+        Err(e) => format!("error: {}", e),
+    }
+}
+
+fn upload_launcher_logs(logs: &str) {
+    let device_id = get_device_id();
+    let timestamp = chrono_linux_timestamp();
+    let log_data = serde_json::json!({
+        "deviceId": device_id,
+        "logs": logs,
+        "timestamp": timestamp
+    });
+
+    let json_str = serde_json::to_string(&log_data).unwrap_or_default();
+    let len = json_str.len();
+
+    let request = format!(
+        "POST /api/launcher-logs/upload HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+        SERVER_API_BASE.trim_start_matches("http://"),
+        len,
+        json_str
+    );
+
+    if let Ok(mut stream) = TcpStream::connect("134.175.18.139:3001") {
+        let _ = stream.write_all(request.as_bytes());
+    }
+}
+
+fn get_device_id() -> String {
+    if let Ok(user_profile) = std::env::var("USERPROFILE") {
+        let key = format!("{}\\OPENCLAW_LAUNCHER", user_profile);
+        if let Ok(id) = std::fs::read_to_string(&key) {
+            return id;
+        }
+        let id = format!("device_{}", uuid_simple());
+        let _ = std::fs::write(&key, &id);
+        return id;
+    }
+    format!("device_{}", uuid_simple())
+}
+
+fn uuid_simple() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+    format!("{:x}{:x}", now.as_secs(), now.subsec_nanos())
+}
+
+fn chrono_linux_timestamp() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64
+}
+
 fn is_port_open(port: u16) -> bool {
     if port == LAUNCHER_HTTP_PORT {
         return false;
@@ -403,23 +474,49 @@ fn handle_http_request(req: &str) -> Option<String> {
     }
 
     if req.starts_with("POST /api/launch") {
-        fix_openclaw_config();
+        let fix_output = fix_openclaw_config_with_output();
 
         #[cfg(target_os = "windows")]
-        let result = Command::new("cmd")
+        let output = Command::new("cmd")
             .args(["/C", "openclaw", "gateway", "--port", "18789"])
             .creation_flags(CREATE_NO_WINDOW)
-            .spawn();
+            .output();
 
         #[cfg(not(target_os = "windows"))]
-        let result = Command::new("openclaw")
+        let output = Command::new("openclaw")
             .args(["gateway", "--port", "18789"])
-            .spawn();
+            .output();
 
-        let launch_result = match result {
-            Ok(_) => LaunchResult { success: true, error: None },
-            Err(e) => LaunchResult { success: false, error: Some(e.to_string()) },
+        let mut logs = String::new();
+        logs.push_str("=== fix_openclaw_config output ===\n");
+        logs.push_str(&fix_output);
+        logs.push_str("\n=== launch output ===\n");
+
+        let launch_result = match output {
+            Ok(out) => {
+                if !out.stdout.is_empty() {
+                    logs.push_str("STDOUT:\n");
+                    logs.push_str(&String::from_utf8_lossy(&out.stdout));
+                }
+                if !out.stderr.is_empty() {
+                    logs.push_str("STDERR:\n");
+                    logs.push_str(&String::from_utf8_lossy(&out.stderr));
+                }
+                if out.status.success() {
+                    logs.push_str("\n[SUCCESS] Gateway started");
+                    LaunchResult { success: true, error: None }
+                } else {
+                    logs.push_str(&format!("\n[FAILED] Exit code: {:?}", out.status.code()));
+                    LaunchResult { success: false, error: Some(format!("Exit code: {:?}", out.status.code())) }
+                }
+            }
+            Err(e) => {
+                logs.push_str(&format!("\n[ERROR] {}\n", e));
+                LaunchResult { success: false, error: Some(e.to_string()) }
+            }
         };
+
+        upload_launcher_logs(&logs);
 
         return Some(format!(
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n{}",
@@ -495,23 +592,51 @@ fn check_openclaw_status() -> OpenClawStatus {
 
 #[tauri::command]
 fn launch_openclaw() -> LaunchResult {
-    fix_openclaw_config();
+    let fix_output = fix_openclaw_config_with_output();
 
     #[cfg(target_os = "windows")]
-    let result = Command::new("cmd")
+    let output = Command::new("cmd")
         .args(["/C", "openclaw", "gateway", "--port", "18789"])
         .creation_flags(CREATE_NO_WINDOW)
-        .spawn();
+        .output();
 
     #[cfg(not(target_os = "windows"))]
-    let result = Command::new("openclaw")
+    let output = Command::new("openclaw")
         .args(["gateway", "--port", "18789"])
-        .spawn();
+        .output();
 
-    match result {
-        Ok(_) => LaunchResult { success: true, error: None },
-        Err(e) => LaunchResult { success: false, error: Some(e.to_string()) },
-    }
+    let mut logs = String::new();
+    logs.push_str("=== fix_openclaw_config output ===\n");
+    logs.push_str(&fix_output);
+    logs.push_str("\n=== launch output ===\n");
+
+    let launch_result = match output {
+        Ok(out) => {
+            if !out.stdout.is_empty() {
+                logs.push_str("STDOUT:\n");
+                logs.push_str(&String::from_utf8_lossy(&out.stdout));
+            }
+            if !out.stderr.is_empty() {
+                logs.push_str("STDERR:\n");
+                logs.push_str(&String::from_utf8_lossy(&out.stderr));
+            }
+            if out.status.success() {
+                logs.push_str("\n[SUCCESS] Gateway started");
+                LaunchResult { success: true, error: None }
+            } else {
+                logs.push_str(&format!("\n[FAILED] Exit code: {:?}", out.status.code()));
+                LaunchResult { success: false, error: Some(format!("Exit code: {:?}", out.status.code())) }
+            }
+        }
+        Err(e) => {
+            logs.push_str(&format!("\n[ERROR] {}\n", e));
+            LaunchResult { success: false, error: Some(e.to_string()) }
+        }
+    };
+
+    upload_launcher_logs(&logs);
+
+    launch_result
 }
 
 #[tauri::command]
