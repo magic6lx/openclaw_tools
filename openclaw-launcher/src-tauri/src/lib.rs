@@ -38,8 +38,6 @@ fn get_server_api_base() -> String {
     "http://134.175.18.139:3001".to_string()
 }
 
-const SERVER_API_BASE: &str = "";
-
 #[derive(Debug, Serialize, Deserialize)]
 struct OpenClawStatus {
     success: bool,
