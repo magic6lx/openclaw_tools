@@ -78,6 +78,32 @@ fn get_openclaw_npm_version() -> Option<String> {
     None
 }
 
+fn get_openclaw_version() -> Option<String> {
+    #[cfg(target_os = "windows")]
+    let output = Command::new("cmd")
+        .args(["/C", "openclaw-cn", "--version"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+
+    #[cfg(not(target_os = "windows"))]
+    let output = Command::new("openclaw-cn")
+        .args(["--version"])
+        .output();
+
+    match output {
+        Ok(out) => {
+            if out.status.success() {
+                let version = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if !version.is_empty() {
+                    return Some(version);
+                }
+            }
+            None
+        }
+        Err(_) => None,
+    }
+}
+
 fn get_disk_space() -> Option<f64> {
     #[cfg(target_os = "windows")]
     {
@@ -297,7 +323,7 @@ fn check_openclaw_npm_installed() -> (bool, Option<String>) {
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         if stdout.contains("openclaw-cn") {
-            let version = get_openclaw_npm_version();
+            let version = get_openclaw_version();
             return (true, version);
         }
     }
@@ -361,12 +387,14 @@ fn handle_http_request(req: &str) -> Option<String> {
     if req.starts_with("POST /api/launch") {
         #[cfg(target_os = "windows")]
         let result = Command::new("cmd")
-            .args(["/C", "openclaw"])
+            .args(["/C", "openclaw-cn", "gateway", "--port", "18789"])
             .creation_flags(CREATE_NO_WINDOW)
             .spawn();
 
         #[cfg(not(target_os = "windows"))]
-        let result = Command::new("openclaw").spawn();
+        let result = Command::new("openclaw-cn")
+            .args(["gateway", "--port", "18789"])
+            .spawn();
 
         let launch_result = match result {
             Ok(_) => LaunchResult { success: true, error: None },
@@ -449,12 +477,14 @@ fn check_openclaw_status() -> OpenClawStatus {
 fn launch_openclaw() -> LaunchResult {
     #[cfg(target_os = "windows")]
     let result = Command::new("cmd")
-        .args(["/C", "openclaw"])
+        .args(["/C", "openclaw-cn", "gateway", "--port", "18789"])
         .creation_flags(CREATE_NO_WINDOW)
         .spawn();
 
     #[cfg(not(target_os = "windows"))]
-    let result = Command::new("openclaw").spawn();
+    let result = Command::new("openclaw-cn")
+        .args(["gateway", "--port", "18789"])
+        .spawn();
 
     match result {
         Ok(_) => LaunchResult { success: true, error: None },
