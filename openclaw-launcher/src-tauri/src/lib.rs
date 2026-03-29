@@ -13,7 +13,32 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 const LAUNCHER_HTTP_PORT: u16 = 18790;
 const GATEWAY_PORTS: &[u16] = &[18789, 18790, 18791, 18792, 18793, 18794, 18795];
-const SERVER_API_BASE: &str = "http://134.175.18.139:3001";
+
+fn get_server_api_base() -> String {
+    let config_paths = if cfg!(target_os = "windows") {
+        vec![
+            std::env::current_exe().unwrap_or_default().parent().unwrap_or(&std::path::Path::new(".")).join("launcher.conf"),
+            std::path::PathBuf::from(&std::env::var("USERPROFILE").unwrap_or_default()).join("launcher.conf"),
+        ]
+    } else {
+        vec![
+            std::env::current_exe().unwrap_or_default().parent().unwrap_or(&std::path::Path::new(".")).join("launcher.conf"),
+            std::path::PathBuf::from(&std::env::var("HOME").unwrap_or_default()).join("launcher.conf"),
+        ]
+    };
+
+    for config_path in config_paths {
+        if let Ok(content) = std::fs::read_to_string(&config_path) {
+            if let Some(line) = content.lines().find(|l| l.starts_with("SERVER_API_BASE=")) {
+                return line.trim_start_matches("SERVER_API_BASE=").trim().to_string();
+            }
+        }
+    }
+
+    "http://134.175.18.139:3001".to_string()
+}
+
+const SERVER_API_BASE: &str = "";
 
 #[derive(Debug, Serialize, Deserialize)]
 struct OpenClawStatus {
@@ -382,15 +407,17 @@ fn upload_launcher_logs(logs: &str) {
 
     let json_str = serde_json::to_string(&log_data).unwrap_or_default();
     let len = json_str.len();
+    let server_base = get_server_api_base();
+    let host = server_base.trim_start_matches("http://");
 
     let request = format!(
         "POST /api/launcher-logs/upload HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
-        SERVER_API_BASE.trim_start_matches("http://"),
+        host,
         len,
         json_str
     );
 
-    if let Ok(mut stream) = TcpStream::connect("134.175.18.139:3001") {
+    if let Ok(mut stream) = TcpStream::connect(host) {
         let _ = stream.write_all(request.as_bytes());
     }
 }
