@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Alert, Space, message, Typography, Divider, Tag, Modal } from 'antd';
+import { Card, Button, Alert, Space, message, Typography, Divider, Tag, Modal, Timeline } from 'antd';
 import { CheckCircleOutlined, CloseCircleOutlined, DownloadOutlined, ReloadOutlined, PlayCircleOutlined, CloudUploadOutlined } from '@ant-design/icons';
 import localLauncherService from '../services/localLauncherService';
 
@@ -16,6 +16,11 @@ const OpenClawInstall = () => {
     openclawVersion: null
   });
   const [actionResult, setActionResult] = useState(null);
+  const [operationLogs, setOperationLogs] = useState([]);
+
+  const addLog = (type, text) => {
+    setOperationLogs(prev => [...prev, { type, text, time: new Date().toLocaleTimeString() }]);
+  };
 
   useEffect(() => {
     checkStatus();
@@ -64,18 +69,23 @@ const OpenClawInstall = () => {
 
     setActionLoading(true);
     setActionResult(null);
+    setOperationLogs([]);
+    addLog('info', '开始安装 OpenClaw...');
 
     try {
       const result = await localLauncherService.installOpenClaw();
       setActionResult(result);
 
       if (result.success) {
+        addLog('success', '安装成功！');
         message.success('安装成功！');
         await checkStatus();
       } else {
+        addLog('error', '安装失败: ' + (result.error || '未知错误'));
         message.error('安装失败: ' + (result.error || '未知错误'));
       }
     } catch (err) {
+      addLog('error', '安装失败: ' + err.message);
       message.error('安装失败: ' + err.message);
       setActionResult({ success: false, error: err.message });
     } finally {
@@ -91,18 +101,23 @@ const OpenClawInstall = () => {
 
     setActionLoading(true);
     setActionResult(null);
+    setOperationLogs([]);
+    addLog('info', '开始升级 OpenClaw...');
 
     try {
       const result = await localLauncherService.upgradeOpenClaw();
       setActionResult(result);
 
       if (result.success) {
+        addLog('success', '升级成功！');
         message.success('升级成功！');
         await checkStatus();
       } else {
+        addLog('error', '升级失败: ' + (result.error || '未知错误'));
         message.error('升级失败: ' + (result.error || '未知错误'));
       }
     } catch (err) {
+      addLog('error', '升级失败: ' + err.message);
       message.error('升级失败: ' + err.message);
       setActionResult({ success: false, error: err.message });
     } finally {
@@ -117,16 +132,21 @@ const OpenClawInstall = () => {
     }
 
     setActionLoading(true);
+    setOperationLogs([]);
+    addLog('info', '正在发送启动命令...');
 
     try {
       const result = await localLauncherService.launchOpenClaw();
       if (result.success) {
+        addLog('success', '启动命令已发送');
         message.success('OpenClaw 启动命令已发送');
         setTimeout(checkStatus, 2000);
       } else {
+        addLog('error', '启动失败: ' + (result.error || '未知错误'));
         message.error('启动失败: ' + (result.error || '未知错误'));
       }
     } catch (err) {
+      addLog('error', '启动失败: ' + err.message);
       message.error('启动失败: ' + err.message);
     } finally {
       setActionLoading(false);
@@ -264,6 +284,23 @@ const OpenClawInstall = () => {
     );
   };
 
+  const renderOperationLogs = () => {
+    if (operationLogs.length === 0) return null;
+
+    return (
+      <div style={{ marginTop: 16, background: '#1e1e1e', padding: 16, borderRadius: 8, maxHeight: 200, overflow: 'auto' }}>
+        <Text style={{ color: '#fff', fontSize: 12 }}>操作日志：</Text>
+        <div style={{ marginTop: 8 }}>
+          {operationLogs.map((log, index) => (
+            <div key={index} style={{ color: log.type === 'error' ? '#ff6b6b' : log.type === 'success' ? '#51cf66' : '#fff', fontSize: 12, marginBottom: 4 }}>
+              <span style={{ color: '#888' }}>[{log.time}]</span> {log.text}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   const renderActionResult = () => {
     if (!actionResult) return null;
 
@@ -313,6 +350,7 @@ const OpenClawInstall = () => {
 
       <Card title="操作">
         {renderActionButtons()}
+        {renderOperationLogs()}
         {renderActionResult()}
       </Card>
     </div>

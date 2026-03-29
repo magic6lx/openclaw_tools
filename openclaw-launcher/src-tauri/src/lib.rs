@@ -4,7 +4,12 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::process::Command;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 use tauri::{Manager, Emitter, AppHandle, tray::{TrayIconBuilder, MouseButton, MouseButtonState, TrayIconEvent}, menu::{Menu, MenuItem}};
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 const LAUNCHER_HTTP_PORT: u16 = 18790;
 const GATEWAY_PORTS: &[u16] = &[18789, 18790, 18791, 18792, 18793, 18794, 18795];
@@ -159,6 +164,7 @@ fn install_openclaw() -> InstallResult {
     {
         let output = Command::new("powershell")
             .args(["-Command", "iwr -useb https://clawd.org.cn/install.ps1 | iex"])
+            .creation_flags(CREATE_NO_WINDOW)
             .output();
 
         match output {
@@ -171,10 +177,11 @@ fn install_openclaw() -> InstallResult {
                     }
                 } else {
                     let stderr = String::from_utf8_lossy(&out.stderr);
+                    let stdout = String::from_utf8_lossy(&out.stdout);
                     InstallResult {
                         success: false,
                         message: "".to_string(),
-                        error: Some(stderr.to_string()),
+                        error: Some(format!("{} {}", stderr, stdout)),
                     }
                 }
             }
@@ -219,8 +226,15 @@ fn install_openclaw() -> InstallResult {
 }
 
 fn upgrade_openclaw() -> InstallResult {
+    #[cfg(target_os = "windows")]
     let output = Command::new("cmd")
         .args(["/C", "npm", "install", "-g", "openclaw-cn@latest", "--force"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+
+    #[cfg(not(target_os = "windows"))]
+    let output = Command::new("bash")
+        .args(["-c", "npm install -g openclaw-cn@latest --force"])
         .output();
 
     match output {
@@ -348,6 +362,7 @@ fn handle_http_request(req: &str) -> Option<String> {
         #[cfg(target_os = "windows")]
         let result = Command::new("cmd")
             .args(["/C", "openclaw"])
+            .creation_flags(CREATE_NO_WINDOW)
             .spawn();
 
         #[cfg(not(target_os = "windows"))]
@@ -435,6 +450,7 @@ fn launch_openclaw() -> LaunchResult {
     #[cfg(target_os = "windows")]
     let result = Command::new("cmd")
         .args(["/C", "openclaw"])
+        .creation_flags(CREATE_NO_WINDOW)
         .spawn();
 
     #[cfg(not(target_os = "windows"))]
