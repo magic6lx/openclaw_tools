@@ -1722,61 +1722,49 @@ fn handle_http_request(req: &str) -> Option<String> {
     }
 
     if req.starts_with("POST /api/gateway/restart") {
-        add_console_log("=== Restarting Gateway ===");
-        
-        // 第一步：停止计划任务服务
-        add_console_log("Step 1: Stopping gateway scheduled task...");
-        let stop_result = run_openclaw_command(&["gateway", "stop"]);
-        add_console_log(&stop_result);
-        
-        // 等待计划任务完全停止
-        std::thread::sleep(std::time::Duration::from_millis(2000));
-        
-        // 第二步：强制杀掉所有残留的 gateway 进程
-        add_console_log("Step 2: Killing all gateway processes...");
-        let _ = Command::new("wmic")
-            .args(["process", "where", "name='node.exe' and commandline like '%openclaw%gateway%'", "call", "terminate"])
-            .creation_flags(CREATE_NO_WINDOW)
-            .output();
+        std::thread::spawn(|| {
+            add_console_log("=== Restarting Gateway ===");
 
-        // 等待进程完全退出
-        std::thread::sleep(std::time::Duration::from_millis(2000));
+            add_console_log("Step 1: Stopping gateway scheduled task...");
+            let stop_result = run_openclaw_command(&["gateway", "stop"]);
+            add_console_log(&stop_result);
 
-        // 第三步：重置 devices 目录，解决权限问题
-        add_console_log("Step 3: Resetting devices directory...");
-        if let Ok(user_profile) = std::env::var("USERPROFILE") {
-            let devices_dir = std::path::PathBuf::from(user_profile).join(".openclaw").join("devices");
+            std::thread::sleep(std::time::Duration::from_millis(2000));
 
-            // 先尝试删除整个目录
-            if devices_dir.exists() {
-                let _ = std::fs::remove_dir_all(&devices_dir);
+            add_console_log("Step 2: Killing all gateway processes...");
+            let _ = Command::new("wmic")
+                .args(["process", "where", "name='node.exe' and commandline like '%openclaw%gateway%'", "call", "terminate"])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output();
+
+            std::thread::sleep(std::time::Duration::from_millis(2000));
+
+            add_console_log("Step 3: Resetting devices directory...");
+            if let Ok(user_profile) = std::env::var("USERPROFILE") {
+                let devices_dir = std::path::PathBuf::from(user_profile).join(".openclaw").join("devices");
+                if devices_dir.exists() {
+                    let _ = std::fs::remove_dir_all(&devices_dir);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                let _ = std::fs::create_dir_all(&devices_dir);
+                let pending_path = devices_dir.join("pending.json");
+                let paired_path = devices_dir.join("paired.json");
+                let _ = std::fs::write(&pending_path, "[]");
+                let _ = std::fs::write(&paired_path, "[]");
+                add_console_log("Devices directory reset complete");
             }
-            
-            // 等待文件系统释放
-            std::thread::sleep(std::time::Duration::from_millis(500));
-            
-            // 重新创建目录
-            let _ = std::fs::create_dir_all(&devices_dir);
-            
-            // 创建空的 JSON 文件
-            let pending_path = devices_dir.join("pending.json");
-            let paired_path = devices_dir.join("paired.json");
-            let _ = std::fs::write(&pending_path, "[]");
-            let _ = std::fs::write(&paired_path, "[]");
-            add_console_log("Devices directory reset complete");
-        }
 
-        // 第四步：启动计划任务服务
-        add_console_log("Step 4: Starting gateway service...");
-        let start_result = run_openclaw_command(&["gateway", "start", "--auth", "none"]);
-        add_console_log(&start_result);
-        
-        // 等待 gateway 启动
-        std::thread::sleep(std::time::Duration::from_millis(3000));
+            add_console_log("Step 4: Starting gateway service...");
+            let start_result = run_openclaw_command(&["gateway", "start", "--auth", "none"]);
+            add_console_log(&start_result);
+
+            std::thread::sleep(std::time::Duration::from_millis(3000));
+            add_console_log("Gateway restart completed");
+        });
 
         let result = serde_json::json!({
             "success": true,
-            "message": "Gateway重启完成"
+            "message": "Gateway正在重启，请稍后..."
         });
         return Some(format!(
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n{}",
