@@ -33,7 +33,7 @@ if (Test-Path $TARGET_EXE) {
 
 # 3. Copy to public (clean old versions first)
 Write-Host "`n[3/3] Cleaning and copying to public..." -ForegroundColor Yellow
-$EXE_NAME = "OpenClaw-Launcher-v1.0.2.exe"
+$EXE_NAME = "OpenClaw-Launcher-v1.0.3.exe"
 $TARGET_PATH = Join-Path $PUBLIC_DIR $EXE_NAME
 Get-ChildItem -Path $PUBLIC_DIR -Filter "OpenClaw-Launcher-*.exe" -File | Remove-Item -Force
 Copy-Item -Path $TARGET_EXE -Destination $TARGET_PATH -Force

@@ -104,7 +104,7 @@ app.get('/api/launcher-check', async (req, res) => {
       version: localVersion,
       latestVersion: localVersion,
       needsUpdate: false,
-      downloadUrl: '/OpenClaw-Launcher.exe'
+      downloadUrl: '/OpenClaw-Launcher-v1.0.3.exe'
     });
   } catch (error) {
     res.json({
@@ -112,7 +112,7 @@ app.get('/api/launcher-check', async (req, res) => {
       version: '1.0.0',
       latestVersion: '1.0.0',
       needsUpdate: false,
-      downloadUrl: '/OpenClaw-Launcher.exe'
+      downloadUrl: '/OpenClaw-Launcher-v1.0.3.exe'
     });
   }
 });
