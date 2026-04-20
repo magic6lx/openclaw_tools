@@ -12,17 +12,22 @@ import {
   Popconfirm,
   Drawer,
   Descriptions,
+  Tabs,
+  Tooltip,
 } from 'antd';
 import {
-  PlusOutlined,
-  EditOutlined,
   DeleteOutlined,
   CheckOutlined,
   ExportOutlined,
-  ImportOutlined,
   EyeOutlined,
+  HistoryOutlined,
+  ReloadOutlined,
+  ClockCircleOutlined,
 } from '@ant-design/icons';
 import { userConfigService } from '../services/userConfig';
+import { localLauncherService } from '../services/localLauncherService';
+
+const { TabPane } = Tabs;
 
 function ConfigManagement() {
   const [configs, setConfigs] = useState([]);
@@ -31,9 +36,14 @@ function ConfigManagement() {
   const [viewDrawerVisible, setViewDrawerVisible] = useState(false);
   const [selectedConfig, setSelectedConfig] = useState(null);
   const [form] = Form.useForm();
+  
+  const [backups, setBackups] = useState([]);
+  const [backupsLoading, setBackupsLoading] = useState(false);
+  const [restoreLoading, setRestoreLoading] = useState(false);
 
   useEffect(() => {
     loadConfigs();
+    loadBackups();
   }, []);
 
   const loadConfigs = async () => {
@@ -47,6 +57,20 @@ function ConfigManagement() {
       message.error('加载配置失败');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadBackups = async () => {
+    setBackupsLoading(true);
+    try {
+      const response = await localLauncherService.listBackups();
+      if (response.success) {
+        setBackups(response.backups || []);
+      }
+    } catch (error) {
+      console.error('加载备份列表失败', error);
+    } finally {
+      setBackupsLoading(false);
     }
   };
 
@@ -92,33 +116,37 @@ function ConfigManagement() {
     }
   };
 
-  const handleImport = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.json';
-    input.onchange = async (e) => {
-      const file = e.target.files[0];
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        try {
-          const configData = JSON.parse(event.target.result);
-          const response = await userConfigService.importConfig(configData);
-          if (response.success) {
-            message.success('配置已导入');
-            loadConfigs();
-          }
-        } catch (error) {
-          message.error('导入配置失败');
-        }
-      };
-      reader.readAsText(file);
-    };
-    input.click();
-  };
-
   const handleView = (config) => {
     setSelectedConfig(config);
     setViewDrawerVisible(true);
+  };
+
+  const handleRestore = async (backupName) => {
+    setRestoreLoading(true);
+    try {
+      message.loading({ content: '正在恢复配置...', key: 'restore' });
+      
+      const response = await localLauncherService.restoreConfig(backupName);
+      
+      if (response.success) {
+        message.success({ content: response.message || '配置恢复成功', key: 'restore' });
+        loadBackups();
+      } else {
+        message.error({ content: '恢复失败: ' + (response.error || '未知错误'), key: 'restore' });
+      }
+    } catch (error) {
+      message.error({ content: '恢复失败: ' + error.message, key: 'restore' });
+    } finally {
+      setRestoreLoading(false);
+    }
+  };
+
+  const formatSize = (bytes) => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
   const columns = [
@@ -204,32 +232,114 @@ function ConfigManagement() {
     },
   ];
 
+  const backupColumns = [
+    {
+      title: '备份名称',
+      dataIndex: 'name',
+      key: 'name',
+      render: (text) => (
+        <Space>
+          <ClockCircleOutlined />
+          {text}
+        </Space>
+      ),
+    },
+    {
+      title: '创建时间',
+      dataIndex: 'created_at',
+      key: 'created_at',
+      width: 180,
+    },
+    {
+      title: '大小',
+      dataIndex: 'size',
+      key: 'size',
+      width: 100,
+      render: (size) => formatSize(size),
+    },
+    {
+      title: '操作',
+      key: 'action',
+      width: 120,
+      render: (_, record) => (
+        <Popconfirm
+          title="确认恢复"
+          description="恢复将覆盖当前配置，确定要继续吗？"
+          onConfirm={() => handleRestore(record.name)}
+          okText="确定"
+          cancelText="取消"
+        >
+          <Button 
+            type="link" 
+            icon={<ReloadOutlined />}
+            loading={restoreLoading}
+          >
+            恢复
+          </Button>
+        </Popconfirm>
+      ),
+    },
+  ];
+
   return (
     <div>
-      <Card
-        title="配置管理"
-        extra={
-          <Space>
-            <Button
-              icon={<ImportOutlined />}
-              onClick={handleImport}
-            >
-              导入配置
-            </Button>
-          </Space>
-        }
-      >
-        <Table
-          columns={columns}
-          dataSource={configs}
-          rowKey="id"
-          loading={loading}
-          pagination={{
-            pageSize: 10,
-            showSizeChanger: true,
-            showTotal: (total) => `共 ${total} 条`,
-          }}
-        />
+      <Card title="配置管理">
+        <Tabs defaultActiveKey="configs">
+          <TabPane 
+            tab={
+              <span>
+                <ExportOutlined />
+                配置列表
+              </span>
+            } 
+            key="configs"
+          >
+            <Table
+              columns={columns}
+              dataSource={configs}
+              rowKey="id"
+              loading={loading}
+              pagination={{
+                pageSize: 10,
+                showSizeChanger: true,
+                showTotal: (total) => `共 ${total} 条`,
+              }}
+            />
+          </TabPane>
+          
+          <TabPane 
+            tab={
+              <span>
+                <HistoryOutlined />
+                备份恢复
+              </span>
+            } 
+            key="backups"
+          >
+            <div style={{ marginBottom: 16 }}>
+              <Button 
+                icon={<ReloadOutlined />} 
+                onClick={loadBackups}
+                loading={backupsLoading}
+              >
+                刷新列表
+              </Button>
+            </div>
+            
+            <Table
+              columns={backupColumns}
+              dataSource={backups}
+              rowKey="name"
+              loading={backupsLoading}
+              locale={{ emptyText: '暂无备份' }}
+              pagination={{
+                pageSize: 10,
+                showSizeChanger: true,
+                showTotal: (total) => `共 ${total} 个备份`,
+              }}
+            />
+          </TabPane>
+        </Tabs>
       </Card>
 
       <Drawer

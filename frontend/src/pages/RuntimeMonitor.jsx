@@ -1,90 +1,288 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Card, Row, Col, Statistic, Table, Tag, Button, Space, Alert, Descriptions, Typography, message, Spin, Badge } from 'antd';
-import { ReloadOutlined, CheckCircleOutlined, CloseCircleOutlined, WarningOutlined, DesktopOutlined, ChromeOutlined, WindowsOutlined, AppleOutlined, LinuxOutlined, MobileOutlined, GlobalOutlined } from '@ant-design/icons';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Card, Row, Col, Statistic, Button, Space, Alert, Descriptions, Typography, message, Spin, Divider, Switch, Form, Input, InputNumber, Select, Collapse, Modal } from 'antd';
+import { ReloadOutlined, CheckCircleOutlined, CloseCircleOutlined, DesktopOutlined, WindowsOutlined, AppleOutlined, LinuxOutlined, MobileOutlined, PlayCircleOutlined, StopOutlined, ClearOutlined, FileTextOutlined, SettingOutlined, SaveOutlined, SyncOutlined, WarningOutlined } from '@ant-design/icons';
 import clientMonitorService from '../services/clientMonitorService';
-import openClawGatewayService from '../services/openClawGatewayService';
 import localLauncherService from '../services/localLauncherService';
 
 const { Title, Text, Paragraph } = Typography;
 
 const RuntimeMonitor = () => {
   const [clientInfo, setClientInfo] = useState({ data: null, loading: false, error: null });
-  const [gatewayStatus, setGatewayStatus] = useState({ connected: false, loading: true, error: null, data: null });
-  const [autoRefresh, setAutoRefresh] = useState(true);
-  const heartbeatIntervalRef = useRef(null);
-  const reconnectIntervalRef = useRef(null);
+  const [gatewayStatus, setGatewayStatus] = useState({
+    launcherAvailable: false,
+    gatewayRunning: false,
+    loading: true,
+    error: null,
+    data: null
+  });
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [openclawLogs, setOpenclawLogs] = useState([]);
+  const lastOpenclawLogRef = useRef(0);
+  const openclawLogIntervalRef = useRef(null);
+  
+  const [openclawConfig, setOpenclawConfig] = useState(null);
+  const [configLoading, setConfigLoading] = useState(false);
+  const [configSaving, setConfigSaving] = useState(false);
+  const [configPath, setConfigPath] = useState('');
+  const [restartModalVisible, setRestartModalVisible] = useState(false);
+  const [pendingConfig, setPendingConfig] = useState(null);
+  const [form] = Form.useForm();
+  
+  const openclawLogsRef = useRef(null);
+
+  const refreshIntervalRef = useRef(null);
 
   useEffect(() => {
     loadClientInfo();
-    connectToGateway();
+    checkGatewayStatus();
+    loadOpenclawConfig();
+  }, []);
+
+  useEffect(() => {
+    if (autoRefresh) {
+      refreshIntervalRef.current = setInterval(() => {
+        checkGatewayStatus();
+      }, 60000);
+    } else {
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+        refreshIntervalRef.current = null;
+      }
+    }
 
     return () => {
-      openClawGatewayService.disconnect();
-      if (heartbeatIntervalRef.current) {
-        clearInterval(heartbeatIntervalRef.current);
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
       }
-      if (reconnectIntervalRef.current) {
-        clearInterval(reconnectIntervalRef.current);
+    };
+  }, [autoRefresh]);
+
+  useEffect(() => {
+    loadOpenclawLogs();
+    openclawLogIntervalRef.current = setInterval(loadOpenclawLogs, 2000);
+
+    return () => {
+      if (openclawLogIntervalRef.current) {
+        clearInterval(openclawLogIntervalRef.current);
       }
     };
   }, []);
 
-  useEffect(() => {
-    if (autoRefresh && gatewayStatus.connected) {
-      openClawGatewayService.requestStatus();
+  const loadOpenclawLogs = async () => {
+    try {
+      const result = await localLauncherService.getGatewayLogs(lastOpenclawLogRef.current);
+      if (result.success && result.logs && result.logs.length > 0) {
+        const parsedLogs = result.logs.map(logStr => {
+          try {
+            const parsed = JSON.parse(logStr);
+            return {
+              text: parsed.text || logStr,
+              level: parsed.level || 'info',
+              timestamp: parsed.timestamp
+            };
+          } catch {
+            return { text: logStr, level: 'info' };
+          }
+        });
+        
+        if (parsedLogs.length > 0) {
+          const lastLog = parsedLogs[parsedLogs.length - 1];
+          if (lastLog.timestamp) {
+            lastOpenclawLogRef.current = lastLog.timestamp;
+          }
+        }
+        
+        setOpenclawLogs(prev => {
+          const newLogs = [...prev, ...parsedLogs];
+          if (newLogs.length > 1000) {
+            return newLogs.slice(-1000);
+          }
+          return newLogs;
+        });
+      }
+    } catch (err) {
+      console.error('Failed to load OpenClaw logs:', err);
     }
-  }, [autoRefresh, gatewayStatus.connected]);
+  };
+
+  useEffect(() => {
+    if (openclawLogsRef.current) {
+      openclawLogsRef.current.scrollTop = openclawLogsRef.current.scrollHeight;
+    }
+  }, [openclawLogs]);
 
   const loadClientInfo = () => {
     const info = clientMonitorService.getClientSystemInfo();
     setClientInfo({ data: info, loading: false, error: null });
   };
 
-  const connectToGateway = async () => {
-    setGatewayStatus(prev => ({ ...prev, loading: true, error: null }));
-
-    openClawGatewayService.on('open', () => {
-      setGatewayStatus(prev => ({ ...prev, connected: true, loading: false, error: null }));
-      message.success('已连接到OpenClaw Gateway');
-    });
-
-    openClawGatewayService.on('close', (event) => {
-      setGatewayStatus(prev => ({ ...prev, connected: false, loading: false }));
-    });
-
-    openClawGatewayService.on('error', (error) => {
-      setGatewayStatus(prev => ({
-        ...prev,
-        connected: false,
-        loading: false,
-        error: '无法连接到OpenClaw Gateway'
-      }));
-    });
-
-    openClawGatewayService.on('status', (status) => {
-      setGatewayStatus(prev => ({ ...prev, data: status }));
-    });
-
+  const checkGatewayStatus = async () => {
+    setGatewayStatus(prev => ({ ...prev, loading: true }));
     try {
-      await openClawGatewayService.connect();
-    } catch (error) {
+      const [launcherStatus, sysInfo] = await Promise.all([
+        localLauncherService.checkOpenClawStatus(),
+        localLauncherService.getSystemInfo()
+      ]);
+
+      setGatewayStatus({
+        launcherAvailable: launcherStatus.available,
+        gatewayRunning: sysInfo?.gatewayRunning || launcherStatus.gatewayRunning || false,
+        loading: false,
+        error: launcherStatus.available ? null : 'Launcher服务未运行',
+        data: {
+          version: sysInfo?.openclawVersion || launcherStatus.version,
+          port: sysInfo?.gatewayPort || launcherStatus.gatewayPort,
+          platform: sysInfo?.platform || launcherStatus.platform,
+          installed: sysInfo?.openclawInstalled || launcherStatus.installed
+        }
+      });
+    } catch (err) {
       setGatewayStatus(prev => ({
         ...prev,
-        connected: false,
         loading: false,
-        error: '无法连接到OpenClaw Gateway'
+        error: '检查状态失败: ' + err.message
       }));
     }
   };
 
-  const handleReconnect = () => {
-    openClawGatewayService.disconnect();
-    setTimeout(connectToGateway, 500);
+  const handleStartGateway = async () => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      cleanupTerminal();
+      initTerminal();
+      setTimeout(() => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'command', data: 'openclaw gateway run' }));
+          message.success('Gateway 启动中...');
+        }
+      }, 2000);
+    } else {
+      sendCommand('openclaw gateway run');
+      message.success('Gateway 启动中...');
+    }
+  };
+
+  const handleStopGateway = async () => {
+    setGatewayStatus(prev => ({ ...prev, loading: true }));
+    try {
+      const result = await localLauncherService.stopGateway();
+      if (result.success) {
+        message.success('Gateway 已停止');
+        setTimeout(() => {
+          checkGatewayStatus();
+        }, 1000);
+      } else {
+        message.error('停止失败: ' + (result.error || '未知错误'));
+        setGatewayStatus(prev => ({ ...prev, loading: false }));
+      }
+    } catch (err) {
+      message.error('停止失败: ' + err.message);
+      setGatewayStatus(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  const handleStartGatewayService = async () => {
+    setGatewayStatus(prev => ({ ...prev, loading: true }));
+    setOpenclawLogs([]);
+    lastOpenclawLogRef.current = 0;
+    try {
+      const result = await localLauncherService.startGatewayService();
+      if (result.success) {
+        message.loading('Gateway 启动中...', { key: 'gateway-start' });
+        let attempts = 0;
+        const maxAttempts = 15;
+        const checkInterval = setInterval(async () => {
+          attempts++;
+          const status = await localLauncherService.checkOpenClawStatus();
+          if (status.gateway_running) {
+            clearInterval(checkInterval);
+            message.destroy('gateway-start');
+            message.success('Gateway 已启动');
+            checkGatewayStatus();
+          } else if (attempts >= maxAttempts) {
+            clearInterval(checkInterval);
+            message.destroy('gateway-start');
+            message.error('Gateway 启动超时');
+            checkGatewayStatus();
+          }
+        }, 2000);
+      } else {
+        message.error('启动失败: ' + (result.error || '未知错误'));
+        setGatewayStatus(prev => ({ ...prev, loading: false }));
+      }
+    } catch (err) {
+      message.error('启动失败: ' + err.message);
+      setGatewayStatus(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  const handleStopGatewayService = async () => {
+    setGatewayStatus(prev => ({ ...prev, loading: true }));
+    message.loading('正在停止 Gateway...', { key: 'gateway-stop' });
+    try {
+      const result = await localLauncherService.stopGatewayService();
+      if (result.success) {
+        let attempts = 0;
+        const maxAttempts = 10;
+        const checkInterval = setInterval(async () => {
+          attempts++;
+          const status = await localLauncherService.checkOpenClawStatus();
+          if (!status.gateway_running) {
+            clearInterval(checkInterval);
+            message.destroy('gateway-stop');
+            message.success('Gateway 已停止');
+            checkGatewayStatus();
+          } else if (attempts >= maxAttempts) {
+            clearInterval(checkInterval);
+            message.destroy('gateway-stop');
+            message.error('停止超时');
+            checkGatewayStatus();
+          }
+        }, 1500);
+      } else {
+        message.destroy('gateway-stop');
+        message.error('停止失败: ' + (result.error || '未知错误'));
+        setGatewayStatus(prev => ({ ...prev, loading: false }));
+      }
+    } catch (err) {
+      message.destroy('gateway-stop');
+      message.error('停止失败: ' + err.message);
+      setGatewayStatus(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  const handleRestartGatewayService = async () => {
+    setGatewayStatus(prev => ({ ...prev, loading: true }));
+    try {
+      await localLauncherService.stopGatewayService();
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      const result = await localLauncherService.startGatewayService();
+      if (result.success) {
+        message.success('Gateway 重启中...');
+      } else {
+        message.error('重启失败: ' + (result.error || '未知错误'));
+        setGatewayStatus(prev => ({ ...prev, loading: false }));
+      }
+    } catch (err) {
+      message.error('重启失败: ' + err.message);
+      setGatewayStatus(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  const handleClearDeviceAuth = async () => {
+    try {
+      const result = await localLauncherService.clearDeviceAuth();
+      if (result.success) {
+        message.success('设备认证已清除，请刷新浏览器页面');
+      } else {
+        message.error('清除失败: ' + (result.error || '未知错误'));
+      }
+    } catch (err) {
+      message.error('清除失败: ' + err.message);
+    }
   };
 
   const handleRefreshClientInfo = () => {
     loadClientInfo();
-    clientMonitorService.submitClientInfo();
     message.success('已刷新客户端信息');
   };
 
@@ -113,48 +311,15 @@ const RuntimeMonitor = () => {
             <Descriptions.Item label="设备类型">
               <Space>
                 {getOSIcon(info?.osName)}
-                {info?.deviceType || 'desktop'}
+                <Text>{info?.deviceType || 'Desktop'}</Text>
               </Space>
             </Descriptions.Item>
-            <Descriptions.Item label="操作系统">
-              {info?.osName} {info?.osVersion}
-            </Descriptions.Item>
-            <Descriptions.Item label="平台">
-              {info?.platform}
-            </Descriptions.Item>
-            <Descriptions.Item label="浏览器">
-              <Space>
-                <ChromeOutlined />
-                {info?.browserName} {info?.browserVersion}
-              </Space>
-            </Descriptions.Item>
-            <Descriptions.Item label="语言">
-              <GlobalOutlined /> {info?.language}
-            </Descriptions.Item>
-            <Descriptions.Item label="屏幕分辨率">
-              {info?.screenResolution}
-            </Descriptions.Item>
-            <Descriptions.Item label="颜色深度">
-              {info?.colorDepth} 位
-            </Descriptions.Item>
-            <Descriptions.Item label="CPU核心数">
-              {info?.hardwareConcurrency}
-            </Descriptions.Item>
-            <Descriptions.Item label="设备内存">
-              {info?.deviceMemory}
-            </Descriptions.Item>
-            <Descriptions.Item label="时区">
-              {info?.timezone} (UTC{info?.timezoneOffset > 0 ? '-' : '+'}{Math.abs(info?.timezoneOffset)})
-            </Descriptions.Item>
-            <Descriptions.Item label="网络类型">
-              {info?.connectionType || 'Unknown'}
-            </Descriptions.Item>
-            <Descriptions.Item label="Cookie启用">
-              {info?.cookieEnabled ? <Tag color="green">是</Tag> : <Tag color="red">否</Tag>}
-            </Descriptions.Item>
-            <Descriptions.Item label="Do Not Track">
-              {info?.doNotTrack}
-            </Descriptions.Item>
+            <Descriptions.Item label="操作系统">{info?.osName}</Descriptions.Item>
+            <Descriptions.Item label="浏览器">{info?.browserName} {info?.browserVersion}</Descriptions.Item>
+            <Descriptions.Item label="屏幕分辨率">{info?.screenResolution}</Descriptions.Item>
+            <Descriptions.Item label="语言">{info?.language}</Descriptions.Item>
+            <Descriptions.Item label="时区">{info?.timezone}</Descriptions.Item>
+            <Descriptions.Item label="IP地址">{info?.ipAddress || '未知'}</Descriptions.Item>
           </Descriptions>
         )}
       </Card>
@@ -162,224 +327,468 @@ const RuntimeMonitor = () => {
   };
 
   const renderGatewayStatus = () => {
-    const { connected, loading, error, data } = gatewayStatus;
-
-    let statusColor = 'default';
-    let statusText = '未知';
-    let StatusIcon = <WarningOutlined />;
-
-    if (loading) {
-      statusColor = 'processing';
-      statusText = '连接中...';
-    } else if (error) {
-      statusColor = 'error';
-      statusText = '未连接';
-      StatusIcon = <CloseCircleOutlined />;
-    } else if (connected && data) {
-      statusColor = 'success';
-      statusText = '运行中';
-      StatusIcon = <CheckCircleOutlined />;
-    } else if (connected) {
-      statusColor = 'processing';
-      statusText = '已连接';
-      StatusIcon = <CheckCircleOutlined />;
-    }
+    const { launcherAvailable, gatewayRunning, loading, error, data } = gatewayStatus;
 
     return (
       <Card
-        title="OpenClaw Gateway 状态"
+        title={
+          <Space>
+            <span>OpenClaw Gateway 状态</span>
+            {loading && <Spin size="small" />}
+          </Space>
+        }
         extra={
           <Space>
-            <Badge status={statusColor} text={statusText} />
-            <Button size="small" icon={<ReloadOutlined />} onClick={handleReconnect} disabled={loading}>
-              重连
+            <Button
+              size="small"
+              icon={<ReloadOutlined />}
+              onClick={() => checkGatewayStatus()}
+              loading={loading}
+            >
+              刷新
             </Button>
+            <Switch
+              checked={autoRefresh}
+              onChange={setAutoRefresh}
+              checkedChildren="自动"
+              unCheckedChildren="手动"
+            />
           </Space>
         }
       >
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: 40 }}>
-            <Spin tip="正在连接本地Gateway..." />
-          </div>
-        ) : error ? (
+        {!launcherAvailable ? (
           <Alert
-            message="无法连接到OpenClaw Gateway"
-            description={
-              <div>
-                <Paragraph>
-                  {error}
-                </Paragraph>
-                <Paragraph type="secondary">
-                  请运行OpenClaw Launcher来检测本机OpenClaw状态
-                </Paragraph>
-              </div>
-            }
-            type="error"
-            showIcon
-          />
-        ) : !connected ? (
-          <Alert
-            message="OpenClaw Gateway未连接"
-            description="点击重连按钮尝试重新连接"
+            message="Launcher服务未运行"
+            description="请先运行 OpenClaw Launcher 应用程序"
             type="warning"
             showIcon
+            action={
+              <Button size="small" onClick={checkGatewayStatus}>
+                重试
+              </Button>
+            }
           />
         ) : (
-          <Descriptions column={2} size="small" bordered>
-            <Descriptions.Item label="连接状态">
-              <Tag color="green">已连接</Tag>
-            </Descriptions.Item>
-            <Descriptions.Item label="Gateway版本">
-              {data?.version || 'N/A'}
-            </Descriptions.Item>
-            <Descriptions.Item label="运行时间">
-              {data?.uptime ? `${Math.floor(data.uptime / 3600)}小时${Math.floor((data.uptime % 3600) / 60)}分钟` : 'N/A'}
-            </Descriptions.Item>
-            <Descriptions.Item label="端口">
-              {data?.port || 18789}
-            </Descriptions.Item>
-            <Descriptions.Item label="配置文件" span={2}>
-              {data?.configPath || 'N/A'}
-            </Descriptions.Item>
-            {data?.error && (
-              <Descriptions.Item label="错误信息" span={2}>
-                <Alert message={data.error} type="error" showIcon />
-              </Descriptions.Item>
-            )}
-          </Descriptions>
+          <Space direction="vertical" style={{ width: '100%' }}>
+            <Row gutter={16}>
+              <Col span={5}>
+                <Statistic
+                  title="Gateway 状态"
+                  value={gatewayRunning ? '运行中' : '已停止'}
+                  valueStyle={{ color: gatewayRunning ? '#3f8600' : '#cf1322' }}
+                  prefix={gatewayRunning ? <CheckCircleOutlined /> : <CloseCircleOutlined />}
+                />
+              </Col>
+              <Col span={5}>
+                <Statistic
+                  title="版本"
+                  value={data?.version || '未知'}
+                />
+              </Col>
+              <Col span={4}>
+                <Statistic
+                  title="端口"
+                  value={data?.port || 18789}
+                  valueStyle={{ color: gatewayRunning ? '#3f8600' : '#999' }}
+                  suffix={gatewayRunning ? '' : '(未监听)'}
+                />
+              </Col>
+              <Col span={5}>
+                <Statistic
+                  title="端口状态"
+                  value={gatewayRunning ? '已占用' : '空闲'}
+                  valueStyle={{ color: gatewayRunning ? '#52c41a' : '#999' }}
+                  prefix={gatewayRunning ? <CheckCircleOutlined /> : <CloseCircleOutlined />}
+                />
+              </Col>
+            </Row>
+
+            <Divider style={{ margin: '12px 0' }} />
+
+            <Space>
+              <Button
+                type="primary"
+                icon={<PlayCircleOutlined />}
+                onClick={handleStartGatewayService}
+                loading={gatewayStatus.loading}
+                disabled={gatewayRunning}
+              >
+                启动 Gateway
+              </Button>
+              <Button
+                danger
+                icon={<StopOutlined />}
+                onClick={handleStopGatewayService}
+                loading={gatewayStatus.loading}
+                disabled={!gatewayRunning}
+              >
+                停止 Gateway
+              </Button>
+              <Button
+                icon={<SyncOutlined />}
+                onClick={handleRestartGatewayService}
+                loading={gatewayStatus.loading}
+                disabled={!gatewayRunning}
+              >
+                重启 Gateway
+              </Button>
+              {gatewayRunning && (
+                <>
+                  <Button
+                    type="link"
+                    onClick={() => window.open('http://127.0.0.1:18789', '_blank')}
+                  >
+                    打开控制台 →
+                  </Button>
+                  <Button
+                    type="link"
+                    danger
+                    onClick={handleClearDeviceAuth}
+                  >
+                    清除设备认证
+                  </Button>
+                </>
+              )}
+            </Space>
+          </Space>
         )}
       </Card>
     );
   };
 
-  const renderGatewayStats = () => {
-    const { data } = gatewayStatus;
-
-    if (!data) return null;
+  const renderOpenclawLogs = () => {
+    const getLogColor = (level) => {
+      switch (level) {
+        case 'error': return '#f5222d';
+        case 'warn': return '#faad14';
+        case 'success': return '#52c41a';
+        default: return '#d4d4d4';
+      }
+    };
 
     return (
-      <Row gutter={[16, 16]}>
-        <Col span={6}>
-          <Card size="small">
-            <Statistic
-              title="活跃任务"
-              value={data?.activeTasks || 0}
-              valueStyle={{ color: '#1890ff' }}
-            />
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card size="small">
-            <Statistic
-              title="总任务数"
-              value={data?.totalTasks || 0}
-              valueStyle={{ color: '#52c41a' }}
-            />
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card size="small">
-            <Statistic
-              title="CPU使用率"
-              value={data?.cpuUsage ? `${data.cpuUsage}%` : 'N/A'}
-              valueStyle={{ color: '#faad14' }}
-            />
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card size="small">
-            <Statistic
-              title="内存使用"
-              value={data?.memoryUsage ? `${data.memoryUsage}MB` : 'N/A'}
-              valueStyle={{ color: '#f5222d' }}
-            />
-          </Card>
-        </Col>
-      </Row>
+      <Card
+        title={
+          <Space>
+            <FileTextOutlined />
+            <span>OpenClaw 日志</span>
+            <Text style={{ color: '#999', fontSize: 12 }}>(实时刷新)</Text>
+          </Space>
+        }
+        extra={
+          <Button
+            size="small"
+            icon={<ClearOutlined />}
+            onClick={() => { setOpenclawLogs([]); lastOpenclawLogRef.current = 0; }}
+          >
+            清空
+          </Button>
+        }
+      >
+        <div
+          ref={openclawLogsRef}
+          style={{
+            backgroundColor: '#1e1e1e',
+            color: '#d4d4d4',
+            padding: 12,
+            borderRadius: 4,
+            height: 500,
+            overflow: 'auto',
+            fontFamily: 'Consolas, Monaco, monospace',
+            fontSize: 11,
+            lineHeight: 1.5,
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-all'
+          }}
+        >
+          {openclawLogs.length === 0 ? (
+            <Text style={{ color: '#666' }}>等待日志输出...</Text>
+          ) : (
+            openclawLogs.map((logEntry, index) => {
+              const text = typeof logEntry === 'string' ? logEntry : logEntry.text;
+              const level = typeof logEntry === 'string' ? 'info' : logEntry.level;
+              return (
+                <div key={index} style={{ color: getLogColor(level) }}>{text}</div>
+              );
+            })
+          )}
+        </div>
+      </Card>
     );
   };
 
-  const renderClientBrowserInfo = () => {
-    const info = clientInfo.data;
+  const loadOpenclawConfig = async () => {
+    setConfigLoading(true);
+    try {
+      const result = await localLauncherService.getOpenclawConfig();
+      if (result.success) {
+        setOpenclawConfig(result.config);
+        setConfigPath(result.path);
+        
+        const config = result.config || {};
+        const providers = config.models?.providers || {};
+        const firstProvider = Object.keys(providers)[0] || '';
+        const agentDefaults = config.agents?.defaults || {};
+        const logging = config.logging || {};
+        
+        form.setFieldsValue({
+          primaryModel: agentDefaults.model?.primary || '',
+          contextTokens: agentDefaults.contextTokens || 100000,
+          providerName: firstProvider,
+          providerBaseUrl: providers[firstProvider]?.baseUrl || '',
+          providerApiKey: providers[firstProvider]?.apiKey || '',
+          logLevel: logging.level || 'info',
+        });
+      } else {
+        message.error('加载配置失败: ' + result.error);
+      }
+    } catch (err) {
+      message.error('加载配置失败: ' + err.message);
+    } finally {
+      setConfigLoading(false);
+    }
+  };
 
+  const handleSaveConfig = async (values) => {
+    setConfigSaving(true);
+    try {
+      const config = openclawConfig || {};
+      const providers = config.models?.providers || {};
+      const providerName = values.providerName || Object.keys(providers)[0] || 'volcengine';
+      
+      const newConfig = {
+        ...config,
+        agents: {
+          ...config.agents,
+          defaults: {
+            ...config.agents?.defaults,
+            model: {
+              ...config.agents?.defaults?.model,
+              primary: values.primaryModel,
+            },
+            contextTokens: values.contextTokens,
+          },
+        },
+        models: {
+          ...config.models,
+          providers: {
+            ...providers,
+            [providerName]: {
+              ...providers[providerName],
+              baseUrl: values.providerBaseUrl,
+              apiKey: values.providerApiKey,
+            },
+          },
+        },
+        logging: {
+          ...config.logging,
+          level: values.logLevel,
+        },
+      };
+      
+      const result = await localLauncherService.saveOpenclawConfig(newConfig);
+      if (result.success) {
+        message.success('配置已保存');
+        setPendingConfig(newConfig);
+        setRestartModalVisible(true);
+      } else {
+        message.error('保存配置失败: ' + result.error);
+      }
+    } catch (err) {
+      message.error('保存配置失败: ' + err.message);
+    } finally {
+      setConfigSaving(false);
+    }
+  };
+
+  const handleRestartGateway = async () => {
+    setConfigSaving(true);
+    try {
+      const result = await localLauncherService.restartGateway();
+      if (result.success) {
+        message.success('Gateway 重启中...');
+        setRestartModalVisible(false);
+        setTimeout(() => {
+          checkGatewayStatus();
+        }, 3000);
+      } else {
+        message.error('重启失败: ' + result.error);
+      }
+    } catch (err) {
+      message.error('重启失败: ' + err.message);
+    } finally {
+      setConfigSaving(false);
+    }
+  };
+
+  const renderConfigManagement = () => {
     return (
-      <Card title="浏览器环境" size="small">
-        <Row gutter={[16, 8]}>
-          <Col span={12}>
-            <Text type="secondary">User-Agent:</Text>
-            <div style={{ marginTop: 4 }}>
-              <Text code style={{ fontSize: 10 }}>{info?.userAgent}</Text>
-            </div>
-          </Col>
-          <Col span={12}>
-            <Text type="secondary">来源:</Text>
-            <div style={{ marginTop: 4 }}>
-              <Text>{info?.referrer || '直接访问'}</Text>
-            </div>
-          </Col>
-        </Row>
-        <Row gutter={[16, 8]} style={{ marginTop: 8 }}>
-          <Col span={12}>
-            <Text type="secondary">当前页面:</Text>
-            <div style={{ marginTop: 4 }}>
-              <Text code style={{ fontSize: 10 }} copyable>{info?.currentUrl}</Text>
-            </div>
-          </Col>
-          <Col span={12}>
-            <Text type="secondary">浏览器插件:</Text>
-            <div style={{ marginTop: 4 }}>
-              <Text>{info?.plugins?.length > 0 ? info.plugins.join(', ') : '无'}</Text>
-            </div>
-          </Col>
-        </Row>
+      <Card
+        title={
+          <Space>
+            <SettingOutlined />
+            <span>关键配置管理</span>
+            <Text style={{ color: '#999', fontSize: 12 }}>
+              ({configPath || '未加载'})
+            </Text>
+          </Space>
+        }
+        extra={
+          <Space>
+            <Button
+              size="small"
+              icon={<ReloadOutlined />}
+              onClick={loadOpenclawConfig}
+              loading={configLoading}
+            >
+              刷新配置
+            </Button>
+          </Space>
+        }
+      >
+        {configLoading && !openclawConfig ? (
+          <Spin tip="加载配置中..." />
+        ) : (
+          <Form
+            form={form}
+            layout="vertical"
+            onFinish={handleSaveConfig}
+          >
+            <Divider orientation="left">模型配置</Divider>
+            <Row gutter={16}>
+              <Col span={8}>
+                <Form.Item label="提供商名称" name="providerName">
+                  <Input placeholder="例如: volcengine, openai" />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item label="API地址 (baseUrl)" name="providerBaseUrl">
+                  <Input placeholder="https://api.example.com/v1" />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item label="API密钥 (apiKey)" name="providerApiKey">
+                  <Input.Password placeholder="sk-xxx..." />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item label="默认模型 (primary)" name="primaryModel">
+                  <Input placeholder="例如: volcengine/doubao-seed-2-0-mini-260215" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item label="上下文Token限制" name="contextTokens">
+                  <InputNumber min={1000} max={1000000} style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+            </Row>
+
+            <Divider orientation="left">日志配置</Divider>
+            <Row gutter={16}>
+              <Col span={8}>
+                <Form.Item label="日志级别" name="logLevel">
+                  <Select>
+                    <Select.Option value="debug">debug - 调试</Select.Option>
+                    <Select.Option value="info">info - 信息</Select.Option>
+                    <Select.Option value="warn">warn - 警告</Select.Option>
+                    <Select.Option value="error">error - 错误</Select.Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+            </Row>
+
+            <Collapse
+              ghost
+              items={[
+                {
+                  key: 'advanced',
+                  label: '完整配置 (JSON)',
+                  children: (
+                    <div
+                      style={{
+                        backgroundColor: '#1e1e1e',
+                        color: '#d4d4d4',
+                        padding: 12,
+                        borderRadius: 4,
+                        maxHeight: 300,
+                        overflow: 'auto',
+                        fontFamily: 'Consolas, Monaco, monospace',
+                        fontSize: 11,
+                        whiteSpace: 'pre-wrap',
+                      }}
+                    >
+                      {openclawConfig ? JSON.stringify(openclawConfig, null, 2) : '无配置数据'}
+                    </div>
+                  ),
+                },
+              ]}
+            />
+
+            <Divider />
+
+            <Space>
+              <Button
+                type="primary"
+                htmlType="submit"
+                icon={<SaveOutlined />}
+                loading={configSaving}
+              >
+                保存配置
+              </Button>
+              <Button
+                icon={<SyncOutlined />}
+                onClick={() => setRestartModalVisible(true)}
+                disabled={!gatewayStatus.gatewayRunning}
+              >
+                重启 Gateway
+              </Button>
+            </Space>
+          </Form>
+        )}
       </Card>
     );
   };
 
   return (
-    <div style={{ padding: '24px' }}>
-      <Title level={2}>运行监控</Title>
+    <div style={{ padding: 24 }}>
+      <Title level={4}>运行监控</Title>
       <Paragraph type="secondary">
-        监控本机OpenClaw Gateway运行状态和客户端浏览器环境
+        监控 OpenClaw Gateway 运行状态，管理配置文件
       </Paragraph>
 
-      <Space style={{ marginBottom: 16 }}>
-        <Button
-          type={autoRefresh ? 'primary' : 'default'}
-          onClick={() => setAutoRefresh(!autoRefresh)}
-        >
-          {autoRefresh ? '自动刷新: 开' : '自动刷新: 关'}
-        </Button>
-        <Button icon={<ReloadOutlined />} onClick={() => { loadClientInfo(); openClawGatewayService.requestStatus(); }}>
-          刷新
-        </Button>
-      </Space>
-
       <Row gutter={[16, 16]}>
+        <Col span={24}>
+          {renderGatewayStatus()}
+        </Col>
+        <Col span={24}>
+          {renderOpenclawLogs()}
+        </Col>
+        <Col span={24}>
+          {renderConfigManagement()}
+        </Col>
         <Col span={24}>
           {renderClientInfo()}
         </Col>
       </Row>
 
-      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col span={24}>
-          {renderGatewayStatus()}
-        </Col>
-      </Row>
-
-      {gatewayStatus.data && (
-        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-          <Col span={24}>
-            {renderGatewayStats()}
-          </Col>
-        </Row>
-      )}
-
-      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col span={24}>
-          {renderClientBrowserInfo()}
-        </Col>
-      </Row>
+      <Modal
+        title="重启 Gateway"
+        open={restartModalVisible}
+        onOk={handleRestartGateway}
+        onCancel={() => setRestartModalVisible(false)}
+        confirmLoading={configSaving}
+        okText="重启"
+        cancelText="稍后手动重启"
+      >
+        <Alert
+          message="配置已保存"
+          description="建议重启 Gateway 使配置生效。是否立即重启？"
+          type="info"
+          showIcon
+        />
+      </Modal>
     </div>
   );
 };

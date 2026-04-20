@@ -21,8 +21,8 @@ class InvitationCodeController {
 
   async generate(req, res) {
     try {
-      const { max_devices = 3, tokens_limit = 50000, expires_in_months = 3, requests_limit = 10 } = req.body;
-      const invitationCode = await invitationCodeService.generateCode(max_devices, tokens_limit, expires_in_months, requests_limit);
+      const { max_devices = 3, tokens_limit = 50000, expires_in_months = 3, requests_limit = 10, role = 'user' } = req.body;
+      const invitationCode = await invitationCodeService.generateCode(max_devices, tokens_limit, expires_in_months, requests_limit, role);
       res.status(201).json({
         success: true,
         data: invitationCode

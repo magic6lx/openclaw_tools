@@ -1,93 +1,268 @@
-import React, { useState, useEffect } from 'react';
-import { Card, Form, Input, Button, Alert, Steps, Descriptions, Tag, Space, message, Spin, Typography, List, Tree, InputNumber, Switch, Divider } from 'antd';
-import { FolderOpenOutlined, CheckCircleOutlined, WarningOutlined, FileTextOutlined, InfoCircleOutlined, SyncOutlined, ReloadOutlined } from '@ant-design/icons';
-import openClawGatewayService from '../services/openClawGatewayService';
-import clientMonitorService from '../services/clientMonitorService';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Card, Alert, Steps, Button, Space, message, Spin, Typography, List, Checkbox, Input, Divider, Collapse } from 'antd';
+import { CheckCircleOutlined, FileTextOutlined, SyncOutlined, FolderOpenOutlined, FolderOutlined } from '@ant-design/icons';
 import localLauncherService from '../services/localLauncherService';
+import { configTemplateService } from '../services/configTemplate';
 
 const { Step } = Steps;
-const { TextArea } = Input;
 const { Title, Paragraph, Text } = Typography;
-const { DirectoryTree } = Tree;
+const { Panel } = Collapse;
 
 const LocalConfigImport = ({ onComplete }) => {
   const [currentStep, setCurrentStep] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [connected, setConnected] = useState(false);
-  const [connecting, setConnecting] = useState(true);
-  const [directoryPath, setDirectoryPath] = useState('');
-  const [detectedDirs, setDetectedDirs] = useState(null);
+  const [detecting, setDetecting] = useState(true);
+  const [configDir, setConfigDir] = useState(null);
   const [configFiles, setConfigFiles] = useState([]);
   const [selectedFiles, setSelectedFiles] = useState([]);
-  const [importResult, setImportResult] = useState(null);
   const [templateName, setTemplateName] = useState('');
-  const [templateDesc, setTemplateDesc] = useState('');
+  const [importResult, setImportResult] = useState(null);
 
   useEffect(() => {
-    initGateway();
+    autoDetectAndLoad();
   }, []);
 
-  const initGateway = async () => {
-    setConnecting(true);
+  const autoDetectAndLoad = async () => {
+    setDetecting(true);
     try {
-      await openClawGatewayService.connect();
-      setConnected(true);
-      await detectDirectories();
-    } catch (err) {
-      setConnected(false);
-    } finally {
-      setConnecting(false);
-    }
-  };
+      const detectResult = await localLauncherService.detectConfig();
 
-  const detectDirectories = async () => {
-    if (!connected) return;
+      if (detectResult.found && detectResult.directory) {
+        setConfigDir(detectResult.directory);
+        message.success(`检测到配置目录: ${detectResult.directory}`);
 
-    setLoading(true);
-    try {
-      const result = await openClawGatewayService.detectDirectories();
-      setDetectedDirs(result);
-
-      if (result.openclaw_directory) {
-        setDirectoryPath(result.openclaw_directory);
-      }
-    } catch (err) {
-      message.error('检测目录失败: ' + err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleManualPath = () => {
-    const path = prompt('请输入OpenClaw配置目录路径:', directoryPath || 'C:\\Users\\.openclaw');
-    if (path) {
-      setDirectoryPath(path);
-      setDetectedDirs(prev => ({ ...prev, openclaw_directory: path }));
-    }
-  };
-
-  const handlePreview = async () => {
-    if (!directoryPath) {
-      message.warning('请输入目录路径');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const result = await openClawGatewayService.importConfig(directoryPath, { preview: true });
-
-      if (result.files) {
-        setConfigFiles(result.files);
-        setSelectedFiles(result.files.filter(f => f.shouldCopy).map(f => f.path));
-        setCurrentStep(1);
+        const filesResult = await localLauncherService.getConfigFiles();
+        if (filesResult.success && filesResult.files.length > 0) {
+          setConfigFiles(filesResult.files);
+          
+          const defaultSelected = filesResult.files
+            .filter(f => 
+              f.category === '主配置' || 
+              f.category === '技能配置' || 
+              f.category === '工作空间配置' || 
+              f.category === 'Agent配置'
+            )
+            .map(f => f.path);
+          setSelectedFiles(defaultSelected);
+          setCurrentStep(1);
+        } else {
+          message.warning('未找到配置文件');
+          setCurrentStep(0);
+        }
       } else {
-        message.warning('未找到配置文件');
+        message.warning('未检测到OpenClaw配置目录，请先安装并运行OpenClaw');
+        setCurrentStep(0);
       }
     } catch (err) {
-      message.error('预览失败: ' + err.message);
+      message.error('检测失败: ' + err.message);
+      setCurrentStep(0);
     } finally {
-      setLoading(false);
+      setDetecting(false);
     }
+  };
+
+  const toggleFile = (path) => {
+    setSelectedFiles(prev => {
+      if (prev.includes(path)) {
+        return prev.filter(p => p !== path);
+      }
+      return [...prev, path];
+    });
+  };
+
+  const selectAll = () => {
+    setSelectedFiles(configFiles.map(f => f.path));
+  };
+
+  const selectNone = () => {
+    setSelectedFiles([]);
+  };
+
+  const formatFileSize = (bytes) => {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
+
+  const groupedFiles = useMemo(() => {
+    if (!configDir || !configFiles.length) return {};
+    
+    const groups = {};
+    
+    configFiles.forEach(file => {
+      const relativePath = file.path.replace(configDir, '').replace(/^[\\\/]/, '');
+      const parts = relativePath.split(/[\\\/]/);
+      
+      let groupName = '根目录';
+      let subPath = '';
+      
+      if (parts.length > 1) {
+        const firstDir = parts[0];
+        
+        if (firstDir === 'skills' && parts.length > 2) {
+          groupName = `skills/${parts[1]}`;
+          subPath = parts.slice(2).join('/');
+        } else if (firstDir === 'agents' && parts.length > 2) {
+          groupName = `agents/${parts[1]}`;
+          subPath = parts.slice(2).join('/');
+        } else if (firstDir.startsWith('workspace') && parts.length > 2) {
+          groupName = `${firstDir}/${parts[1]}`;
+          subPath = parts.slice(2).join('/');
+        } else {
+          groupName = firstDir;
+          subPath = parts.slice(1).join('/');
+        }
+      }
+      
+      if (!groups[groupName]) {
+        groups[groupName] = {
+          files: [],
+          count: 0,
+          selectedCount: 0,
+          isSubGroup: groupName.includes('/')
+        };
+      }
+      
+      groups[groupName].files.push({
+        ...file,
+        relativePath: subPath || file.name
+      });
+      groups[groupName].count++;
+      if (selectedFiles.includes(file.path)) {
+        groups[groupName].selectedCount++;
+      }
+    });
+    
+    const orderedGroups = {};
+    const priorityOrder = ['根目录', 'skills', 'agents', 'workspace'];
+    
+    Object.keys(groups).forEach(key => {
+      if (key.startsWith('skills/')) {
+        if (!orderedGroups['skills']) {
+          orderedGroups['skills'] = { files: [], count: 0, selectedCount: 0, subGroups: {} };
+        }
+        orderedGroups['skills'].subGroups[key] = groups[key];
+        orderedGroups['skills'].count += groups[key].count;
+        orderedGroups['skills'].selectedCount += groups[key].selectedCount;
+      } else if (key.startsWith('agents/')) {
+        if (!orderedGroups['agents']) {
+          orderedGroups['agents'] = { files: [], count: 0, selectedCount: 0, subGroups: {} };
+        }
+        orderedGroups['agents'].subGroups[key] = groups[key];
+        orderedGroups['agents'].count += groups[key].count;
+        orderedGroups['agents'].selectedCount += groups[key].selectedCount;
+      } else if (key.startsWith('workspace')) {
+        if (!orderedGroups['workspace']) {
+          orderedGroups['workspace'] = { files: [], count: 0, selectedCount: 0, subGroups: {} };
+        }
+        orderedGroups['workspace'].subGroups[key] = groups[key];
+        orderedGroups['workspace'].count += groups[key].count;
+        orderedGroups['workspace'].selectedCount += groups[key].selectedCount;
+      } else {
+        orderedGroups[key] = groups[key];
+      }
+    });
+    
+    return orderedGroups;
+  }, [configDir, configFiles, selectedFiles]);
+
+  const toggleGroup = (groupName, subGroupName = null) => {
+    if (subGroupName) {
+      const subGroup = groupedFiles[groupName]?.subGroups?.[subGroupName];
+      if (!subGroup) return;
+      
+      const allSelected = subGroup.selectedCount === subGroup.count;
+      
+      if (allSelected) {
+        setSelectedFiles(prev => prev.filter(p => !subGroup.files.some(f => f.path === p)));
+      } else {
+        setSelectedFiles(prev => [...new Set([...prev, ...subGroup.files.map(f => f.path)])]);
+      }
+    } else {
+      const group = groupedFiles[groupName];
+      if (!group) return;
+      
+      const allFiles = group.subGroups 
+        ? Object.values(group.subGroups).flatMap(sg => sg.files)
+        : group.files;
+      
+      const allSelected = group.selectedCount === group.count;
+      
+      if (allSelected) {
+        setSelectedFiles(prev => prev.filter(p => !allFiles.some(f => f.path === p)));
+      } else {
+        setSelectedFiles(prev => [...new Set([...prev, ...allFiles.map(f => f.path)])]);
+      }
+    }
+  };
+
+  const getGroupIcon = (groupName, isSubGroup = false) => {
+    if (isSubGroup) {
+      return <FolderOutlined style={{ color: '#52c41a', fontSize: 14 }} />;
+    }
+    if (groupName === '根目录') return <FolderOpenOutlined style={{ color: '#faad14' }} />;
+    if (groupName === 'skills') return <FolderOutlined style={{ color: '#52c41a' }} />;
+    if (groupName === 'agents') return <FolderOutlined style={{ color: '#1890ff' }} />;
+    if (groupName.startsWith('workspace')) return <FolderOutlined style={{ color: '#722ed1' }} />;
+    return <FolderOutlined />;
+  };
+
+  const getGroupLabel = (groupName) => {
+    if (groupName.includes('/')) {
+      const parts = groupName.split('/');
+      return parts[parts.length - 1];
+    }
+    
+    const labels = {
+      '根目录': '主配置目录',
+      'skills': '技能配置',
+      'agents': 'Agent配置',
+      'workspace': '工作空间'
+    };
+    return labels[groupName] || groupName;
+  };
+
+  const convertPathToPlaceholder = (pathStr, configDir) => {
+    if (!pathStr || typeof pathStr !== 'string') return pathStr;
+    
+    if (pathStr.startsWith(configDir) || pathStr.includes('.openclaw')) {
+      return pathStr.replace(configDir, '{OPENCLAW_HOME}').replace(/\\/g, '/');
+    }
+    
+    const homeDir = configDir.replace(/[\\\/]\.openclaw[\\\/]?$/, '');
+    if (pathStr.startsWith(homeDir)) {
+      return pathStr.replace(homeDir, '{HOME}').replace(/\\/g, '/');
+    }
+    
+    return pathStr;
+  };
+
+  const sanitizeConfigPaths = (config, configDir) => {
+    if (!config) return config;
+    
+    if (typeof config === 'string') {
+      return convertPathToPlaceholder(config, configDir);
+    }
+    
+    if (Array.isArray(config)) {
+      return config.map(item => sanitizeConfigPaths(item, configDir));
+    }
+    
+    if (typeof config === 'object') {
+      const sanitized = {};
+      for (const [key, value] of Object.entries(config)) {
+        const isPathKey = /path|directory|folder|location|file|log|workspace|home|dir/i.test(key);
+        
+        if (isPathKey && typeof value === 'string') {
+          sanitized[key] = convertPathToPlaceholder(value, configDir);
+        } else {
+          sanitized[key] = sanitizeConfigPaths(value, configDir);
+        }
+      }
+      return sanitized;
+    }
+    
+    return config;
   };
 
   const handleImport = async () => {
@@ -98,146 +273,150 @@ const LocalConfigImport = ({ onComplete }) => {
 
     setLoading(true);
     try {
-      const result = await openClawGatewayService.importConfig(directoryPath, {
-        files: selectedFiles,
-        templateName: templateName || '默认配置',
-        templateDesc: templateDesc
-      });
+      const files = [];
+      const configs = {};
+      let mainConfig = {};
 
-      setImportResult(result);
-      setCurrentStep(2);
+      for (const path of selectedFiles) {
+        const result = await localLauncherService.readConfigFile(path);
+        if (result.success && result.content) {
+          const file = configFiles.find(f => f.path === path);
+          const relativePath = configDir ? path.replace(configDir, '').replace(/^[\\\/]/, '') : file?.name;
+          
+          if (file?.name === 'openclaw.json') {
+            const parsed = JSON.parse(result.content);
+            mainConfig = sanitizeConfigPaths(parsed, configDir);
+          } else if (file?.name === 'auth-profiles.json') {
+            const parsed = JSON.parse(result.content);
+            configs.authProfiles = sanitizeConfigPaths(parsed, configDir);
+          } else if (file?.name === 'models.json') {
+            const parsed = JSON.parse(result.content);
+            configs.models = sanitizeConfigPaths(parsed, configDir);
+          } else {
+            const pathParts = relativePath.split(/[\\\/]/);
+            let group = 'root';
+            let subGroup = '';
+            let fileName = file?.name;
+            
+            if (pathParts.length > 1) {
+              group = pathParts[0];
+              if (pathParts.length > 2) {
+                subGroup = pathParts[1];
+                fileName = pathParts.slice(2).join('/');
+              } else {
+                fileName = pathParts[1];
+              }
+            }
+            
+            let processedContent = result.content;
+            if (file?.name.endsWith('.json')) {
+              try {
+                const parsed = JSON.parse(result.content);
+                const sanitized = sanitizeConfigPaths(parsed, configDir);
+                processedContent = JSON.stringify(sanitized, null, 2);
+              } catch (e) {}
+            }
+            
+            files.push({
+              type: file?.name.endsWith('.md') ? 'markdown' : 'json',
+              content: processedContent,
+              fileName: file?.name,
+              relativePath: `{OPENCLAW_HOME}/${relativePath.replace(/\\/g, '/')}`,
+              structure: {
+                group,
+                subGroup,
+                category: file?.category
+              }
+            });
+          }
+        }
+      }
 
-      if (onComplete) {
-        onComplete();
+      const templateData = {
+        name: templateName || `本地配置 ${new Date().toLocaleDateString()}`,
+        description: `从 ${configDir} 导入`,
+        category: 'imported',
+        status: 'draft',
+        config_content: {
+          meta: {
+            lastTouchedAt: new Date().toISOString(),
+            lastTouchedVersion: '2026.3.13',
+            sourceDir: '{OPENCLAW_HOME}'
+          },
+          files,
+          configs,
+          mainConfig
+        }
+      };
+
+      const result = await configTemplateService.createTemplate(templateData);
+
+      if (result.success || result.id) {
+        setImportResult({
+          success: true,
+          importedCount: selectedFiles.length,
+          templateId: result.id || result.data?.id
+        });
+        setCurrentStep(2);
+        message.success('配置导入成功！');
+
+        if (onComplete) {
+          onComplete();
+        }
+      } else {
+        throw new Error(result.error || '保存模版失败');
       }
     } catch (err) {
       message.error('导入失败: ' + err.message);
+      setImportResult({
+        success: false,
+        error: err.message
+      });
+      setCurrentStep(2);
     } finally {
       setLoading(false);
     }
   };
 
-  const toggleFile = (path) => {
-    setSelectedFiles(prev => {
-      if (prev.includes(path)) {
-        return prev.filter(p => p !== path);
-      } else {
-        return [...prev, path];
-      }
-    });
-  };
-
-  const selectAll = () => {
-    setSelectedFiles(configFiles.filter(f => f.shouldCopy).map(f => f.path));
-  };
-
-  const selectNone = () => {
-    setSelectedFiles([]);
-  };
-
-  const renderConnectionStatus = () => {
-    if (connecting) {
-      return (
-        <Card>
-          <div style={{ textAlign: 'center', padding: 40 }}>
-            <Spin tip="正在连接OpenClaw Gateway..." />
-          </div>
-        </Card>
-      );
-    }
-
-    if (!connected) {
-      return (
-        <Card>
-          <Alert
-            message="无法连接到OpenClaw Gateway"
-            description={
-              <div>
-                <Paragraph>
-                  请先运行OpenClaw Launcher来启动OpenClaw服务
-                </Paragraph>
-                <Paragraph type="secondary">
-                  Launcher会自动检测OpenClaw安装状态
-                </Paragraph>
-              </div>
-            }
-            type="error"
-            showIcon
-            action={
-              <Button size="small" icon={<ReloadOutlined />} onClick={initGateway}>
-                重试
-              </Button>
-            }
-          />
-        </Card>
-      );
-    }
-
-    return null;
-  };
+  const renderDetecting = () => (
+    <Card>
+      <div style={{ textAlign: 'center', padding: 40 }}>
+        <Spin tip="正在自动检测OpenClaw配置..." />
+      </div>
+    </Card>
+  );
 
   const renderStep0 = () => (
-    <Card title="选择配置目录" extra={<Button size="small" icon={<ReloadOutlined />} onClick={detectDirectories} loading={loading}>重新检测</Button>}>
+    <Card title="配置检测">
       <Alert
-        message="目录选择说明"
+        message="未检测到OpenClaw配置"
         description={
           <div>
-            <Paragraph>
-              <strong>📁 OpenClaw配置目录：</strong>
-              通常位于 <Text code>C:\Users\{'{用户名}'}\.openclaw</Text>，包含openclaw.json主配置文件
-            </Paragraph>
+            <Paragraph>请确保已安装并运行过 OpenClaw</Paragraph>
             <Paragraph type="secondary">
-              目录检测会自动查找常见配置位置，您也可以手动输入路径。
+              配置目录通常位于: <Text code>C:\Users\{'{用户名}'}\.openclaw</Text>
             </Paragraph>
           </div>
         }
-        type="info"
+        type="warning"
         showIcon
-        style={{ marginBottom: 16 }}
+        action={
+          <Button onClick={autoDetectAndLoad} loading={detecting}>
+            重新检测
+          </Button>
+        }
       />
-
-      {detectedDirs?.detected && (
-        <Alert
-          message="检测到OpenClaw配置"
-          description={`目录: ${detectedDirs.openclaw_directory}`}
-          type="success"
-          showIcon
-          style={{ marginBottom: 16 }}
-        />
-      )}
-
-      <Form layout="vertical">
-        <Form.Item label="OpenClaw配置目录路径">
-          <Space.Compact style={{ width: '100%' }}>
-            <Input
-              value={directoryPath}
-              onChange={(e) => setDirectoryPath(e.target.value)}
-              placeholder="例如: C:\Users\Acer\.openclaw"
-              prefix={<FolderOpenOutlined />}
-              disabled={loading}
-            />
-            <Button icon={<FolderOpenOutlined />} onClick={handleManualPath}>
-              选择
-            </Button>
-          </Space.Compact>
-        </Form.Item>
-
-        <Button
-          type="primary"
-          icon={<FileTextOutlined />}
-          onClick={handlePreview}
-          loading={loading}
-          disabled={!directoryPath}
-        >
-          预览配置
-        </Button>
-      </Form>
     </Card>
   );
 
   const renderStep1 = () => (
     <Card
-      title="选择要导入的文件"
+      title={
+        <Space>
+          <FolderOpenOutlined />
+          <span>配置目录: {configDir}</span>
+        </Space>
+      }
       extra={
         <Space>
           <Button size="small" onClick={selectAll}>全选</Button>
@@ -246,62 +425,130 @@ const LocalConfigImport = ({ onComplete }) => {
       }
     >
       <Alert
-        message={`找到 ${configFiles.length} 个配置文件`}
-        description="选择要导入的配置文件，建议导入所有配置文件以确保完整迁移"
+        message={`找到 ${configFiles.length} 个文件，已选择 ${selectedFiles.length} 个`}
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
       />
 
-      <div style={{ maxHeight: 400, overflow: 'auto' }}>
-        {configFiles.map(file => (
-          <div
-            key={file.path}
-            style={{
-              padding: '8px 12px',
-              borderBottom: '1px solid #f0f0f0',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              background: selectedFiles.includes(file.path) ? '#f6ffed' : 'transparent'
-            }}
+      <Collapse
+        defaultActiveKey={Object.keys(groupedFiles)}
+        style={{ marginBottom: 16 }}
+      >
+        {Object.entries(groupedFiles).map(([groupName, group]) => (
+          <Panel
+            key={groupName}
+            header={
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Space>
+                  {getGroupIcon(groupName)}
+                  <Text strong>{getGroupLabel(groupName)}</Text>
+                  <Text type="secondary">({group.count} 个文件)</Text>
+                </Space>
+                <Space onClick={(e) => e.stopPropagation()}>
+                  <Checkbox
+                    checked={group.selectedCount === group.count}
+                    indeterminate={group.selectedCount > 0 && group.selectedCount < group.count}
+                    onChange={() => toggleGroup(groupName)}
+                  >
+                    {group.selectedCount}/{group.count}
+                  </Checkbox>
+                </Space>
+              </div>
+            }
           >
-            <input
-              type="checkbox"
-              checked={selectedFiles.includes(file.path)}
-              onChange={() => toggleFile(file.path)}
-            />
-            <FileTextOutlined />
-            <Text style={{ flex: 1, fontSize: 12 }}>{file.path}</Text>
-            {file.shouldCopy === false && (
-              <Tag color="default">不复制</Tag>
+            {group.subGroups ? (
+              <Collapse
+                defaultActiveKey={Object.keys(group.subGroups)}
+                style={{ border: 'none', background: 'transparent' }}
+              >
+                {Object.entries(group.subGroups).map(([subGroupName, subGroup]) => (
+                  <Panel
+                    key={subGroupName}
+                    style={{ marginBottom: 8, background: '#fafafa' }}
+                    header={
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <Space>
+                          {getGroupIcon(subGroupName, true)}
+                          <Text>{getGroupLabel(subGroupName)}</Text>
+                          <Text type="secondary" style={{ fontSize: 12 }}>({subGroup.count} 个文件)</Text>
+                        </Space>
+                        <Space onClick={(e) => e.stopPropagation()}>
+                          <Checkbox
+                            checked={subGroup.selectedCount === subGroup.count}
+                            indeterminate={subGroup.selectedCount > 0 && subGroup.selectedCount < subGroup.count}
+                            onChange={() => toggleGroup(groupName, subGroupName)}
+                          >
+                            {subGroup.selectedCount}/{subGroup.count}
+                          </Checkbox>
+                        </Space>
+                      </div>
+                    }
+                  >
+                    <List
+                      size="small"
+                      dataSource={subGroup.files}
+                      renderItem={item => (
+                        <List.Item
+                          style={{ 
+                            cursor: 'pointer', 
+                            background: selectedFiles.includes(item.path) ? '#f6ffed' : 'transparent',
+                            padding: '6px 12px'
+                          }}
+                          onClick={() => toggleFile(item.path)}
+                        >
+                          <div style={{ display: 'flex', width: '100%', alignItems: 'center' }}>
+                            <Checkbox checked={selectedFiles.includes(item.path)} style={{ marginRight: 8 }} />
+                            <FileTextOutlined style={{ marginRight: 8, color: '#1890ff' }} />
+                            <Text style={{ flex: 1 }}>{item.relativePath || item.name}</Text>
+                            <Text type="secondary" style={{ marginRight: 8, fontSize: 12 }}>{formatFileSize(item.size)}</Text>
+                            <Text code style={{ fontSize: 11 }}>{item.category}</Text>
+                          </div>
+                        </List.Item>
+                      )}
+                    />
+                  </Panel>
+                ))}
+              </Collapse>
+            ) : (
+              <List
+                size="small"
+                dataSource={group.files}
+                renderItem={item => (
+                  <List.Item
+                    style={{ 
+                      cursor: 'pointer', 
+                      background: selectedFiles.includes(item.path) ? '#f6ffed' : 'transparent',
+                      padding: '8px 12px'
+                    }}
+                    onClick={() => toggleFile(item.path)}
+                  >
+                    <div style={{ display: 'flex', width: '100%', alignItems: 'center' }}>
+                      <Checkbox checked={selectedFiles.includes(item.path)} style={{ marginRight: 8 }} />
+                      <FileTextOutlined style={{ marginRight: 8, color: '#1890ff' }} />
+                      <Text style={{ flex: 1 }}>{item.relativePath || item.name}</Text>
+                      <Text type="secondary" style={{ marginRight: 8, fontSize: 12 }}>{formatFileSize(item.size)}</Text>
+                      <Text code style={{ fontSize: 11 }}>{item.category}</Text>
+                    </div>
+                  </List.Item>
+                )}
+              />
             )}
-            {file.category && (
-              <Tag color="blue">{file.category}</Tag>
-            )}
-          </div>
+          </Panel>
         ))}
-      </div>
+      </Collapse>
 
-      <Divider />
+      <Divider style={{ margin: '12px 0' }} />
 
-      <Form layout="vertical">
-        <Form.Item label="配置模版名称">
-          <Input
-            value={templateName}
-            onChange={(e) => setTemplateName(e.target.value)}
-            placeholder="例如: 我的配置 v1.0"
-          />
-        </Form.Item>
-        <Form.Item label="配置描述 (可选)">
-          <TextArea
-            value={templateDesc}
-            onChange={(e) => setTemplateDesc(e.target.value)}
-            placeholder="描述这个配置的用途..."
-            rows={2}
-          />
-        </Form.Item>
-      </Form>
+      <Space.Compact style={{ width: '100%', marginBottom: 16 }}>
+        <Text style={{ lineHeight: '32px', marginRight: 8 }}>模版名称:</Text>
+        <Input
+          value={templateName}
+          onChange={(e) => setTemplateName(e.target.value)}
+          placeholder={`本地配置 ${new Date().toLocaleDateString()}`}
+          style={{ flex: 1 }}
+        />
+      </Space.Compact>
 
       <Space>
         <Button
@@ -313,7 +560,9 @@ const LocalConfigImport = ({ onComplete }) => {
         >
           导入配置 ({selectedFiles.length})
         </Button>
-        <Button onClick={() => setCurrentStep(0)}>返回</Button>
+        <Button onClick={autoDetectAndLoad} loading={detecting}>
+          重新检测
+        </Button>
       </Space>
     </Card>
   );
@@ -321,33 +570,20 @@ const LocalConfigImport = ({ onComplete }) => {
   const renderStep2 = () => (
     <Card title="导入结果">
       {importResult?.success ? (
-        <>
-          <Alert
-            message="配置导入成功！"
-            description={
-              <div>
-                <Paragraph>成功导入 {importResult.importedCount} 个文件</Paragraph>
-                {importResult.templateId && (
-                  <Paragraph type="secondary">模版ID: {importResult.templateId}</Paragraph>
-                )}
-              </div>
-            }
-            type="success"
-            showIcon
-          />
-
-          <div style={{ marginTop: 16 }}>
-            <Button type="primary" onClick={() => {
-              setCurrentStep(0);
-              setDirectoryPath('');
-              setConfigFiles([]);
-              setSelectedFiles([]);
-              setImportResult(null);
-            }}>
-              继续导入
-            </Button>
-          </div>
-        </>
+        <Alert
+          message="配置导入成功！"
+          description={
+            <div>
+              <Paragraph>成功导入 {importResult.importedCount} 个文件</Paragraph>
+              {importResult.templateId && (
+                <Paragraph type="secondary">模版ID: {importResult.templateId}</Paragraph>
+              )}
+            </div>
+          }
+          type="success"
+          showIcon
+          icon={<CheckCircleOutlined />}
+        />
       ) : (
         <Alert
           message="导入失败"
@@ -356,31 +592,42 @@ const LocalConfigImport = ({ onComplete }) => {
           showIcon
         />
       )}
+
+      <div style={{ marginTop: 16 }}>
+        <Space>
+          <Button type="primary" onClick={() => {
+            setCurrentStep(1);
+            setImportResult(null);
+          }}>
+            继续导入
+          </Button>
+          <Button onClick={autoDetectAndLoad}>
+            重新检测
+          </Button>
+        </Space>
+      </div>
     </Card>
   );
 
   return (
-    <div style={{ padding: '24px' }}>
-      <Title level={2}>本地配置导入</Title>
+    <div>
+      <Title level={4}>本地配置导入</Title>
       <Paragraph type="secondary">
-        从本地OpenClaw配置目录导入配置文件
+        自动检测并导入本地OpenClaw配置
       </Paragraph>
 
-      {renderConnectionStatus()}
-
-      <div style={{ marginTop: 16 }}>
+      <div style={{ marginBottom: 16 }}>
         <Steps current={currentStep} size="small">
-          <Step title="选择目录" />
+          <Step title="自动检测" />
           <Step title="选择文件" />
           <Step title="完成" />
         </Steps>
       </div>
 
-      <div style={{ marginTop: 16 }}>
-        {currentStep === 0 && renderStep0()}
-        {currentStep === 1 && renderStep1()}
-        {currentStep === 2 && renderStep2()}
-      </div>
+      {detecting && currentStep === 0 && renderDetecting()}
+      {!detecting && currentStep === 0 && renderStep0()}
+      {currentStep === 1 && renderStep1()}
+      {currentStep === 2 && renderStep2()}
     </div>
   );
 };

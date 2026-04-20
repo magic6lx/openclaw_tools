@@ -109,7 +109,7 @@ const ClientMonitorService = {
       screenResolution: `${screen.width}x${screen.height}`,
       colorDepth: screen.colorDepth || 'Unknown',
       hardwareConcurrency: navigator.hardwareConcurrency || 'Unknown',
-      deviceMemory: navigator.deviceMemory ? `${navigator.deviceMemory}GB` : 'Unknown',
+      deviceMemory: navigator.deviceMemory ? navigator.deviceMemory : null,
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       timezoneOffset: new Date().getTimezoneOffset(),
       cookieEnabled: navigator.cookieEnabled,

@@ -16,6 +16,11 @@ const InvitationCode = sequelize.define('InvitationCode', {
     type: DataTypes.ENUM('active', 'disabled'),
     defaultValue: 'active'
   },
+  role: {
+    type: DataTypes.ENUM('user', 'admin'),
+    defaultValue: 'user',
+    comment: '邀请码角色：user=普通用户, admin=管理员'
+  },
   max_devices: {
     type: DataTypes.INTEGER,
     defaultValue: 3
@@ -64,7 +69,8 @@ const InvitationCode = sequelize.define('InvitationCode', {
   tableName: 'invitation_codes',
   indexes: [
     { fields: ['code'] },
-    { fields: ['status'] }
+    { fields: ['status'] },
+    { fields: ['role'] }
   ]
 });
 

@@ -25,11 +25,15 @@ const apiProxyRouter = require('./routes/apiProxy');
 
 const app = express();
 
-app.use(cors());
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3002;
 
 app.use('/api/invitation-codes', invitationCodesRouter);
 app.use('/api/auth', authRouter);
@@ -126,7 +130,8 @@ const startServer = async () => {
     await testConnection();
     // await syncDatabase(); // 临时禁用自动同步，避免索引限制错误
     
-    app.listen(PORT, () => {
+    const HOST = process.env.NODE_ENV === 'production' ? '0.0.0.0' : '0.0.0.0';
+    app.listen(PORT, HOST, () => {
       console.log(`服务器运行在端口 ${PORT}`);
       console.log(`API文档: http://localhost:${PORT}/api-docs`);
     });

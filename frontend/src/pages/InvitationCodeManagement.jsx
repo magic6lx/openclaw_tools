@@ -293,6 +293,17 @@ function InvitationCodeManagement() {
       },
     },
     {
+      title: '角色',
+      dataIndex: 'role',
+      key: 'role',
+      width: 100,
+      render: (role) => (
+        <Tag color={role === 'admin' ? 'purple' : 'cyan'}>
+          {role === 'admin' ? '管理员' : '普通用户'}
+        </Tag>
+      ),
+    },
+    {
       title: '设备数',
       dataIndex: 'current_devices',
       key: 'current_devices',

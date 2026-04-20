@@ -35,14 +35,13 @@ class InvitationCodeService {
     }
   }
 
-  async generateCode(maxDevices = 3, tokensLimit = 50000, expiresInMonths = 3, requestsLimit = 10) {
+  async generateCode(maxDevices = 3, tokensLimit = 50000, expiresInMonths = 3, requestsLimit = 10, role = 'user') {
     try {
       const code = await InvitationCodeGenerator.generateUnique(InvitationCode);
       
       const expiresAt = new Date();
       expiresAt.setMonth(expiresAt.getMonth() + expiresInMonths);
       
-      // 自动生成临时API密钥
       const apiKeyId = generateKeyId();
       const apiSecretKey = generateSecretKey();
       
@@ -57,7 +56,8 @@ class InvitationCodeService {
         expires_at: expiresAt,
         api_key_id: apiKeyId,
         api_secret_key: apiSecretKey,
-        status: 'active'
+        status: 'active',
+        role: role
       });
       
       return {
@@ -128,6 +128,7 @@ class InvitationCodeService {
       os_type: deviceInfo.os_type,
       os_version: deviceInfo.os_version,
       hardware_info: deviceInfo.hardware_info,
+      role: invitationCode.role || 'user',
       status: 'active',
       last_login_at: new Date()
     });

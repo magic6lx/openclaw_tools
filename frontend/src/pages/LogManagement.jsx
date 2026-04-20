@@ -14,6 +14,8 @@ import {
   Row,
   Col,
   Tooltip,
+  Tabs,
+  Badge,
 } from 'antd';
 import {
   SearchOutlined,
@@ -23,22 +25,32 @@ import {
   UserOutlined,
   MobileOutlined,
   CopyOutlined,
+  BugOutlined,
 } from '@ant-design/icons';
 import { logService } from '../services/log';
+import localLauncherService from '../services/localLauncherService';
 import dayjs from 'dayjs';
 
 const { RangePicker } = DatePicker;
 const { Option } = Select;
+const { TabPane } = Tabs;
 
 function LogManagement() {
-  const [logs, setLogs] = useState([]);
+  const [activeTab, setActiveTab] = useState('server');
+  const [serverLogs, setServerLogs] = useState([]);
+  const [launcherLogs, setLauncherLogs] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [launcherLoading, setLauncherLoading] = useState(false);
   const [filters, setFilters] = useState({
     operation_stage: undefined,
     level: undefined,
     query: '',
     start_date: undefined,
     end_date: undefined,
+  });
+  const [launcherFilters, setLauncherFilters] = useState({
+    level: 'all',
+    query: '',
   });
   const [stats, setStats] = useState({
     total_logs: 0,
@@ -51,11 +63,21 @@ function LogManagement() {
     total: 0,
   });
   const [dateRange, setDateRange] = useState([dayjs().startOf('day'), dayjs().endOf('day')]);
+  const [launcherStats, setLauncherStats] = useState({
+    total: 0,
+    errorCount: 0,
+  });
 
   useEffect(() => {
     loadLogs();
     loadStats();
   }, [pagination.current, pagination.pageSize, filters]);
+
+  useEffect(() => {
+    if (activeTab === 'launcher') {
+      loadLauncherLogs();
+    }
+  }, [activeTab, launcherFilters]);
 
   const loadLogs = async () => {
     setLoading(true);
@@ -66,14 +88,19 @@ function LogManagement() {
         limit: pagination.pageSize,
       });
       if (response.success) {
-        setLogs(response.data.logs);
+        setServerLogs(response.data.logs || []);
         setPagination({
           ...pagination,
-          total: response.data.total,
+          total: response.data.total || 0,
         });
+      } else {
+        console.warn('获取日志失败:', response);
+        setServerLogs([]);
       }
     } catch (error) {
-      message.error('加载日志失败');
+      console.error('加载日志失败:', error);
+      message.error('加载日志失败: ' + (error.message || '网络错误'));
+      setServerLogs([]);
     } finally {
       setLoading(false);
     }
@@ -87,6 +114,42 @@ function LogManagement() {
       }
     } catch (error) {
       console.error('加载统计失败:', error);
+    }
+  };
+
+  const loadLauncherLogs = async () => {
+    setLauncherLoading(true);
+    try {
+      const response = await localLauncherService.getLauncherLogs(500);
+      if (response.success) {
+        let logs = response.logs || [];
+
+        if (launcherFilters.level !== 'all') {
+          logs = logs.filter(log => log.level === launcherFilters.level);
+        }
+
+        if (launcherFilters.query) {
+          const q = launcherFilters.query.toLowerCase();
+          logs = logs.filter(log =>
+            (log.message && log.message.toLowerCase().includes(q)) ||
+            (log.invitation_code && log.invitation_code.toLowerCase().includes(q)) ||
+            (log.device_id && log.device_id.toLowerCase().includes(q))
+          );
+        }
+
+        setLauncherLogs(logs);
+        setLauncherStats({
+          total: response.total || 0,
+          errorCount: (response.logs || []).filter(l => l.level === 'error').length,
+        });
+      } else {
+        message.warning('无法加载Launcher日志: ' + (response.error || '未知错误'));
+        setLauncherLogs([]);
+      }
+    } catch (error) {
+      message.error('加载Launcher日志失败');
+    } finally {
+      setLauncherLoading(false);
     }
   };
 
@@ -166,7 +229,7 @@ function LogManagement() {
 
   const handleCopyLogs = async () => {
     try {
-      const logText = logs.map(log => {
+      const logText = serverLogs.map(log => {
         const user = log.user_id || '系统';
         const stage = getOperationStageText(log.operation_stage);
         const level = log.level;
@@ -176,14 +239,32 @@ function LogManagement() {
       }).join('\n');
 
       await navigator.clipboard.writeText(logText);
-      message.success(`已复制 ${logs.length} 条日志到剪贴板`);
+      message.success(`已复制 ${serverLogs.length} 条日志到剪贴板`);
     } catch (error) {
       message.error('复制失败，请手动复制');
       console.error('复制失败:', error);
     }
   };
 
-  const columns = [
+  const handleCopyLauncherLogs = async () => {
+    try {
+      const logText = launcherLogs.map(log => {
+        const time = log.timestamp ? new Date(parseInt(log.timestamp)).toLocaleString() : '';
+        const level = log.level || 'info';
+        const msg = log.message || '';
+        const code = log.invitation_code || '';
+        const device = log.device_id || '';
+        return `[${time}] [${level.toUpperCase()}] [code=${code}] [device=${device}] ${msg}`;
+      }).join('\n');
+
+      await navigator.clipboard.writeText(logText);
+      message.success(`已复制 ${launcherLogs.length} 条日志到剪贴板`);
+    } catch (error) {
+      message.error('复制失败，请手动复制');
+    }
+  };
+
+  const serverColumns = [
     {
       title: 'ID',
       dataIndex: 'id',
@@ -251,6 +332,65 @@ function LogManagement() {
     },
   ];
 
+  const launcherColumns = [
+    {
+      title: '级别',
+      dataIndex: 'level',
+      key: 'level',
+      width: 80,
+      render: (level) => {
+        const colorMap = {
+          error: 'red',
+          warn: 'orange',
+          info: 'blue',
+          debug: 'default',
+        };
+        return <Tag color={colorMap[level] || 'default'}>{level?.toUpperCase()}</Tag>;
+      },
+    },
+    {
+      title: '时间',
+      dataIndex: 'timestamp',
+      key: 'timestamp',
+      width: 180,
+      render: (ts) => ts || '-',
+    },
+    {
+      title: '邀请码',
+      dataIndex: 'invitation_code',
+      key: 'invitation_code',
+      width: 140,
+      render: (code) => code ? <Tag color="cyan">{code}</Tag> : <Tag color="default">-</Tag>,
+    },
+    {
+      title: '设备ID',
+      dataIndex: 'device_id',
+      key: 'device_id',
+      width: 160,
+      render: (id) => id ? <Tag icon={<MobileOutlined />} color="green">{id.substring(0, 12)}...</Tag> : <Tag color="default">-</Tag>,
+    },
+    {
+      title: '日志内容',
+      dataIndex: 'message',
+      key: 'message',
+      ellipsis: true,
+      render: (msg) => <Tooltip title={msg}>{msg}</Tooltip>,
+    },
+  ];
+
+  const filteredLauncherLogs = launcherLogs.filter(log => {
+    if (launcherFilters.level !== 'all' && log.level !== launcherFilters.level) {
+      return false;
+    }
+    if (launcherFilters.query) {
+      const q = launcherFilters.query.toLowerCase();
+      return (log.message && log.message.toLowerCase().includes(q)) ||
+             (log.invitation_code && log.invitation_code.toLowerCase().includes(q)) ||
+             (log.device_id && log.device_id.toLowerCase().includes(q));
+    }
+    return true;
+  });
+
   return (
     <div>
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
@@ -269,100 +409,175 @@ function LogManagement() {
               <Statistic
                 title={getOperationStageText(item.operation_stage)}
                 value={item.count}
-                valueStyle={{
-                  color: '#3f8600',
-                }}
+                valueStyle={{ color: '#3f8600' }}
               />
             </Card>
           </Col>
         ))}
       </Row>
 
-      <Card
-        title="日志管理"
-        extra={
-          <Space>
-            <Button icon={<CopyOutlined />} onClick={handleCopyLogs}>
-              复制本页
-            </Button>
-            <Popconfirm
-              title="确认删除"
-              description="确定要删除符合条件的日志吗？"
-              onConfirm={handleDelete}
-              okText="确定"
-              cancelText="取消"
-            >
-              <Button danger icon={<DeleteOutlined />}>
-                删除日志
+      <Card>
+        <Tabs activeKey={activeTab} onChange={setActiveTab}>
+          <TabPane tab="服务端日志" key="server">
+            <Space style={{ marginBottom: 16 }} wrap>
+              <Input
+                placeholder="搜索日志内容"
+                prefix={<SearchOutlined />}
+                value={filters.query}
+                onChange={(e) => setFilters({ ...filters, query: e.target.value })}
+                style={{ width: 200 }}
+                onPressEnter={handleSearch}
+              />
+              <RangePicker
+                showTime
+                value={dateRange}
+                onChange={handleDateRangeChange}
+                style={{ width: 350 }}
+              />
+              <Select
+                placeholder="操作阶段"
+                value={filters.operation_stage}
+                onChange={(value) => setFilters({ ...filters, operation_stage: value })}
+                style={{ width: 120 }}
+                allowClear
+              >
+                <Option value="installation">安装过程</Option>
+                <Option value="configuration">配置过程</Option>
+                <Option value="runtime">运行过程</Option>
+              </Select>
+              <Select
+                placeholder="日志级别"
+                value={filters.level}
+                onChange={(value) => setFilters({ ...filters, level: value })}
+                style={{ width: 100 }}
+                allowClear
+              >
+                <Option value="debug">Debug</Option>
+                <Option value="info">Info</Option>
+                <Option value="warn">Warn</Option>
+                <Option value="error">Error</Option>
+              </Select>
+              <Button type="primary" icon={<FilterOutlined />} onClick={handleSearch}>
+                搜索
               </Button>
-            </Popconfirm>
-            <Button icon={<ReloadOutlined />} onClick={loadLogs}>
-              刷新
-            </Button>
-          </Space>
-        }
-      >
-        <Space style={{ marginBottom: 16 }} wrap>
-          <Input
-            placeholder="搜索日志内容"
-            prefix={<SearchOutlined />}
-            value={filters.query}
-            onChange={(e) => setFilters({ ...filters, query: e.target.value })}
-            style={{ width: 200 }}
-            onPressEnter={handleSearch}
-          />
-          <RangePicker
-            showTime
-            value={dateRange}
-            onChange={handleDateRangeChange}
-            style={{ width: 350 }}
-          />
-          <Select
-            placeholder="操作阶段"
-            value={filters.operation_stage}
-            onChange={(value) => setFilters({ ...filters, operation_stage: value })}
-            style={{ width: 120 }}
-            allowClear
-          >
-            <Option value="installation">安装过程</Option>
-            <Option value="configuration">配置过程</Option>
-            <Option value="runtime">运行过程</Option>
-          </Select>
-          <Select
-            placeholder="日志级别"
-            value={filters.level}
-            onChange={(value) => setFilters({ ...filters, level: value })}
-            style={{ width: 100 }}
-            allowClear
-          >
-            <Option value="debug">Debug</Option>
-            <Option value="info">Info</Option>
-            <Option value="warn">Warn</Option>
-            <Option value="error">Error</Option>
-          </Select>
-          <Button type="primary" icon={<FilterOutlined />} onClick={handleSearch}>
-            搜索
-          </Button>
-          <Button onClick={handleReset}>重置</Button>
-        </Space>
+              <Button onClick={handleReset}>重置</Button>
+            </Space>
 
-        <Table
-          columns={columns}
-          dataSource={logs}
-          rowKey="id"
-          loading={loading}
-          pagination={{
-            current: pagination.current,
-            pageSize: pagination.pageSize,
-            total: pagination.total,
-            showSizeChanger: true,
-            showTotal: (total) => `共 ${total} 条`,
-            onChange: (page, pageSize) => {
-              setPagination({ ...pagination, current: page, pageSize });
-            },
-          }}
-          scroll={{ x: 800 }}
-        />
+            <Space style={{ marginBottom: 16 }}>
+              <Button icon={<CopyOutlined />} onClick={handleCopyLogs}>
+                复制本页
+              </Button>
+              <Popconfirm
+                title="确认删除"
+                description="确定要删除符合条件的日志吗？"
+                onConfirm={handleDelete}
+                okText="确定"
+                cancelText="取消"
+              >
+                <Button danger icon={<DeleteOutlined />}>
+                  删除日志
+                </Button>
+              </Popconfirm>
+              <Button icon={<ReloadOutlined />} onClick={loadLogs}>
+                刷新
+              </Button>
+            </Space>
+
+            <Table
+              columns={serverColumns}
+              dataSource={serverLogs}
+              rowKey="id"
+              loading={loading}
+              pagination={{
+                current: pagination.current,
+                pageSize: pagination.pageSize,
+                total: pagination.total,
+                showSizeChanger: true,
+                showTotal: (total) => `共 ${total} 条`,
+                onChange: (page, pageSize) => {
+                  setPagination({ ...pagination, current: page, pageSize });
+                },
+              }}
+              scroll={{ x: 800 }}
+            />
+          </TabPane>
+
+          <TabPane
+            tab={
+              <span>
+                Launcher日志
+                {launcherStats.errorCount > 0 && (
+                  <Badge count={launcherStats.errorCount} style={{ marginLeft: 8 }} />
+                )}
+              </span>
+            }
+            key="launcher"
+          >
+            <Row gutter={16} style={{ marginBottom: 16 }}>
+              <Col span={12}>
+                <Statistic title="Launcher日志总数" value={launcherStats.total} />
+              </Col>
+              <Col span={12}>
+                <Statistic
+                  title="Error数量"
+                  value={launcherStats.errorCount}
+                  valueStyle={{ color: launcherStats.errorCount > 0 ? '#ff4d4f' : '#52c41a' }}
+                  prefix={<BugOutlined />}
+                />
+              </Col>
+            </Row>
+
+            <Space style={{ marginBottom: 16 }} wrap>
+              <Input
+                placeholder="搜索日志内容/邀请码/设备ID"
+                prefix={<SearchOutlined />}
+                value={launcherFilters.query}
+                onChange={(e) => setLauncherFilters({ ...launcherFilters, query: e.target.value })}
+                style={{ width: 280 }}
+                allowClear
+              />
+              <Select
+                value={launcherFilters.level}
+                onChange={(value) => setLauncherFilters({ ...launcherFilters, level: value })}
+                style={{ width: 120 }}
+              >
+                <Option value="all">全部级别</Option>
+                <Option value="error">Error</Option>
+                <Option value="warn">Warn</Option>
+                <Option value="info">Info</Option>
+                <Option value="debug">Debug</Option>
+              </Select>
+              <Button
+                type={launcherFilters.level === 'error' ? 'primary' : 'default'}
+                danger
+                icon={<BugOutlined />}
+                onClick={() => setLauncherFilters({ ...launcherFilters, level: launcherFilters.level === 'error' ? 'all' : 'error' })}
+              >
+                只看Error
+              </Button>
+              <Button icon={<CopyOutlined />} onClick={handleCopyLauncherLogs}>
+                复制本页
+              </Button>
+              <Button icon={<ReloadOutlined />} onClick={loadLauncherLogs}>
+                刷新
+              </Button>
+            </Space>
+
+            <Table
+              columns={launcherColumns}
+              dataSource={filteredLauncherLogs}
+              rowKey={(record, index) => `${record.timestamp}-${index}`}
+              loading={launcherLoading}
+              pagination={{
+                pageSize: 50,
+                showSizeChanger: true,
+                showTotal: (total) => `共 ${total} 条`,
+              }}
+              scroll={{ x: 900 }}
+              size="small"
+            />
+          </TabPane>
+        </Tabs>
       </Card>
     </div>
   );

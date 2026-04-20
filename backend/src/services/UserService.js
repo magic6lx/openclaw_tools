@@ -24,14 +24,21 @@ class UserService {
           include: [{ model: require('../models').InvitationCode, as: 'invitationCode' }]
         });
       } else {
-        await user.update({ last_login_at: new Date() });
+        await user.update({
+          last_login_at: new Date(),
+          role: user.invitationCode.role || 'user'
+        });
+        user = await User.findByPk(user.id, {
+          include: [{ model: require('../models').InvitationCode, as: 'invitationCode' }]
+        });
       }
 
       const token = authService.generateToken({
         userId: user.id,
         invitationCodeId: user.invitation_code_id,
         invitationCode: user.invitationCode.code,
-        deviceId: user.device_id
+        deviceId: user.device_id,
+        role: user.invitationCode.role
       });
 
       // 获取邀请码的API配置
@@ -52,7 +59,7 @@ class UserService {
           device_name: user.device_name,
           os_type: user.os_type,
           os_version: user.os_version,
-          role: user.role,
+          role: user.invitationCode.role,
           invitation_code: user.invitationCode.code,
           api_config: apiConfig
         },
@@ -90,7 +97,7 @@ class UserService {
       os_type: user.os_type,
       os_version: user.os_version,
       hardware_info: user.hardware_info,
-      role: user.role,
+      role: user.invitationCode ? user.invitationCode.role : 'user',
       status: user.status,
       last_login_at: user.last_login_at,
       invitation_code: user.invitationCode.code,

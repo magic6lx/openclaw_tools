@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Steps, Card, Button, Form, Input, Select, message, Spin, Alert, Tabs, Table, Tag, Popconfirm, Drawer, Descriptions, Space } from 'antd';
-import { ArrowRightOutlined, ArrowLeftOutlined, CheckOutlined, PlusOutlined, EditOutlined, DeleteOutlined, ExportOutlined, ImportOutlined, EyeOutlined } from '@ant-design/icons';
+import { ArrowRightOutlined, ArrowLeftOutlined, CheckOutlined, PlusOutlined, EditOutlined, DeleteOutlined, ExportOutlined, EyeOutlined } from '@ant-design/icons';
 import { recommendationService } from '../services/recommendation';
 import { userConfigService } from '../services/userConfig';
-import invitationCodeService from '../services/invitationCodeService';
-import { authService } from '../services/auth';
+import localLauncherService from '../services/localLauncherService';
+import { configTemplateService } from '../services/configTemplate';
 
 const { Step } = Steps;
 const { Option } = Select;
@@ -15,6 +15,7 @@ function ConfigWizard() {
   const [current, setCurrent] = useState(0);
   const [loading, setLoading] = useState(false);
   const [recommendations, setRecommendations] = useState([]);
+  const [approvedTemplates, setApprovedTemplates] = useState([]);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [environmentInfo, setEnvironmentInfo] = useState({
     os_type: 'Windows',
@@ -29,43 +30,18 @@ function ConfigWizard() {
       latency: 20,
     },
   });
-  const [customConfig, setCustomConfig] = useState({});
   const [form] = Form.useForm();
   
   const [configs, setConfigs] = useState([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [viewDrawerVisible, setViewDrawerVisible] = useState(false);
   const [selectedConfig, setSelectedConfig] = useState(null);
-  
-  // 邀请码相关状态
-  const [invitationCode, setInvitationCode] = useState('');
-  const [apiConfig, setApiConfig] = useState(null);
-  const [invitationCodeForm] = Form.useForm();
-  const [hasApiConfig, setHasApiConfig] = useState(false);
 
   useEffect(() => {
     loadRecommendations();
     loadConfigs();
-    checkUserApiConfig();
+    loadApprovedTemplates();
   }, []);
-
-  // 检查用户是否已有API配置
-  const checkUserApiConfig = async () => {
-    try {
-      const user = authService.getUser();
-      if (user?.api_config?.api_key_id) {
-        setApiConfig({
-          ...user.api_config,
-          proxy_url: '/api/proxy/proxy-by-code'
-        });
-        setHasApiConfig(true);
-        // 自动跳到下一步
-        setCurrent(1);
-      }
-    } catch (error) {
-      console.error('检查API配置失败:', error);
-    }
-  };
 
   const loadRecommendations = async () => {
     setLoading(true);
@@ -92,6 +68,17 @@ function ConfigWizard() {
       message.error('加载配置失败');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadApprovedTemplates = async () => {
+    try {
+      const response = await configTemplateService.getTemplates({ status: 'approved' });
+      if (response.success) {
+        setApprovedTemplates(response.data.templates || []);
+      }
+    } catch (error) {
+      console.error('加载已审核模板失败:', error);
     }
   };
 
@@ -135,30 +122,6 @@ function ConfigWizard() {
     } catch (error) {
       message.error('导出配置失败');
     }
-  };
-
-  const handleImport = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.json';
-    input.onchange = async (e) => {
-      const file = e.target.files[0];
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        try {
-          const configData = JSON.parse(event.target.result);
-          const response = await userConfigService.importConfig(configData);
-          if (response.success) {
-            message.success('配置已导入');
-            loadConfigs();
-          }
-        } catch (error) {
-          message.error('导入配置失败');
-        }
-      };
-      reader.readAsText(file);
-    };
-    input.click();
   };
 
   const handleView = (config) => {
@@ -249,97 +212,7 @@ function ConfigWizard() {
     },
   ];
 
-  // 处理邀请码激活
-  const handleActivateInvitationCode = async () => {
-    try {
-      const values = await invitationCodeForm.validateFields();
-      setLoading(true);
-      
-      const response = await invitationCodeService.getConfigByCode(values.invitation_code);
-      
-      if (response.success) {
-        setApiConfig(response.data);
-        setInvitationCode(values.invitation_code);
-        message.success('邀请码激活成功！API配置已自动获取');
-      } else {
-        message.error(response.message || '邀请码激活失败');
-      }
-    } catch (error) {
-      message.error('邀请码激活失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const steps = [
-    {
-      title: '邀请码激活',
-      content: (
-        <div>
-          {hasApiConfig ? (
-            <Alert
-              message="API配置已自动获取"
-              description={
-                <div>
-                  <p>您已使用邀请码登录，API配置已自动加载。</p>
-                  <p><strong>API Key ID:</strong> {apiConfig?.api_key_id}</p>
-                  <p><strong>Token限额:</strong> {apiConfig?.tokens_limit}</p>
-                  <p><strong>请求次数限额:</strong> {apiConfig?.requests_limit}</p>
-                  <p style={{ color: '#52c41a', marginTop: 12 }}>✓ 可以直接进入下一步</p>
-                </div>
-              }
-              type="success"
-              showIcon
-              style={{ marginBottom: 24 }}
-            />
-          ) : (
-            <>
-              <Alert
-                message="输入邀请码"
-                description="请输入您的邀请码以获取API访问配置"
-                type="info"
-                showIcon
-                style={{ marginBottom: 24 }}
-              />
-              <Form
-                form={invitationCodeForm}
-                layout="vertical"
-              >
-                <Form.Item
-                  label="邀请码"
-                  name="invitation_code"
-                  rules={[{ required: true, message: '请输入邀请码' }]}
-                >
-                  <Input.Search
-                    placeholder="例如: HGKDBQUSUAJ"
-                    enterButton="激活"
-                    onSearch={handleActivateInvitationCode}
-                    loading={loading}
-                  />
-                </Form.Item>
-              </Form>
-            </>
-          )}
-          
-          {!hasApiConfig && apiConfig && (
-            <Alert
-              message="API配置已获取"
-              description={
-                <div>
-                  <p><strong>API Key ID:</strong> {apiConfig.api_key_id}</p>
-                  <p><strong>Token限额:</strong> {apiConfig.tokens_limit}</p>
-                  <p><strong>请求次数限额:</strong> {apiConfig.requests_limit}</p>
-                  <p style={{ color: '#52c41a' }}>✓ 配置已自动保存，继续下一步即可</p>
-                </div>
-              }
-              type="success"
-              showIcon
-              style={{ marginTop: 24 }}
-            />
-          )}
-        </div>
-      ),
-    },
     {
       title: '环境检测',
       content: (
@@ -386,72 +259,52 @@ function ConfigWizard() {
         <div>
           <Spin spinning={loading}>
             <Alert
-              message={`为您推荐了 ${recommendations.length} 个配置模版`}
-              description="根据您的环境信息智能推荐"
-              type="success"
+              message={`可用配置模板 (${approvedTemplates.length} 个)`}
+              description="选择一个已审核通过的配置模板应用到本地"
+              type="info"
               showIcon
               style={{ marginBottom: 24 }}
             />
             <div style={{ maxHeight: 400, overflowY: 'auto' }}>
-              {recommendations.map((template) => (
-                <Card
-                  key={template.id}
-                  style={{ marginBottom: 16, cursor: 'pointer' }}
-                  onClick={() => setSelectedTemplate(template)}
-                  hoverable
-                  type={selectedTemplate?.id === template.id ? 'inner' : 'default'}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <div>
-                      <h4>{template.name}</h4>
-                      <p style={{ color: '#666', margin: 0 }}>{template.description}</p>
-                      <div style={{ marginTop: 8 }}>
-                        <span style={{ marginRight: 16 }}>匹配度: {template.recommendation_score.toFixed(0)}%</span>
-                        <span style={{ color: '#999' }}>{template.match_reason}</span>
+              {approvedTemplates.length === 0 ? (
+                <Alert
+                  message="暂无可用模板"
+                  description="请先在模板管理中导入配置并审核通过"
+                  type="warning"
+                  showIcon
+                />
+              ) : (
+                approvedTemplates.map((template) => (
+                  <Card
+                    key={template.id}
+                    style={{ marginBottom: 16, cursor: 'pointer' }}
+                    onClick={() => setSelectedTemplate(template)}
+                    hoverable
+                    type={selectedTemplate?.id === template.id ? 'inner' : 'default'}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <div style={{ flex: 1 }}>
+                        <h4 style={{ marginBottom: 8 }}>{template.name}</h4>
+                        <p style={{ color: '#666', margin: 0, fontSize: 13 }}>
+                          {template.description || '暂无描述'}
+                        </p>
+                        <div style={{ marginTop: 8, fontSize: 12, color: '#999' }}>
+                          <Tag color="blue">{template.category || '未分类'}</Tag>
+                          <span style={{ marginLeft: 8 }}>版本: {template.version || '1.0'}</span>
+                          <span style={{ marginLeft: 16 }}>
+                            文件数: {template.config_content?.files?.length || 0}
+                          </span>
+                        </div>
                       </div>
+                      {selectedTemplate?.id === template.id && (
+                        <CheckOutlined style={{ color: '#52c41a', fontSize: 20, marginLeft: 16 }} />
+                      )}
                     </div>
-                    {selectedTemplate?.id === template.id && (
-                      <CheckOutlined style={{ color: '#52c41a', fontSize: 20 }} />
-                    )}
-                  </div>
-                </Card>
-              ))}
+                  </Card>
+                ))
+              )}
             </div>
           </Spin>
-        </div>
-      ),
-    },
-    {
-      title: '自定义配置',
-      content: (
-        <div>
-          <Alert
-            message="自定义配置"
-            description="您可以根据需要调整配置参数"
-            type="info"
-            showIcon
-            style={{ marginBottom: 24 }}
-          />
-          <Form
-            layout="vertical"
-            onValuesChange={(_, allValues) => setCustomConfig(allValues)}
-          >
-            <Form.Item label="超时时间(ms)" name="timeout">
-              <Input type="number" placeholder="默认: 30000" />
-            </Form.Item>
-            <Form.Item label="最大重试次数" name="max_retries">
-              <Input type="number" placeholder="默认: 3" />
-            </Form.Item>
-            <Form.Item label="内存限制(GB)" name="memory_limit">
-              <Input type="number" placeholder="默认: 4" />
-            </Form.Item>
-            <Form.Item label="启用日志" name="enable_logging" valuePropName="checked">
-              <Select defaultValue={true}>
-                <Option value={true}>是</Option>
-                <Option value={false}>否</Option>
-              </Select>
-            </Form.Item>
-          </Form>
         </div>
       ),
     },
@@ -461,21 +314,27 @@ function ConfigWizard() {
         <div>
           <Alert
             message="配置已准备就绪"
-            description="确认以下配置信息后点击完成"
+            description="确认以下配置信息后点击完成应用"
             type="success"
             showIcon
             style={{ marginBottom: 24 }}
           />
           <Card>
-            <h4>选中的模版</h4>
-            <p><strong>名称:</strong> {selectedTemplate?.name}</p>
-            <p><strong>描述:</strong> {selectedTemplate?.description}</p>
-            <p><strong>版本:</strong> {selectedTemplate?.version}</p>
-            <hr style={{ margin: '16px 0' }} />
-            <h4>自定义配置</h4>
-            <pre style={{ background: '#f5f5f5', padding: 12, borderRadius: 4 }}>
-              {JSON.stringify(customConfig, null, 2)}
-            </pre>
+            <Descriptions column={1} bordered>
+              <Descriptions.Item label="模板名称">{selectedTemplate?.name}</Descriptions.Item>
+              <Descriptions.Item label="模板描述">{selectedTemplate?.description || '暂无描述'}</Descriptions.Item>
+              <Descriptions.Item label="版本">{selectedTemplate?.version || '1.0'}</Descriptions.Item>
+              <Descriptions.Item label="分类">{selectedTemplate?.category || '未分类'}</Descriptions.Item>
+              <Descriptions.Item label="文件数量">
+                {selectedTemplate?.config_content?.files?.length || 0} 个文件
+              </Descriptions.Item>
+            </Descriptions>
+            <Alert
+              message="注意：应用配置前会自动备份当前配置"
+              type="info"
+              showIcon
+              style={{ marginTop: 16 }}
+            />
           </Card>
         </div>
       ),
@@ -483,7 +342,7 @@ function ConfigWizard() {
   ];
 
   const next = () => {
-    if (current === 2 && !selectedTemplate) {
+    if (current === 1 && !selectedTemplate) {
       message.warning('请选择一个配置模版');
       return;
     }
@@ -497,18 +356,76 @@ function ConfigWizard() {
   const handleFinish = async () => {
     setLoading(true);
     try {
-      const response = await userConfigService.applyTemplate(
-        selectedTemplate.id,
-        customConfig
-      );
-      if (response.success) {
-        message.success('配置应用成功');
-        setCurrent(0);
-        setSelectedTemplate(null);
-        setCustomConfig({});
+      const templateData = selectedTemplate.config_content;
+      
+      if (!templateData?.files || templateData.files.length === 0) {
+        message.warning('模板中没有配置文件');
+        setLoading(false);
+        return;
       }
+
+      message.loading({ content: '正在备份当前配置...', key: 'applyConfig' });
+      
+      const backupResult = await localLauncherService.backupConfig();
+      
+      if (!backupResult.success) {
+        message.error({ content: '备份失败: ' + backupResult.error, key: 'applyConfig' });
+        setLoading(false);
+        return;
+      }
+
+      message.loading({ content: '正在写入配置文件...', key: 'applyConfig' });
+      
+      const statusResult = await localLauncherService.getStatus();
+      const openclawDir = statusResult?.openclawDirectory || 'C:/Users/Acer/.openclaw';
+      const homeDir = openclawDir.replace(/[\\\/]\.openclaw$/, '').replace(/\\/g, '/');
+      
+      const convertPlaceholders = (content) => {
+        if (!content || typeof content !== 'string') return content;
+        
+        return content
+          .replace(/\{OPENCLAW_HOME\}/g, openclawDir.replace(/\\/g, '/'))
+          .replace(/\{HOME\}/g, homeDir)
+          .replace(/\{DOCUMENTS\}/g, `${homeDir}/Documents`)
+          .replace(/\{DESKTOP\}/g, `${homeDir}/Desktop`);
+      };
+      
+      let successCount = 0;
+      let failCount = 0;
+      
+      for (const file of templateData.files) {
+        const convertedContent = convertPlaceholders(file.content);
+        
+        const writeResult = await localLauncherService.writeConfigFile(
+          file.relativePath,
+          convertedContent
+        );
+        
+        if (writeResult.success) {
+          successCount++;
+        } else {
+          failCount++;
+          console.error(`写入文件失败: ${file.relativePath}`, writeResult.error);
+        }
+      }
+      
+      if (failCount === 0) {
+        message.success({ 
+          content: `配置应用成功！已写入 ${successCount} 个文件，备份: ${backupResult.backupName}`, 
+          key: 'applyConfig',
+          duration: 5
+        });
+      } else {
+        message.warning({ 
+          content: `配置应用完成，${successCount} 个文件成功，${failCount} 个失败`, 
+          key: 'applyConfig' 
+        });
+      }
+      
+      setCurrent(0);
+      setSelectedTemplate(null);
     } catch (error) {
-      message.error('配置应用失败');
+      message.error('配置应用失败: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -546,19 +463,7 @@ function ConfigWizard() {
         </TabPane>
         
         <TabPane tab="配置管理" key="management">
-          <Card
-            title="配置管理"
-            extra={
-              <Space>
-                <Button
-                  icon={<ImportOutlined />}
-                  onClick={handleImport}
-                >
-                  导入配置
-                </Button>
-              </Space>
-            }
-          >
+          <Card title="配置管理">
             <Table
               columns={columns}
               dataSource={configs}

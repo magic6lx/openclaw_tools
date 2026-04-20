@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Button, Alert, Space, message, Typography, Divider, Tag, Modal, Timeline } from 'antd';
-import { CheckCircleOutlined, CloseCircleOutlined, DownloadOutlined, ReloadOutlined, PlayCircleOutlined, CloudUploadOutlined } from '@ant-design/icons';
+import { CheckCircleOutlined, CloseCircleOutlined, DownloadOutlined, ReloadOutlined, PlayCircleOutlined, CloudUploadOutlined, StopOutlined } from '@ant-design/icons';
 import localLauncherService from '../services/localLauncherService';
 
 const { Title, Text, Paragraph } = Typography;
@@ -125,34 +125,6 @@ const OpenClawInstall = () => {
     }
   };
 
-  const handleLaunch = async () => {
-    if (!status.launcherAvailable) {
-      message.error('Launcher未运行');
-      return;
-    }
-
-    setActionLoading(true);
-    setOperationLogs([]);
-    addLog('info', '正在发送启动命令...');
-
-    try {
-      const result = await localLauncherService.launchOpenClaw();
-      if (result.success) {
-        addLog('success', '启动命令已发送');
-        message.success('OpenClaw 启动命令已发送');
-        setTimeout(checkStatus, 2000);
-      } else {
-        addLog('error', '启动失败: ' + (result.error || '未知错误'));
-        message.error('启动失败: ' + (result.error || '未知错误'));
-      }
-    } catch (err) {
-      addLog('error', '启动失败: ' + err.message);
-      message.error('启动失败: ' + err.message);
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
   const renderStatusTags = () => {
     const tags = [];
 
@@ -235,18 +207,6 @@ const OpenClawInstall = () => {
 
     return (
       <Space size="middle" wrap>
-        {!status.gatewayRunning && (
-          <Button
-            type="primary"
-            icon={<PlayCircleOutlined />}
-            onClick={handleLaunch}
-            loading={actionLoading}
-            size="large"
-          >
-            启动服务
-          </Button>
-        )}
-
         <Button
           icon={<ReloadOutlined />}
           onClick={() => {

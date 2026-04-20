@@ -29,12 +29,11 @@ function MainLayout() {
   const isAdmin = user?.role === 'admin';
 
   useEffect(() => {
-    if (user) {
-      clientMonitorService.startHeartbeat(30000);
-    }
-    return () => {
-      clientMonitorService.stopHeartbeat();
-    };
+    // 心跳功能已禁用 - 用于连接 openclaw-config-backend
+    // clientMonitorService.startHeartbeat(30000);
+    // return () => {
+    //   clientMonitorService.stopHeartbeat();
+    // };
   }, [user]);
 
   const userMenuItems = [
@@ -80,11 +79,6 @@ function MainLayout() {
       key: '/logs',
       icon: <FileTextOutlined />,
       label: '日志管理',
-    },
-    {
-      key: '/client-monitor',
-      icon: <MonitorOutlined />,
-      label: '客户端监控',
     },
   ];
 

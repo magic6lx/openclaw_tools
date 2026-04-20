@@ -25,12 +25,14 @@ CREATE TABLE IF NOT EXISTS invitation_codes (
   id INT AUTO_INCREMENT PRIMARY KEY,
   code VARCHAR(11) NOT NULL UNIQUE,
   status ENUM('active', 'disabled') DEFAULT 'active',
+  role ENUM('user', 'admin') DEFAULT 'user' COMMENT '邀请码角色：user=普通用户, admin=管理员',
   max_devices INT DEFAULT 3,
   current_devices INT DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_code (code),
-  INDEX idx_status (status)
+  INDEX idx_status (status),
+  INDEX idx_role (role)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 配置模版表
