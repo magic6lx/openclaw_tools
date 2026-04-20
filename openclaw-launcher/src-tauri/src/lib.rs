@@ -1148,45 +1148,34 @@ fn fix_openclaw_config_with_output() -> String {
 }
 
 fn run_openclaw_command(args: &[&str]) -> String {
-    // gateway start 使用 Windows 计划任务，需要等待完成
-    // gateway run 是前台运行，需要在后台运行
     let is_run = args.contains(&"run") && args.contains(&"gateway");
-    
+    let is_stop = args.contains(&"stop") && args.contains(&"gateway");
+
     #[cfg(target_os = "windows")]
     let output = if is_run {
-        // 对于 gateway run 命令，我们需要在后台运行它，不等待它结束
-
-        // 使用 wmic 查找并杀掉所有openclaw gateway 进程
+        // 对于 gateway run 命令，在后台运行
         let _ = Command::new("wmic")
             .args(["process", "where", "name='node.exe' and commandline like '%openclaw%gateway%'", "call", "terminate"])
             .creation_flags(CREATE_NO_WINDOW)
-            .output();
+            .spawn();
 
-        // 等待进程完全退出
         std::thread::sleep(std::time::Duration::from_millis(1500));
 
-        // 重置 devices 目录，解决权限问题
         if let Ok(user_profile) = std::env::var("USERPROFILE") {
             let devices_dir = std::path::PathBuf::from(user_profile).join(".openclaw").join("devices");
-
-            // 删除整个目录并重新创建
             if devices_dir.exists() {
                 let _ = std::fs::remove_dir_all(&devices_dir);
             }
             let _ = std::fs::create_dir_all(&devices_dir);
-            
-            // 创建空的 JSON 文件
             let pending_path = devices_dir.join("pending.json");
             let paired_path = devices_dir.join("paired.json");
             let _ = std::fs::write(&pending_path, "[]");
             let _ = std::fs::write(&paired_path, "[]");
         }
 
-        // 获取 openclaw 的全局安装路径
         let openclaw_path = get_openclaw_module_path();
-        
+
         if let Some(mjs_path) = openclaw_path {
-            // 直接使用 node 运行 openclaw.mjs gateway run
             let mut node_args: Vec<String> = vec![mjs_path.clone()];
             for arg in args {
                 node_args.push(arg.to_string());
@@ -1198,7 +1187,6 @@ fn run_openclaw_command(args: &[&str]) -> String {
                 .map(|_| String::from("Gateway started via node (hidden)"))
                 .unwrap_or_else(|e| format!("error: {}", e))
         } else {
-            // 如果找不到，使用原来的命令
             let args_str = args.join(" ");
             Command::new("cmd")
                 .args(["/C", &format!("start /B openclaw {}", args_str)])
@@ -1207,19 +1195,28 @@ fn run_openclaw_command(args: &[&str]) -> String {
                 .map(|_| String::from("Gateway started in background (hidden window)"))
                 .unwrap_or_else(|e| format!("error: {}", e))
         }
-    } else {
-        // 对于其他命令（包括gateway start），我们等待它们结束并获取输出
-        // gateway start 使用 Windows 计划任务，需要等待完成
+    } else if is_stop {
+        // 对于 gateway stop 命令，不等待完成，直接返回
         Command::new("cmd")
-            .args(["/C", "openclaw"]).args(args)
+            .args(["/C", "start /B openclaw gateway stop"])
             .creation_flags(CREATE_NO_WINDOW)
-            .output()
-            .map(|out| {
+            .spawn()
+            .map(|_| String::from("Gateway stop command sent"))
+            .unwrap_or_else(|e| format!("error: {}", e))
+    } else {
+        // 其他命令使用 timeout
+        let args_str = args.join(" ");
+        match Command::new("cmd")
+            .args(["/C", &format!("openclaw {}", args_str)])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output() {
+            Ok(out) => {
                 let stdout = String::from_utf8_lossy(&out.stdout).to_string();
                 let stderr = String::from_utf8_lossy(&out.stderr).to_string();
                 format!("stdout: {}\nstderr: {}\nsuccess: {}", stdout, stderr, out.status.success())
-            })
-            .unwrap_or_else(|e| format!("error: {}", e))
+            }
+            Err(e) => format!("error: {}", e)
+        }
     };
 
     #[cfg(not(target_os = "windows"))]
