@@ -193,7 +193,7 @@ const RuntimeMonitor = () => {
         const checkInterval = setInterval(async () => {
           attempts++;
           const status = await localLauncherService.checkOpenClawStatus();
-          if (status.gateway_running) {
+          if (status.gatewayRunning) {
             clearInterval(checkInterval);
             message.destroy('gateway-start');
             message.success('Gateway 已启动');
@@ -226,7 +226,7 @@ const RuntimeMonitor = () => {
         const checkInterval = setInterval(async () => {
           attempts++;
           const status = await localLauncherService.checkOpenClawStatus();
-          if (!status.gateway_running) {
+          if (!status.gatewayRunning) {
             clearInterval(checkInterval);
             message.destroy('gateway-stop');
             message.success('Gateway 已停止');

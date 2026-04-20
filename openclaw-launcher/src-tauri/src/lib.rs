@@ -1776,13 +1776,13 @@ fn handle_http_request(req: &str) -> Option<String> {
             gateway::kill_all_gateway_processes();
         });
 
+        std::thread::sleep(std::time::Duration::from_millis(500));
+
         gateway::clear_gateway_logs();
         gateway::add_gateway_log("=== Starting Gateway ===");
 
-        // 清除设备认证缓存，让浏览器重新配对
         gateway::clear_device_auth_cache();
 
-        // 重置 devices 目录，解决权限问题
         if let Ok(user_profile) = std::env::var("USERPROFILE") {
             let devices_dir = std::path::PathBuf::from(user_profile).join(".openclaw").join("devices");
 
@@ -1799,7 +1799,6 @@ fn handle_http_request(req: &str) -> Option<String> {
             gateway::add_gateway_log("Devices directory reset");
         }
 
-        // 检查是否已经在运行
         if gateway::is_gateway_running() {
             gateway::add_gateway_log("Gateway is already running, skipping start");
             let result = serde_json::json!({
@@ -1812,88 +1811,45 @@ fn handle_http_request(req: &str) -> Option<String> {
             ));
         }
 
-        // 获取 openclaw 路径
-        let openclaw_path = match gateway::resolve_openclaw_path() {
-            Some(p) => {
-                gateway::add_gateway_log(&format!("OpenClaw path: {}", p));
-                p
-            },
-            None => {
+        std::thread::spawn(|| {
+            gateway::add_gateway_log("Starting gateway with --auth none...");
+            let openclaw_path = gateway::resolve_openclaw_path();
+            if let Some(mjs_path) = openclaw_path {
+                let mut cmd_args = vec![mjs_path.clone(), "gateway".to_string(), "start".to_string(), "--auth".to_string(), "none".to_string()];
+                let output = Command::new("node")
+                    .args(&cmd_args)
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .spawn();
+
+                match output {
+                    Ok(mut child) => {
+                        let pid = child.id();
+                        gateway::add_gateway_log(&format!("Gateway started (PID: {})", pid));
+
+                        std::thread::spawn(move || {
+                            let _ = child.wait();
+                            gateway::add_gateway_log("Gateway process exited");
+                        });
+                    }
+                    Err(e) => {
+                        gateway::add_gateway_log(&format!("[ERR] Failed to start: {}", e));
+                    }
+                }
+            } else {
                 gateway::add_gateway_log("[ERR] Cannot find openclaw");
-                let result = serde_json::json!({
-                    "success": false,
-                    "error": "Cannot find openclaw"
-                });
-                return Some(format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n{}",
-                    serde_json::to_string(&result).unwrap()
-                ));
             }
-        };
+        });
 
-        // 启动 gateway 进程
-        let mut cmd = Command::new("node");
-        cmd.args([&openclaw_path, "gateway"])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .creation_flags(CREATE_NO_WINDOW);
+        std::thread::sleep(std::time::Duration::from_millis(500));
 
-        match cmd.spawn() {
-            Ok(mut child) => {
-                let pid = child.id();
-                gateway::add_gateway_log(&format!("Gateway started (PID: {})", pid));
-                
-                // 读取 stdout
-                if let Some(stdout) = child.stdout.take() {
-                    let reader = std::io::BufReader::new(stdout);
-                    std::thread::spawn(move || {
-                        for line in reader.lines() {
-                            if let Ok(line) = line {
-                                gateway::add_gateway_log(&line);
-                            }
-                        }
-                    });
-                }
-                
-                // 读取 stderr
-                if let Some(stderr) = child.stderr.take() {
-                    let reader = std::io::BufReader::new(stderr);
-                    std::thread::spawn(move || {
-                        for line in reader.lines() {
-                            if let Ok(line) = line {
-                                gateway::add_gateway_log(&format!("[ERR] {}", line));
-                            }
-                        }
-                    });
-                }
-
-                // 监控进程退出
-                std::thread::spawn(move || {
-                    let _ = child.wait();
-                    gateway::add_gateway_log("Gateway process exited");
-                });
-
-                let result = serde_json::json!({
-                    "success": true,
-                    "message": format!("Gateway started (PID: {})", pid)
-                });
-                return Some(format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n{}",
-                    serde_json::to_string(&result).unwrap()
-                ));
-            }
-            Err(e) => {
-                gateway::add_gateway_log(&format!("[ERR] Failed to start: {}", e));
-                let result = serde_json::json!({
-                    "success": false,
-                    "error": format!("Failed to start: {}", e)
-                });
-                return Some(format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n{}",
-                    serde_json::to_string(&result).unwrap()
-                ));
-            }
-        }
+        let result = serde_json::json!({
+            "success": true,
+            "message": "Gateway starting..."
+        });
+        return Some(format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n{}",
+            serde_json::to_string(&result).unwrap()
+        ));
     }
 
     if req.starts_with("POST /api/gateway/stop") {
