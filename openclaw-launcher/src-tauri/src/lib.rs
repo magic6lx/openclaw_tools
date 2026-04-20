@@ -1749,7 +1749,7 @@ fn handle_http_request(req: &str) -> Option<String> {
             }
 
             add_console_log("Step 4: Starting gateway service...");
-            let start_result = run_openclaw_command(&["gateway", "start", "--auth", "none"]);
+            let start_result = run_openclaw_command(&["gateway", "start", "--allow-unconfigured"]);
             add_console_log(&start_result);
 
             std::thread::sleep(std::time::Duration::from_millis(3000));
@@ -1809,10 +1809,10 @@ fn handle_http_request(req: &str) -> Option<String> {
         }
 
         std::thread::spawn(|| {
-            gateway::add_gateway_log("Starting gateway with --auth none...");
+            gateway::add_gateway_log("Starting gateway with --allow-unconfigured...");
             let openclaw_path = gateway::resolve_openclaw_path();
             if let Some(mjs_path) = openclaw_path {
-                let mut cmd_args = vec![mjs_path.clone(), "gateway".to_string(), "start".to_string(), "--auth".to_string(), "none".to_string()];
+                let mut cmd_args = vec![mjs_path.clone(), "gateway".to_string(), "start".to_string(), "--allow-unconfigured".to_string()];
                 let output = Command::new("node")
                     .args(&cmd_args)
                     .creation_flags(CREATE_NO_WINDOW)
@@ -2040,7 +2040,7 @@ fn launch_openclaw() -> LaunchResult {
     logs.push_str(&fix_output);
 
     logs.push_str("\n=== Step 3: Start Gateway (openclaw gateway start) ===\n");
-    let start_result = run_openclaw_command(&["gateway", "start", "--auth", "none"]);
+    let start_result = run_openclaw_command(&["gateway", "start", "--allow-unconfigured"]);
     logs.push_str(&start_result);
 
     let success = doctor_output.contains("success: true") || fix_output.contains("success: true") || !start_result.is_empty();
