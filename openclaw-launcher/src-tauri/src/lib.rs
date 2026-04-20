@@ -1768,7 +1768,7 @@ fn handle_http_request(req: &str) -> Option<String> {
 
         // 第四步：启动计划任务服务
         add_console_log("Step 4: Starting gateway service...");
-        let start_result = run_openclaw_command(&["gateway", "start"]);
+        let start_result = run_openclaw_command(&["gateway", "start", "--auth", "none"]);
         add_console_log(&start_result);
         
         // 等待 gateway 启动
@@ -2102,7 +2102,7 @@ fn launch_openclaw() -> LaunchResult {
     logs.push_str(&fix_output);
 
     logs.push_str("\n=== Step 3: Start Gateway (openclaw gateway start) ===\n");
-    let start_result = run_openclaw_command(&["gateway", "start"]);
+    let start_result = run_openclaw_command(&["gateway", "start", "--auth", "none"]);
     logs.push_str(&start_result);
 
     let success = doctor_output.contains("success: true") || fix_output.contains("success: true") || !start_result.is_empty();
