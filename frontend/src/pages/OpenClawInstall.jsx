@@ -233,7 +233,7 @@ const OpenClawInstall = () => {
               okText: '我已关闭，继续下载',
               cancelText: '取消',
               onOk: () => {
-                window.open('http://134.175.18.139:3001/OpenClaw-Launcher-v1.0.2.exe', '_blank');
+                window.open('http://134.175.18.139:3001/OpenClaw-Launcher.exe', '_blank');
               }
             });
           }}
