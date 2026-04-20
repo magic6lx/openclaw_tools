@@ -7,7 +7,10 @@ export default defineConfig({
   base: './',
   build: {
     outDir: 'dist_build',
-    emptyOutDir: true
+    emptyOutDir: true,
+    rollupOptions: {
+      external: ['@tauri-apps/api']
+    }
   },
   server: {
     port: 3001,
