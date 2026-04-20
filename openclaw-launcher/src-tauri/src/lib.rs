@@ -1342,13 +1342,10 @@ fn handle_http_request(req: &str) -> Option<String> {
         };
 
         let dist_base = if let Ok(exe_path) = std::env::current_exe() {
-            exe_path.parent()
-                .and_then(|p| p.parent())
-                .map(|p| p.join("openclaw-launcher_resources").join("dist"))
+            exe_path.parent().map(|p| p.to_path_buf())
         } else {
             None
         };
-
         let final_base = dist_base.unwrap_or_else(|| std::path::PathBuf::from("dist"));
         let final_path = final_base.join(&file_path);
 
