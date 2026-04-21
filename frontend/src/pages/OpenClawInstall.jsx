@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Alert, Space, message, Typography, Divider, Tag, Modal, Timeline } from 'antd';
-import { CheckCircleOutlined, CloseCircleOutlined, DownloadOutlined, ReloadOutlined, PlayCircleOutlined, CloudUploadOutlined, StopOutlined } from '@ant-design/icons';
+import { Card, Button, Alert, Space, message, Typography, Divider, Tag, Modal, Timeline, Collapse } from 'antd';
+import { CheckCircleOutlined, CloseCircleOutlined, DownloadOutlined, ReloadOutlined, PlayCircleOutlined, CloudUploadOutlined, StopOutlined, HistoryOutlined } from '@ant-design/icons';
 import localLauncherService from '../services/localLauncherService';
 import launcherService from '../services/launcherService';
 
@@ -18,6 +18,7 @@ const OpenClawInstall = () => {
   });
   const [actionResult, setActionResult] = useState(null);
   const [operationLogs, setOperationLogs] = useState([]);
+  const [changelog, setChangelog] = useState([]);
 
   const addLog = (type, text) => {
     setOperationLogs(prev => [...prev, { type, text, time: new Date().toLocaleTimeString() }]);
@@ -25,7 +26,15 @@ const OpenClawInstall = () => {
 
   useEffect(() => {
     checkStatus();
+    loadChangelog();
   }, []);
+
+  const loadChangelog = async () => {
+    const result = await launcherService.getChangelog();
+    if (result.success && result.versions) {
+      setChangelog(result.versions);
+    }
+  };
 
   const checkStatus = async () => {
     setLoading(true);
@@ -269,6 +278,32 @@ const OpenClawInstall = () => {
     );
   };
 
+  const renderChangelog = () => {
+    if (changelog.length === 0) return null;
+
+    return (
+      <Card style={{ marginBottom: 16 }} title={<><HistoryOutlined /> 更新日志</>}>
+        <Collapse
+          bordered={false}
+          items={changelog.map((v, idx) => ({
+            key: v.version,
+            label: <><Tag color={idx === 0 ? 'green' : 'blue'}>v{v.version}</Tag> {v.date && <Text type="secondary" style={{ fontSize: 12 }}>{v.date}</Text>}</>,
+            children: v.changes.length > 0 ? (
+              v.changes.map((change, cIdx) => (
+                <div key={cIdx} style={{ marginBottom: 8 }}>
+                  <Tag color={change.type === '新增' ? 'green' : change.type === '修复' ? 'red' : 'blue'} style={{ marginRight: 8 }}>{change.type}</Tag>
+                  <ul style={{ margin: 0, paddingLeft: 20 }}>
+                    {change.items.map((item, iIdx) => <li key={iIdx} style={{ color: '#666' }}>{item}</li>)}
+                  </ul>
+                </div>
+              ))
+            ) : <Text type="secondary">暂无详细更新说明</Text>
+          }))}
+        />
+      </Card>
+    );
+  };
+
   const renderOperationLogs = () => {
     if (operationLogs.length === 0) return null;
 
@@ -332,6 +367,8 @@ const OpenClawInstall = () => {
 
         {renderSystemInfo()}
       </Card>
+
+      {renderChangelog()}
 
       <Card title="操作">
         {renderActionButtons()}
