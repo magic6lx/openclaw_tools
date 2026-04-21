@@ -1329,6 +1329,89 @@ fn auto_upgrade_launcher() -> InstallResult {
     }
 }
 
+fn parse_changelog(content: &str) -> Vec<serde_json::Value> {
+    let mut versions = Vec::new();
+    let mut current_version: Option<serde_json::Value> = None;
+    let mut current_change_type = String::new();
+    let mut current_items: Vec<String> = Vec::new();
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+
+        if trimmed.starts_with("## v") || trimmed.starts_with("## ") {
+            if let Some(mut v) = current_version.take() {
+                if !current_items.is_empty() || !current_change_type.is_empty() {
+                    if let Some(arr) = v.as_mut_object().and_then(|m| m.get_mut("changes").and_then(|c| c.as_array_mut())) {
+                        if !current_change_type.is_empty() && !current_items.is_empty() {
+                            arr.push(serde_json::json!({
+                                "type": current_change_type,
+                                "items": current_items.clone()
+                            }));
+                        }
+                    }
+                }
+                versions.push(v);
+            }
+
+            let version_str = if trimmed.starts_with("## v") {
+                trimmed.trim_start_matches("## v").split_whitespace().next().unwrap_or("")
+            } else {
+                trimmed.trim_start_matches("## ").split_whitespace().next().unwrap_or("")
+            };
+
+            current_version = Some(serde_json::json!({
+                "version": version_str,
+                "date": "",
+                "changes": Vec::<serde_json::Value>::new()
+            }));
+            current_change_type.clear();
+            current_items.clear();
+
+        } else if trimmed.starts_with("### ") && current_version.is_some() {
+            if !current_change_type.is_empty() && !current_items.is_empty() {
+                if let Some(v) = current_version.as_mut() {
+                    if let Some(arr) = v.as_mut_object().and_then(|m| m.get_mut("changes").and_then(|c| c.as_array_mut())) {
+                        arr.push(serde_json::json!({
+                            "type": current_change_type,
+                            "items": current_items.clone()
+                        }));
+                    }
+                }
+            }
+            current_change_type = trimmed.trim_start_matches("### ").trim().to_string();
+            current_items.clear();
+
+        } else if trimmed.starts_with("- ") && current_version.is_some() {
+            current_items.push(trimmed.trim_start_matches("- ").to_string());
+
+        } else if trimmed.starts_with("(") && trimmed.contains(")") && current_version.is_some() {
+            if let Some(v) = current_version.as_mut() {
+                if let Some(obj) = v.as_mut_object() {
+                    if let Some(date_match) = trimmed.match_indices('(').next() {
+                        let date = &trimmed[date_match.0+1..trimmed.find(')').unwrap_or(trimmed.len())];
+                        obj.insert("date".to_string(), serde_json::Value::String(date.to_string()));
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(mut v) = current_version {
+        if !current_change_type.is_empty() && !current_items.is_empty() {
+            if let Some(arr) = v.as_mut_object().and_then(|m| m.get_mut("changes").and_then(|c| c.as_array_mut())) {
+                arr.push(serde_json::json!({
+                    "type": current_change_type,
+                    "items": current_items
+                }));
+            }
+        }
+        versions.push(v);
+    }
+
+    versions.truncate(5);
+    versions
+}
+
 fn handle_http_request(req: &str) -> Option<String> {
     let req_line = req.lines().next().unwrap_or("");
     add_console_log(&format!("[REQ] {}", req_line));
@@ -1413,6 +1496,27 @@ fn handle_http_request(req: &str) -> Option<String> {
         return Some(format!(
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, Authorization\r\n\r\n{}",
             serde_json::to_string(&sys_info).unwrap()
+        ));
+    }
+
+    if req.starts_with("GET /api/changelog") {
+        let changelog_path = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+            .map(|p| p.join("CHANGELOG.md"))
+            .unwrap_or_else(|| std::path::PathBuf::from("CHANGELOG.md"));
+
+        let changelog_content = if changelog_path.exists() {
+            std::fs::read_to_string(&changelog_path).unwrap_or_default()
+        } else {
+            String::new()
+        };
+
+        let versions = parse_changelog(&changelog_content);
+
+        return Some(format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, Authorization\r\n\r\n{{\"success\":true,\"versions\":{}}}",
+            serde_json::to_string(&versions).unwrap()
         ));
     }
 
