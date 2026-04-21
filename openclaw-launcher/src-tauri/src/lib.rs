@@ -1429,7 +1429,7 @@ fn handle_http_request(req: &str) -> Option<String> {
         } else {
             None
         };
-        let final_base = dist_base.unwrap_or_else(|| std::path::PathBuf::from("dist"));
+        let final_base = dist_base.unwrap_or_else(|| std::path::PathBuf::from("src-ui/dist"));
         let final_path = final_base.join(&file_path);
 
         add_console_log(&format!("[DEBUG] Trying to load: {:?}", final_path));
