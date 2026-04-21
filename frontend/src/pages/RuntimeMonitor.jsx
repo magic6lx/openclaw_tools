@@ -187,7 +187,6 @@ const RuntimeMonitor = () => {
     try {
       const result = await localLauncherService.startGatewayService();
       if (result.success) {
-        message.loading('Gateway 启动中...', { key: 'gateway-start' });
         let attempts = 0;
         const maxAttempts = 15;
         const checkInterval = setInterval(async () => {
@@ -195,12 +194,10 @@ const RuntimeMonitor = () => {
           const status = await localLauncherService.checkOpenClawStatus();
           if (status.gatewayRunning) {
             clearInterval(checkInterval);
-            message.destroy('gateway-start');
-            message.success('Gateway 已启动');
+            message.success('Gateway 启动成功');
             checkGatewayStatus();
           } else if (attempts >= maxAttempts) {
             clearInterval(checkInterval);
-            message.destroy('gateway-start');
             message.error('Gateway 启动超时');
             checkGatewayStatus();
           }
@@ -217,7 +214,6 @@ const RuntimeMonitor = () => {
 
   const handleStopGatewayService = async () => {
     setGatewayStatus(prev => ({ ...prev, loading: true }));
-    message.loading('正在停止 Gateway...', { key: 'gateway-stop' });
     try {
       const result = await localLauncherService.stopGatewayService();
       if (result.success) {
@@ -228,23 +224,19 @@ const RuntimeMonitor = () => {
           const status = await localLauncherService.checkOpenClawStatus();
           if (!status.gatewayRunning) {
             clearInterval(checkInterval);
-            message.destroy('gateway-stop');
             message.success('Gateway 已停止');
             checkGatewayStatus();
           } else if (attempts >= maxAttempts) {
             clearInterval(checkInterval);
-            message.destroy('gateway-stop');
             message.error('停止超时');
             checkGatewayStatus();
           }
         }, 1500);
       } else {
-        message.destroy('gateway-stop');
         message.error('停止失败: ' + (result.error || '未知错误'));
         setGatewayStatus(prev => ({ ...prev, loading: false }));
       }
     } catch (err) {
-      message.destroy('gateway-stop');
       message.error('停止失败: ' + err.message);
       setGatewayStatus(prev => ({ ...prev, loading: false }));
     }
