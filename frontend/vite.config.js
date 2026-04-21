@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [react()],
   base: './',
   build: {
-    outDir: 'dist_build',
+    outDir: 'dist',
     emptyOutDir: true,
     rollupOptions: {
       external: ['@tauri-apps/api']
