@@ -17,7 +17,6 @@ import {
   HistoryOutlined,
 } from '@ant-design/icons';
 import { authService } from '../services/auth';
-import clientMonitorService from '../services/clientMonitorService';
 import launcherService from '../services/launcherService';
 
 const { Header, Sider, Content } = Layout;
