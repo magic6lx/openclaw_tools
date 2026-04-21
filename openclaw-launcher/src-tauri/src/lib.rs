@@ -1315,7 +1315,7 @@ fn is_gateway_responsive(port: u16) -> bool {
         let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(500)));
         if let Ok(_) = stream.read(&mut buf) {
             let response = String::from_utf8_lossy(&buf);
-            return response.contains("200") || response.contains("OK") || response.contains("openclaw");
+            return response.contains("200") || response.contains("OK") || response.contains("openclaw") || response.contains("401") || response.contains("HTTP/");
         }
     }
     false
@@ -1749,6 +1749,8 @@ fn handle_http_request(req: &str) -> Option<String> {
             }
 
             add_console_log("Step 4: Starting gateway service...");
+            let set_auth_cmd = run_openclaw_command(&["config", "set", "gateway.auth.mode", "none"]);
+            add_console_log(&set_auth_cmd);
             let start_result = run_openclaw_command(&["gateway", "run", "--allow-unconfigured"]);
             add_console_log(&start_result);
 
@@ -1812,6 +1814,15 @@ fn handle_http_request(req: &str) -> Option<String> {
             gateway::add_gateway_log("Starting gateway with --allow-unconfigured...");
             let openclaw_path = gateway::resolve_openclaw_path();
             if let Some(mjs_path) = openclaw_path {
+                let set_auth_result = std::process::Command::new("openclaw")
+                    .args(["config", "set", "gateway.auth.mode", "none"])
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .output();
+                if let Ok(output) = set_auth_result {
+                    if output.status.success() {
+                        gateway::add_gateway_log("Gateway auth mode set to none");
+                    }
+                }
                 let mut cmd_args = vec![mjs_path.clone(), "gateway".to_string(), "run".to_string(), "--allow-unconfigured".to_string()];
                 let output = Command::new("node")
                     .args(&cmd_args)

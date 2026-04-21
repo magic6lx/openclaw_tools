@@ -250,6 +250,16 @@ pub async fn start_gateway(
     let openclaw_path = resolve_openclaw_path().ok_or("Cannot find openclaw")?;
     add_gateway_log(&format!("OpenClaw path: {}", openclaw_path));
 
+    let set_auth = TokioCommand::new("openclaw")
+        .args(["config", "set", "gateway.auth.mode", "none"])
+        .output()
+        .await;
+    if let Ok(output) = set_auth {
+        if output.status.success() {
+            add_gateway_log("Gateway auth mode set to none");
+        }
+    }
+
     let mut cmd = TokioCommand::new("node");
     cmd.args([&openclaw_path, "gateway", "run", "--allow-unconfigured"])
         .stdout(Stdio::piped())
