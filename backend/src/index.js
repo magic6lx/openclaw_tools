@@ -21,6 +21,7 @@ const openclawInstallRouter = require('./routes/openclawInstall');
 const runtimeMonitorRouter = require('./routes/runtimeMonitor');
 const clientMonitorRouter = require('./routes/clientMonitor');
 const launcherLogsRouter = require('./routes/launcherLogs');
+const launcherRouter = require('./routes/launcher');
 const apiProxyRouter = require('./routes/apiProxy');
 
 const app = express();
@@ -48,6 +49,7 @@ app.use('/api/openclaw-install', openclawInstallRouter);
 app.use('/api/runtime-monitor', runtimeMonitorRouter);
 app.use('/api/client-monitor', clientMonitorRouter);
 app.use('/api/launcher-logs', launcherLogsRouter);
+app.use('/api/launcher', launcherRouter);
 app.use('/api/proxy', apiProxyRouter);
 
 const swaggerOptions = {
