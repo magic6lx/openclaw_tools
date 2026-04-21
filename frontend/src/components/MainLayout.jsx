@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Layout, Menu, Avatar, Dropdown, Space, Divider, Tag } from 'antd';
+import { Layout, Menu, Avatar, Dropdown, Space, Divider, Tag, Modal, Collapse } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   DashboardOutlined,
@@ -14,9 +14,11 @@ import {
   FolderOpenOutlined,
   DownloadOutlined,
   MonitorOutlined,
+  HistoryOutlined,
 } from '@ant-design/icons';
 import { authService } from '../services/auth';
 import clientMonitorService from '../services/clientMonitorService';
+import launcherService from '../services/launcherService';
 
 const { Header, Sider, Content } = Layout;
 
@@ -24,17 +26,26 @@ function MainLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
+  const [changelogVisible, setChangelogVisible] = useState(false);
+  const [changelog, setChangelog] = useState([]);
 
   const user = authService.getUser();
   const isAdmin = user?.role === 'admin';
 
   useEffect(() => {
-    // 心跳功能已禁用 - 用于连接 openclaw-config-backend
-    // clientMonitorService.startHeartbeat(30000);
-    // return () => {
-    //   clientMonitorService.stopHeartbeat();
-    // };
-  }, [user]);
+    loadChangelog();
+  }, []);
+
+  const loadChangelog = async () => {
+    const result = await launcherService.getChangelog();
+    if (result.success && result.versions) {
+      setChangelog(result.versions);
+    }
+  };
+
+  const showChangelog = () => {
+    setChangelogVisible(true);
+  };
 
   const userMenuItems = [
     {
@@ -194,6 +205,9 @@ function MainLayout() {
             OpenClaw智能配置系统
           </div>
           <Space>
+            <Text type="secondary" style={{ cursor: 'pointer', fontSize: 12 }} onClick={showChangelog}>
+              v1.0.3 {changelog.length > 0 && <HistoryOutlined />}
+            </Text>
             <Dropdown menu={{ items: userDropdownItems }} placement="bottomRight">
               <Space style={{ cursor: 'pointer' }}>
                 <Avatar icon={<UserOutlined />} />
@@ -215,6 +229,32 @@ function MainLayout() {
           <Outlet />
         </Content>
       </Layout>
+
+      <Modal
+        title="更新日志"
+        open={changelogVisible}
+        onCancel={() => setChangelogVisible(false)}
+        footer={null}
+        width={600}
+      >
+        <Collapse
+          bordered={false}
+          items={changelog.map((v, idx) => ({
+            key: v.version,
+            label: <><Tag color={idx === 0 ? 'green' : 'blue'}>v{v.version}</Tag> {v.date && <Text type="secondary" style={{ fontSize: 12 }}>{v.date}</Text>}</>,
+            children: v.changes.length > 0 ? (
+              v.changes.map((change, cIdx) => (
+                <div key={cIdx} style={{ marginBottom: 8 }}>
+                  <Tag color={change.type === '新增' ? 'green' : change.type === '修复' ? 'red' : 'blue'} style={{ marginRight: 8 }}>{change.type}</Tag>
+                  <ul style={{ margin: 0, paddingLeft: 20 }}>
+                    {change.items.map((item, iIdx) => <li key={iIdx} style={{ color: '#666' }}>{item}</li>)}
+                  </ul>
+                </div>
+              ))
+            ) : <Text type="secondary">暂无详细更新说明</Text>
+          }))}
+        />
+      </Modal>
     </Layout>
   );
 }
