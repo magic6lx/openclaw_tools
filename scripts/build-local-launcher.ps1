@@ -36,6 +36,16 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
+# Copy frontend dist to launcher dist (Tauri reads from openclaw-launcher/dist)
+Write-Host "`n[1b/5] Syncing frontend dist to launcher dist..." -ForegroundColor Yellow
+$FRONTEND_DIST = Join-Path $PROJECT_ROOT "frontend\dist"
+$LAUNCHER_DIST = Join-Path $LAUNCHER_DIR "dist"
+if (Test-Path $LAUNCHER_DIST) {
+    Remove-Item -Path $LAUNCHER_DIST -Recurse -Force
+}
+Copy-Item -Path $FRONTEND_DIST -Destination $LAUNCHER_DIST -Recurse -Force
+Write-Host "Synced: frontend\dist -> openclaw-launcher\dist" -ForegroundColor Green
+
 # 2. Build Tauri
 Write-Host "`n[2/4] Building Tauri..." -ForegroundColor Yellow
 Set-Location $LAUNCHER_DIR

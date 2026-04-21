@@ -8,3 +8,7 @@ alwaysApply: true
 5. 所有的检查，安装，都是基于客户端的，不要做成服务端的
 6. openclaw的文档在reference目录下，禁止编造相关的操作指令
 7. 如果中文路径 导致 Rust 编译失败，就尝试指定一个没有中文的构建目录，成功后移动进来
+8. 构建 Launcher 时
+    - vite 构建目录（vite.config.js 的 outDir）和 tauri 读取目录（tauri.conf.json 的 frontendDist）必须一致
+    - 如果改了其中一个，必须同步改另一个
+    - 统一用 dist 作为标准目录
