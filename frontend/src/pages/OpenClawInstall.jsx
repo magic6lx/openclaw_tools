@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, Button, Alert, Space, message, Typography, Divider, Tag, Modal, Timeline } from 'antd';
 import { CheckCircleOutlined, CloseCircleOutlined, DownloadOutlined, ReloadOutlined, PlayCircleOutlined, CloudUploadOutlined, StopOutlined } from '@ant-design/icons';
 import localLauncherService from '../services/localLauncherService';
+import launcherService from '../services/launcherService';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -226,12 +227,36 @@ const OpenClawInstall = () => {
 
         <Button
           icon={<CloudUploadOutlined />}
-          onClick={() => {
+          onClick={async () => {
+            const changelogResult = await launcherService.getChangelog();
+            let content = '升级前请先关闭当前运行的 Launcher 程序（右键点击托盘图标，选择"退出"），然后再点击确定下载新版本。';
+
+            if (changelogResult.success && changelogResult.versions && changelogResult.versions.length > 0) {
+              const latest = changelogResult.versions[0];
+              content = (
+                <div>
+                  <p style={{ marginBottom: 8 }}>升级前请先关闭当前运行的 Launcher 程序（右键点击托盘图标，选择"退出"），然后再点击确定下载新版本。</p>
+                  <div style={{ background: '#f5f5f5', padding: 12, borderRadius: 4, marginTop: 12 }}>
+                    <strong>v{latest.version} 更新日志</strong>
+                    {latest.changes.map((change, idx) => (
+                      <div key={idx} style={{ marginTop: 8 }}>
+                        <Tag color={change.type === '新增' ? 'green' : change.type === '修复' ? 'red' : 'blue'}>{change.type}</Tag>
+                        <ul style={{ margin: '4px 0', paddingLeft: 20 }}>
+                          {change.items.map((item, i) => <li key={i}>{item}</li>)}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            }
+
             Modal.confirm({
               title: '升级 Launcher',
-              content: '升级前请先关闭当前运行的 Launcher 程序（右键点击托盘图标，选择"退出"），然后再点击确定下载新版本。',
+              content,
               okText: '我已关闭，继续下载',
               cancelText: '取消',
+              width: 500,
               onOk: () => {
                 window.open('http://134.175.18.139:3001/OpenClaw-Launcher-v1.0.3.exe', '_blank');
               }
