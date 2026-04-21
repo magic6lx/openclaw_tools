@@ -1341,12 +1341,16 @@ fn parse_changelog(content: &str) -> Vec<serde_json::Value> {
         if trimmed.starts_with("## v") || trimmed.starts_with("## ") {
             if let Some(mut v) = current_version.take() {
                 if !current_items.is_empty() || !current_change_type.is_empty() {
-                    if let Some(arr) = v.as_mut_object().and_then(|m| m.get_mut("changes").and_then(|c| c.as_array_mut())) {
-                        if !current_change_type.is_empty() && !current_items.is_empty() {
-                            arr.push(serde_json::json!({
-                                "type": current_change_type,
-                                "items": current_items.clone()
-                            }));
+                    if let Some(obj) = v.as_object_mut() {
+                        if let Some(changes) = obj.get_mut("changes") {
+                            if let Some(arr) = changes.as_array_mut() {
+                                if !current_change_type.is_empty() && !current_items.is_empty() {
+                                    arr.push(serde_json::json!({
+                                        "type": current_change_type,
+                                        "items": current_items.clone()
+                                    }));
+                                }
+                            }
                         }
                     }
                 }
@@ -1370,11 +1374,15 @@ fn parse_changelog(content: &str) -> Vec<serde_json::Value> {
         } else if trimmed.starts_with("### ") && current_version.is_some() {
             if !current_change_type.is_empty() && !current_items.is_empty() {
                 if let Some(v) = current_version.as_mut() {
-                    if let Some(arr) = v.as_mut_object().and_then(|m| m.get_mut("changes").and_then(|c| c.as_array_mut())) {
-                        arr.push(serde_json::json!({
-                            "type": current_change_type,
-                            "items": current_items.clone()
-                        }));
+                    if let Some(obj) = v.as_object_mut() {
+                        if let Some(changes) = obj.get_mut("changes") {
+                            if let Some(arr) = changes.as_array_mut() {
+                                arr.push(serde_json::json!({
+                                    "type": current_change_type,
+                                    "items": current_items.clone()
+                                }));
+                            }
+                        }
                     }
                 }
             }
@@ -1386,7 +1394,7 @@ fn parse_changelog(content: &str) -> Vec<serde_json::Value> {
 
         } else if trimmed.starts_with("(") && trimmed.contains(")") && current_version.is_some() {
             if let Some(v) = current_version.as_mut() {
-                if let Some(obj) = v.as_mut_object() {
+                if let Some(obj) = v.as_object_mut() {
                     if let Some(date_match) = trimmed.match_indices('(').next() {
                         let date = &trimmed[date_match.0+1..trimmed.find(')').unwrap_or(trimmed.len())];
                         obj.insert("date".to_string(), serde_json::Value::String(date.to_string()));
@@ -1398,11 +1406,15 @@ fn parse_changelog(content: &str) -> Vec<serde_json::Value> {
 
     if let Some(mut v) = current_version {
         if !current_change_type.is_empty() && !current_items.is_empty() {
-            if let Some(arr) = v.as_mut_object().and_then(|m| m.get_mut("changes").and_then(|c| c.as_array_mut())) {
-                arr.push(serde_json::json!({
-                    "type": current_change_type,
-                    "items": current_items
-                }));
+            if let Some(obj) = v.as_object_mut() {
+                if let Some(changes) = obj.get_mut("changes") {
+                    if let Some(arr) = changes.as_array_mut() {
+                        arr.push(serde_json::json!({
+                            "type": current_change_type,
+                            "items": current_items
+                        }));
+                    }
+                }
             }
         }
         versions.push(v);
