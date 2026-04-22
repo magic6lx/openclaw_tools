@@ -283,15 +283,13 @@ const RuntimeMonitor = () => {
     setInteractionLogsLoading(true);
     try {
       const result = await localLauncherService.getInteractionLogs(500, logLevelFilter, logSourceFilter);
-      if (result.success) {
-        setInteractionLogs(result.logs || []);
-      } else {
-        message.error('加载日志失败: ' + (result.error || '未知错误'));
-        setInteractionLogs([]);
+      if (result.success && result.logs) {
+        setInteractionLogs(result.logs);
+      } else if (!result.success && result.error) {
+        message.error('加载日志失败: ' + result.error);
       }
     } catch (err) {
       message.error('加载日志失败: ' + err.message);
-      setInteractionLogs([]);
     } finally {
       setInteractionLogsLoading(false);
     }
