@@ -56,4 +56,11 @@ Get-ChildItem -Path $PUBLIC_DIR -Filter "OpenClaw-Launcher-*.exe" -File | Remove
 Copy-Item -Path $TARGET_EXE -Destination $TARGET_PATH -Force
 Write-Host "Copied to: $TARGET_PATH" -ForegroundColor Green
 
+# Copy CHANGELOG.md to public as well
+$CHANGELOG_TARGET = Join-Path $PUBLIC_DIR "CHANGELOG.md"
+if (Test-Path $CHANGELOG) {
+    Copy-Item -Path $CHANGELOG -Destination $CHANGELOG_TARGET -Force
+    Write-Host "CHANGELOG.md copied to: $CHANGELOG_TARGET" -ForegroundColor Green
+}
+
 Write-Host "`n=== Done ===" -ForegroundColor Cyan
