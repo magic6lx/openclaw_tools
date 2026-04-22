@@ -1,6 +1,7 @@
 mod gateway;
 
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::env;
 use std::fs;
 use std::io::{Read, Write, BufRead, BufReader};
@@ -21,7 +22,15 @@ const LAUNCHER_HTTP_PORT: u16 = 18790;
 const GATEWAY_PORTS: &[u16] = &[18789, 18790, 18791, 18792, 18793, 18794, 18795];
 const MAX_LOG_LINES: usize = 1000;
 
-static CONSOLE_LOGS: once_cell::sync::Lazy<Arc<RwLock<Vec<String>>>> = once_cell::sync::Lazy::new(|| {
+#[derive(Clone, Debug)]
+struct LogEntry {
+    timestamp: u64,
+    level: String,
+    source: String,
+    message: String,
+}
+
+static UNIFIED_LOGS: once_cell::sync::Lazy<Arc<RwLock<Vec<LogEntry>>>> = once_cell::sync::Lazy::new(|| {
     Arc::new(RwLock::new(Vec::new()))
 });
 
@@ -37,16 +46,23 @@ static GATEWAY_PROCESS: once_cell::sync::Lazy<Arc<Mutex<Option<Child>>>> = once_
     Arc::new(Mutex::new(None))
 });
 
-fn add_console_log(line: &str) {
-    let timestamp = SystemTime::now()
+fn get_timestamp() -> u64 {
+    SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
-        .unwrap_or(0);
+        .unwrap_or(0) as u64
+}
 
-    let log_entry = format!("[{}] {}", timestamp, line);
+fn add_log(level: &str, source: &str, message: &str) {
+    let entry = LogEntry {
+        timestamp: get_timestamp(),
+        level: level.to_string(),
+        source: source.to_string(),
+        message: message.to_string(),
+    };
 
-    if let Ok(mut logs) = CONSOLE_LOGS.write() {
-        logs.push(log_entry.clone());
+    if let Ok(mut logs) = UNIFIED_LOGS.write() {
+        logs.push(entry.clone());
         if logs.len() > MAX_LOG_LINES {
             logs.remove(0);
         }
@@ -58,9 +74,14 @@ fn add_console_log(line: &str) {
             .append(true)
             .open(&log_path)
         {
-            let _ = writeln!(file, "{}", log_entry);
+            let line = format!("[{}] [{}] [{}] {}", entry.timestamp, entry.level, entry.source, entry.message);
+            let _ = writeln!(file, "{}", line);
         }
     }
+}
+
+fn add_console_log(line: &str) {
+    add_log("INFO", "launcher", line);
 }
 
 fn get_launcher_log_path() -> Option<std::path::PathBuf> {
@@ -76,39 +97,24 @@ fn get_launcher_log_path() -> Option<std::path::PathBuf> {
 }
 
 fn get_console_logs(since: u64) -> Vec<String> {
-    if let Ok(logs) = CONSOLE_LOGS.read() {
+    if let Ok(logs) = UNIFIED_LOGS.read() {
         logs.iter()
-            .filter(|line| {
-                if let Some(ts_str) = line.strip_prefix('[') {
-                    if let Some(end) = ts_str.find(']') {
-                        if let Ok(ts) = ts_str[..end].parse::<u64>() {
-                            return ts > since;
-                        }
-                    }
-                }
-                true
+            .filter(|entry| entry.timestamp > since)
+            .map(|entry| {
+                format!("[{}] [{}] [{}] {}", entry.timestamp, entry.level, entry.source, entry.message)
             })
-            .cloned()
             .collect()
     } else {
         vec![]
     }
 }
 
+fn get_unified_logs() -> Vec<LogEntry> {
+    UNIFIED_LOGS.read().map(|logs| logs.clone()).unwrap_or_default()
+}
+
 fn add_install_log(line: &str) {
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-
-    let log_entry = format!("[{}] {}", timestamp, line);
-
-    if let Ok(mut logs) = INSTALL_LOGS.write() {
-        logs.push(log_entry.clone());
-        if logs.len() > MAX_LOG_LINES {
-            logs.remove(0);
-        }
-    }
+    add_log("INFO", "install", line);
 }
 
 fn get_install_logs() -> Vec<String> {
@@ -1010,7 +1016,7 @@ fn restore_config(backup_name: Option<&str>) -> RestoreResult {
 }
 
 fn install_openclaw() -> InstallResult {
-    add_console_log("=== OpenClaw Installation Started ===");
+    add_log("INFO", "install", "=== OpenClaw Installation Started ===");
 
     #[cfg(target_os = "windows")]
     {
@@ -1813,15 +1819,36 @@ fn handle_http_request(req: &str) -> Option<String> {
             .and_then(|s| s.parse::<usize>().ok())
             .unwrap_or(200);
 
-        let logs = get_console_logs(0);
-        let total = logs.len();
-        let requested_logs: Vec<String> = logs.into_iter().rev().take(lines).rev().collect();
+        let level_filter = req.split("level=").nth(1)
+            .and_then(|s| s.split('&').next())
+            .map(|s| s.to_string());
 
-        let logs_response = serde_json::json!({
+        let source_filter = req.split("source=").nth(1)
+            .and_then(|s| s.split('&').next())
+            .map(|s| s.to_string());
+
+        let mut logs = get_unified_logs();
+
+        if let Some(ref level) = level_filter {
+            if !level.is_empty() && level != "all" {
+                logs.retain(|log| log.level.to_lowercase() == level.to_lowercase());
+            }
+        }
+
+        if let Some(ref source) = source_filter {
+            if !source.is_empty() && source != "all" {
+                logs.retain(|log| log.source.to_lowercase() == source.to_lowercase());
+            }
+        }
+
+        let total = logs.len();
+        let requested_logs: Vec<LogEntry> = logs.into_iter().rev().take(lines).rev().collect();
+
+        let logs_response = json!({
             "success": true,
             "logs": requested_logs,
             "total": total,
-            "source": "interaction"
+            "source": "unified"
         });
 
         return Some(format!(

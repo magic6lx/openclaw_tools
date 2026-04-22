@@ -664,9 +664,9 @@ class LocalLauncherService {
     }
   }
 
-  async getInteractionLogs(lines = 200) {
+  async getInteractionLogs(lines = 200, level = 'all', source = 'all') {
     try {
-      const response = await fetch(`${LAUNCHER_API_BASE}/api/interaction/logs?lines=${lines}`, {
+      const response = await fetch(`${LAUNCHER_API_BASE}/api/interaction/logs?lines=${lines}&level=${level}&source=${source}`, {
         method: 'GET',
         mode: 'cors',
         timeout: 10000
@@ -677,7 +677,7 @@ class LocalLauncherService {
         success: data.success || false,
         logs: data.logs || [],
         total: data.total || 0,
-        source: data.source || 'interaction',
+        source: data.source || 'unified',
         error: data.error || null
       };
     } catch (error) {

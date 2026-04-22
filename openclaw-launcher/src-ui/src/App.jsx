@@ -81,6 +81,30 @@ function App() {
     }
   };
 
+  const formatLogTime = (timestamp) => {
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString();
+  };
+
+  const getLogLevelColor = (level) => {
+    switch (level.toUpperCase()) {
+      case 'ERROR': return 'red';
+      case 'WARN': return 'orange';
+      case 'DEBUG': return 'gray';
+      default: return 'blue';
+    }
+  };
+
+  const getLogSourceLabel = (source) => {
+    const labels = {
+      launcher: '启动器',
+      gateway: '网关',
+      install: '安装',
+      frontend: '前端'
+    };
+    return labels[source] || source;
+  };
+
   const showInteractionLogs = () => {
     setInteractionLogsVisible(true);
     loadInteractionLogs();
@@ -178,7 +202,7 @@ function App() {
       </Modal>
 
       <Modal
-        title="客户端与服务器交互日志"
+        title="统一日志查看器"
         open={interactionLogsVisible}
         onCancel={() => setInteractionLogsVisible(false)}
         footer={[
@@ -189,7 +213,7 @@ function App() {
             刷新
           </Button>
         ]}
-        width={600}
+        width={700}
       >
         <div style={{ backgroundColor: '#1e1e1e', padding: 12, borderRadius: 4, maxHeight: 400, overflow: 'auto' }}>
           {interactionLogsLoading ? (
@@ -200,8 +224,11 @@ function App() {
             <Text style={{ color: '#666' }}>暂无日志记录</Text>
           ) : (
             interactionLogs.map((log, index) => (
-              <div key={index} style={{ color: '#d4d4d4', fontSize: 11, marginBottom: 4, fontFamily: 'Consolas, Monaco, monospace' }}>
-                {log}
+              <div key={index} style={{ color: '#d4d4d4', fontSize: 11, marginBottom: 4, fontFamily: 'Consolas, Monaco, monospace', display: 'flex', gap: 8 }}>
+                <span style={{ color: '#888' }}>{formatLogTime(log.timestamp)}</span>
+                <Tag color={getLogLevelColor(log.level)} style={{ fontSize: 10, padding: '0 4px', margin: 0 }}>{log.level}</Tag>
+                <Tag style={{ fontSize: 10, padding: '0 4px', margin: 0 }}>{getLogSourceLabel(log.source)}</Tag>
+                <span style={{ color: '#d4d4d4', flex: 1 }}>{log.message}</span>
               </div>
             ))
           )}
