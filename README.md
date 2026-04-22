@@ -1,55 +1,40 @@
-# OpenClaw智能配置系统
+# OpenClaw V2
 
-## 项目简介
-
-OpenClaw智能配置系统是一个帮助用户快速完成OpenClaw最佳配置的智能配置管理系统。
-
-## 技术栈
-
-- **前端**: React + Ant Design
-- **后端**: Node.js + Express
-- **数据库**: MySQL
-- **ORM**: Sequelize
+极简架构的 OpenClaw 管理平台。
 
 ## 项目结构
 
 ```
-openclaw_tools/
-├── frontend/          # React前端应用
-├── backend/           # Node.js后端服务
-├── database/          # MySQL数据库脚本
-├── docs/              # 项目文档
-├── config/            # 配置文件
-└── temp/              # 临时文件
+openclaw-v2/
+├── server/           # Node.js 后端 (端口 3002)
+│   └── src/
+│       ├── index.js
+│       ├── routes/api.js
+│       └── services/logService.js
+│
+├── client/          # React 前端 (端口 5173 开发)
+│   └── src/
+│       ├── App.jsx
+│       └── pages/
+│           ├── Dashboard.jsx
+│           └── Clients.jsx
+│
+├── launcher/        # 客户端代理
+│   ├── src/index.js
+│   └── electron/main.js
+│
+└── nginx.conf       # Nginx 配置
 ```
 
-## 快速开始
-
-### 前端开发
+## 部署
 
 ```bash
-cd frontend
-npm install
-npm start
+# 服务器上
+cd /opt/openclaw_tool_server
+./deploy.sh
 ```
 
-### 后端开发
+## 端口
 
-```bash
-cd backend
-npm install
-npm run dev
-```
-
-## 功能特性
-
-- 用户认证（基于邀请码）
-- 配置向导
-- 配置管理
-- 日志管理
-- 智能推荐
-- 模版管理
-
-## 许可证
-
-MIT
+- 前端: 3001
+- 后端: 3002
