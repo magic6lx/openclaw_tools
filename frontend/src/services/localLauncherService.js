@@ -663,6 +663,32 @@ class LocalLauncherService {
       };
     }
   }
+
+  async getInteractionLogs(lines = 200) {
+    try {
+      const response = await fetch(`${LAUNCHER_API_BASE}/api/interaction/logs?lines=${lines}`, {
+        method: 'GET',
+        mode: 'cors',
+        timeout: 10000
+      });
+
+      const data = await response.json();
+      return {
+        success: data.success || false,
+        logs: data.logs || [],
+        total: data.total || 0,
+        source: data.source || 'interaction',
+        error: data.error || null
+      };
+    } catch (error) {
+      return {
+        success: false,
+        logs: [],
+        total: 0,
+        error: error.message
+      };
+    }
+  }
 }
 
 const localLauncherService = new LocalLauncherService();

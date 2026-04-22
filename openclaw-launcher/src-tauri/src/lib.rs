@@ -1805,6 +1805,29 @@ fn handle_http_request(req: &str) -> Option<String> {
         ));
     }
 
+    if req.starts_with("GET /api/interaction/logs") {
+        let lines = req.split("lines=").nth(1)
+            .and_then(|s| s.split('&').next())
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(200);
+
+        let logs = get_console_logs(0);
+        let total = logs.len();
+        let requested_logs: Vec<String> = logs.into_iter().rev().take(lines).rev().collect();
+
+        let logs_response = serde_json::json!({
+            "success": true,
+            "logs": requested_logs,
+            "total": total,
+            "source": "interaction"
+        });
+
+        return Some(format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n{}",
+            serde_json::to_string(&logs_response).unwrap()
+        ));
+    }
+
     if req.starts_with("GET /api/console/logs") {
         let since = req.split("since=").nth(1)
             .and_then(|s| s.split('&').next())

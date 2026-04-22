@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, Row, Col, Statistic, Button, Space, Alert, Descriptions, Typography, message, Spin, Divider, Switch, Form, Input, InputNumber, Select, Collapse, Modal } from 'antd';
-import { ReloadOutlined, CheckCircleOutlined, CloseCircleOutlined, DesktopOutlined, WindowsOutlined, AppleOutlined, LinuxOutlined, MobileOutlined, PlayCircleOutlined, StopOutlined, ClearOutlined, FileTextOutlined, SettingOutlined, SaveOutlined, SyncOutlined, WarningOutlined } from '@ant-design/icons';
+import { ReloadOutlined, CheckCircleOutlined, CloseCircleOutlined, DesktopOutlined, WindowsOutlined, AppleOutlined, LinuxOutlined, MobileOutlined, PlayCircleOutlined, StopOutlined, ClearOutlined, FileTextOutlined, SettingOutlined, SaveOutlined, SyncOutlined, WarningOutlined, HistoryOutlined } from '@ant-design/icons';
 import clientMonitorService from '../services/clientMonitorService';
 import localLauncherService from '../services/localLauncherService';
 
@@ -26,6 +26,9 @@ const RuntimeMonitor = () => {
   const [configPath, setConfigPath] = useState('');
   const [restartModalVisible, setRestartModalVisible] = useState(false);
   const [pendingConfig, setPendingConfig] = useState(null);
+  const [interactionLogsVisible, setInteractionLogsVisible] = useState(false);
+  const [interactionLogs, setInteractionLogs] = useState([]);
+  const [interactionLogsLoading, setInteractionLogsLoading] = useState(false);
   const [form] = Form.useForm();
   
   const openclawLogsRef = useRef(null);
@@ -273,6 +276,25 @@ const RuntimeMonitor = () => {
     }
   };
 
+  const handleViewInteractionLogs = async () => {
+    setInteractionLogsVisible(true);
+    setInteractionLogsLoading(true);
+    try {
+      const result = await localLauncherService.getInteractionLogs(500);
+      if (result.success) {
+        setInteractionLogs(result.logs || []);
+      } else {
+        message.error('加载日志失败: ' + (result.error || '未知错误'));
+        setInteractionLogs([]);
+      }
+    } catch (err) {
+      message.error('加载日志失败: ' + err.message);
+      setInteractionLogs([]);
+    } finally {
+      setInteractionLogsLoading(false);
+    }
+  };
+
   const handleRefreshClientInfo = () => {
     loadClientInfo();
     message.success('已刷新客户端信息');
@@ -438,6 +460,13 @@ const RuntimeMonitor = () => {
                     onClick={handleClearDeviceAuth}
                   >
                     清除设备认证
+                  </Button>
+                  <Button
+                    type="link"
+                    icon={<HistoryOutlined />}
+                    onClick={handleViewInteractionLogs}
+                  >
+                    交互日志
                   </Button>
                 </>
               )}
@@ -780,6 +809,37 @@ const RuntimeMonitor = () => {
           type="info"
           showIcon
         />
+      </Modal>
+
+      <Modal
+        title="客户端与服务器交互日志"
+        open={interactionLogsVisible}
+        onCancel={() => setInteractionLogsVisible(false)}
+        footer={[
+          <Button key="close" onClick={() => setInteractionLogsVisible(false)}>
+            关闭
+          </Button>,
+          <Button key="refresh" icon={<ReloadOutlined />} onClick={handleViewInteractionLogs}>
+            刷新
+          </Button>
+        ]}
+        width={800}
+      >
+        <div style={{ backgroundColor: '#1e1e1e', padding: 12, borderRadius: 4, maxHeight: 500, overflow: 'auto' }}>
+          {interactionLogsLoading ? (
+            <div style={{ textAlign: 'center', padding: 40 }}>
+              <Spin tip="加载中..." />
+            </div>
+          ) : interactionLogs.length === 0 ? (
+            <Text style={{ color: '#666' }}>暂无日志记录</Text>
+          ) : (
+            interactionLogs.map((log, index) => (
+              <div key={index} style={{ color: '#d4d4d4', fontSize: 12, marginBottom: 4, fontFamily: 'Consolas, Monaco, monospace' }}>
+                {log}
+              </div>
+            ))
+          )}
+        </div>
       </Modal>
     </div>
   );
