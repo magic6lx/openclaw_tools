@@ -15,7 +15,7 @@ const RuntimeMonitor = () => {
     error: null,
     data: null
   });
-  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(true);
   const [openclawLogs, setOpenclawLogs] = useState([]);
   const lastOpenclawLogRef = useRef(0);
   const openclawLogIntervalRef = useRef(null);
