@@ -254,9 +254,17 @@ pub async fn start_gateway(
         .args(["config", "set", "gateway.auth.mode", "none"])
         .output()
         .await;
-    if let Ok(output) = set_auth {
-        if output.status.success() {
-            add_gateway_log("Gateway auth mode set to none");
+    match set_auth {
+        Ok(output) => {
+            if output.status.success() {
+                add_gateway_log("Gateway auth mode set to none");
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                add_gateway_log(&format!("[WARN] Config set returned non-zero: {} {}", output.status, stderr));
+            }
+        }
+        Err(e) => {
+            add_gateway_log(&format!("[WARN] Failed to set auth mode: {}", e));
         }
     }
 
