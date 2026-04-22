@@ -3,6 +3,7 @@ import { Card, Row, Col, Statistic, Button, Space, Alert, Descriptions, Typograp
 import { ReloadOutlined, CheckCircleOutlined, CloseCircleOutlined, DesktopOutlined, WindowsOutlined, AppleOutlined, LinuxOutlined, MobileOutlined, PlayCircleOutlined, StopOutlined, ClearOutlined, FileTextOutlined, SettingOutlined, SaveOutlined, SyncOutlined, WarningOutlined, HistoryOutlined } from '@ant-design/icons';
 import clientMonitorService from '../services/clientMonitorService';
 import localLauncherService from '../services/localLauncherService';
+import launcherService from '../services/launcherService';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -31,6 +32,7 @@ const RuntimeMonitor = () => {
   const [interactionLogsLoading, setInteractionLogsLoading] = useState(false);
   const [logLevelFilter, setLogLevelFilter] = useState('all');
   const [logSourceFilter, setLogSourceFilter] = useState('all');
+  const [deviceIdFilter, setDeviceIdFilter] = useState('');
   const [form] = Form.useForm();
   
   const openclawLogsRef = useRef(null);
@@ -282,10 +284,16 @@ const RuntimeMonitor = () => {
     setInteractionLogsVisible(true);
     setInteractionLogsLoading(true);
     try {
-      const result = await localLauncherService.getInteractionLogs(500, logLevelFilter, logSourceFilter);
+      const result = await launcherService.getAllInteractionLogs(deviceIdFilter || null, 500);
       if (result.success && result.logs) {
-        setInteractionLogs(result.logs);
-      } else if (!result.success && result.error) {
+        let logs = result.logs;
+
+        if (logLevelFilter !== 'all') {
+          logs = logs.filter(log => (log.level || 'INFO').toUpperCase() === logLevelFilter.toUpperCase());
+        }
+
+        setInteractionLogs(logs);
+      } else if (result.error) {
         message.error('加载日志失败: ' + result.error);
       }
     } catch (err) {
@@ -840,7 +848,7 @@ const RuntimeMonitor = () => {
       </Modal>
 
       <Modal
-        title="统一日志查看器"
+        title="客户端交互日志"
         open={interactionLogsVisible}
         onCancel={() => setInteractionLogsVisible(false)}
         footer={[
@@ -851,9 +859,17 @@ const RuntimeMonitor = () => {
             刷新
           </Button>
         ]}
-        width={900}
+        width={1000}
       >
-        <Space style={{ marginBottom: 12 }}>
+        <Space style={{ marginBottom: 12 }} wrap>
+          <Text>设备ID:</Text>
+          <Input
+            placeholder="筛选设备ID"
+            value={deviceIdFilter}
+            onChange={(e) => setDeviceIdFilter(e.target.value)}
+            style={{ width: 150 }}
+            allowClear
+          />
           <Text>级别:</Text>
           <Select value={logLevelFilter} onChange={setLogLevelFilter} style={{ width: 100 }}>
             <Select.Option value="all">全部</Select.Option>
@@ -862,14 +878,7 @@ const RuntimeMonitor = () => {
             <Select.Option value="warn">WARN</Select.Option>
             <Select.Option value="error">ERROR</Select.Option>
           </Select>
-          <Text>来源:</Text>
-          <Select value={logSourceFilter} onChange={setLogSourceFilter} style={{ width: 100 }}>
-            <Select.Option value="all">全部</Select.Option>
-            <Select.Option value="launcher">启动器</Select.Option>
-            <Select.Option value="gateway">网关</Select.Option>
-            <Select.Option value="install">安装</Select.Option>
-          </Select>
-          <Button size="small" onClick={handleViewInteractionLogs}>应用筛选</Button>
+          <Button type="primary" onClick={handleViewInteractionLogs}>应用筛选</Button>
         </Space>
         <div style={{ backgroundColor: '#1e1e1e', padding: 12, borderRadius: 4, maxHeight: 500, overflow: 'auto' }}>
           {interactionLogsLoading ? (
@@ -880,11 +889,11 @@ const RuntimeMonitor = () => {
             <Text style={{ color: '#666' }}>暂无日志记录</Text>
           ) : (
             interactionLogs.map((log, index) => (
-              <div key={index} style={{ color: '#d4d4d4', fontSize: 12, marginBottom: 4, fontFamily: 'Consolas, Monaco, monospace', display: 'flex', gap: 8, alignItems: 'center' }}>
+              <div key={index} style={{ color: '#d4d4d4', fontSize: 11, marginBottom: 4, fontFamily: 'Consolas, Monaco, monospace', display: 'flex', gap: 8, alignItems: 'center' }}>
                 <span style={{ color: '#888', minWidth: 70 }}>{formatLogTime(log.timestamp)}</span>
                 <Text style={{ color: getLogLevelColor(log.level), fontSize: 10, fontWeight: 'bold', minWidth: 45 }}>{log.level}</Text>
-                <Text style={{ color: '#888', fontSize: 10 }}>[{getLogSourceLabel(log.source)}]</Text>
-                <span style={{ color: '#d4d4d4', flex: 1 }}>{log.message}</span>
+                <Text style={{ color: '#4fc3f7', fontSize: 10 }} title="设备ID">{log.deviceId || 'unknown'}</Text>
+                <span style={{ color: '#d4d4d4', flex: 1, wordBreak: 'break-all' }}>{log.message}</span>
               </div>
             ))
           )}

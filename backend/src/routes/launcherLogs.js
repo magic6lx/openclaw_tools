@@ -78,4 +78,50 @@ router.get('/download/:fileName', async (req, res) => {
   }
 });
 
+router.get('/all', async (req, res) => {
+  try {
+    const { deviceId, limit = 500 } = req.query;
+
+    await fs.mkdir(LOGS_DIR, { recursive: true });
+
+    const files = await fs.readdir(LOGS_DIR);
+    let logFiles = files.filter(f => f.startsWith('launcher-')).sort((a, b) => b.localeCompare(a));
+
+    let allLogs = [];
+
+    for (const file of logFiles) {
+      if (deviceId && !file.includes(deviceId)) continue;
+
+      const filePath = path.join(LOGS_DIR, file);
+      const content = await fs.readFile(filePath, 'utf-8');
+      const lines = content.split('\n').filter(l => l.trim());
+
+      const deviceMatch = file.match(/launcher-(.+)-(\d+)\.log/);
+      const fileDeviceId = deviceMatch ? deviceMatch[1] : 'unknown';
+      const fileTimestamp = deviceMatch ? parseInt(deviceMatch[2]) : 0;
+
+      for (const line of lines) {
+        const timeMatch = line.match(/\[(.*?)\]/);
+        allLogs.push({
+          deviceId: fileDeviceId,
+          message: line,
+          timestamp: timeMatch ? new Date(timeMatch[1]).getTime() : fileTimestamp,
+          source: 'launcher',
+          level: line.includes('ERROR') ? 'ERROR' : line.includes('WARN') ? 'WARN' : 'INFO'
+        });
+      }
+
+      if (allLogs.length >= parseInt(limit)) break;
+    }
+
+    allLogs.sort((a, b) => b.timestamp - a.timestamp);
+    allLogs = allLogs.slice(0, parseInt(limit));
+
+    res.json({ success: true, logs: allLogs, total: allLogs.length });
+  } catch (error) {
+    console.error('获取所有日志失败:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 module.exports = router;

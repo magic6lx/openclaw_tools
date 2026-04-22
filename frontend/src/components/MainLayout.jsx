@@ -86,11 +86,6 @@ function MainLayout() {
       icon: <TeamOutlined />,
       label: '用户管理',
     },
-    {
-      key: '/logs',
-      icon: <FileTextOutlined />,
-      label: '日志管理',
-    },
   ];
 
   const allMenuItems = [

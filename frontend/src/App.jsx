@@ -4,7 +4,6 @@ import { Layout, Spin } from 'antd';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import ConfigWizard from './pages/ConfigWizard';
-import LogManagement from './pages/LogManagement';
 import TemplateManagement from './pages/TemplateManagement';
 import InvitationCodeManagement from './pages/InvitationCodeManagement';
 import UserManagement from './pages/UserManagement';
@@ -32,7 +31,6 @@ const MainRoutes = () => {
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="wizard" element={<ConfigWizard />} />
-            <Route path="logs" element={<LogManagement />} />
             <Route path="templates" element={<TemplateManagement />} />
             <Route path="invitation-codes" element={<InvitationCodeManagement />} />
             <Route path="users" element={<UserManagement />} />
