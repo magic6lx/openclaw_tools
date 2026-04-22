@@ -6,11 +6,9 @@ module.exports = {
       cwd: '/opt/openclaw_tool_server/backend',
       instances: 1,
       exec_mode: 'fork',
-      env: {
-        NODE_ENV: 'development'
-      },
       env_production: {
-        NODE_ENV: 'production'
+        NODE_ENV: 'production',
+        PORT: 3000
       },
       error_file: './logs/error.log',
       out_file: './logs/out.log',
