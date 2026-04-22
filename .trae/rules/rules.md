@@ -7,4 +7,4 @@ alwaysApply: true
 4. 所有的检查，安装，都是基于客户端的，不要做成服务端的
 5. openclaw的文档在reference目录下，禁止编造相关的操作指令
 6. 如果中文路径 导致 Rust 编译失败，就尝试指定一个没有中文的构建目录，成功后移动进来
-7. launcher 托盘 UI 是独立的项目 src-ui 目录下
+7. launcher 托盘 UI 是独立的项目 src-ui 目录下，不是 frontend/ 目录下的项目

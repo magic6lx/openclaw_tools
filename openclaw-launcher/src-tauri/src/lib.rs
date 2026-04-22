@@ -1409,9 +1409,17 @@ fn parse_changelog(content: &str) -> Vec<serde_json::Value> {
                 trimmed.trim_start_matches("## ").split_whitespace().next().unwrap_or("")
             };
 
+            let mut date_str = "";
+            if let Some(date_start) = version_str.find('(') {
+                if let Some(date_end) = version_str.find(')') {
+                    date_str = &version_str[date_start+1..date_end];
+                    version_str = version_str[..date_start].trim().to_string();
+                }
+            }
+
             current_version = Some(serde_json::json!({
                 "version": version_str,
-                "date": "",
+                "date": date_str,
                 "changes": Vec::<serde_json::Value>::new()
             }));
             current_change_type.clear();
@@ -1437,16 +1445,6 @@ fn parse_changelog(content: &str) -> Vec<serde_json::Value> {
 
         } else if trimmed.starts_with("- ") && current_version.is_some() {
             current_items.push(trimmed.trim_start_matches("- ").to_string());
-
-        } else if trimmed.starts_with("(") && trimmed.contains(")") && current_version.is_some() {
-            if let Some(v) = current_version.as_mut() {
-                if let Some(obj) = v.as_object_mut() {
-                    if let Some(date_match) = trimmed.match_indices('(').next() {
-                        let date = &trimmed[date_match.0+1..trimmed.find(')').unwrap_or(trimmed.len())];
-                        obj.insert("date".to_string(), serde_json::Value::String(date.to_string()));
-                    }
-                }
-            }
         }
     }
 
