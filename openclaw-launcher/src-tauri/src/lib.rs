@@ -1403,10 +1403,10 @@ fn parse_changelog(content: &str) -> Vec<serde_json::Value> {
                 versions.push(v);
             }
 
-            let version_str = if trimmed.starts_with("## v") {
-                trimmed.trim_start_matches("## v").split_whitespace().next().unwrap_or("")
+            let mut version_str = if trimmed.starts_with("## v") {
+                trimmed.trim_start_matches("## v").split_whitespace().next().unwrap_or("").to_string()
             } else {
-                trimmed.trim_start_matches("## ").split_whitespace().next().unwrap_or("")
+                trimmed.trim_start_matches("## ").split_whitespace().next().unwrap_or("").to_string()
             };
 
             let mut date_str = "";
