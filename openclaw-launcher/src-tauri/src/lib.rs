@@ -1409,13 +1409,17 @@ fn parse_changelog(content: &str) -> Vec<serde_json::Value> {
                 trimmed.trim_start_matches("## ").split_whitespace().next().unwrap_or("").to_string()
             };
 
-            let mut date_str = "";
-            if let Some(date_start) = version_str.find('(') {
+            let date_str = if let Some(date_start) = version_str.find('(') {
                 if let Some(date_end) = version_str.find(')') {
-                    date_str = &version_str[date_start+1..date_end];
+                    let date = version_str[date_start+1..date_end].to_string();
                     version_str = version_str[..date_start].trim().to_string();
+                    date
+                } else {
+                    String::new()
                 }
-            }
+            } else {
+                String::new()
+            };
 
             current_version = Some(serde_json::json!({
                 "version": version_str,
