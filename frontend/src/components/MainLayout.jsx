@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Layout, Menu, Avatar, Dropdown, Space, Divider, Tag, Modal, Collapse } from 'antd';
+import { Layout, Menu, Avatar, Dropdown, Space, Divider, Tag, Modal, Collapse, Typography } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   DashboardOutlined,
@@ -20,6 +20,7 @@ import { authService } from '../services/auth';
 import launcherService from '../services/launcherService';
 
 const { Header, Sider, Content } = Layout;
+const { Text } = Typography;
 
 function MainLayout() {
   const navigate = useNavigate();
