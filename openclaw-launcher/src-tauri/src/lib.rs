@@ -22,7 +22,7 @@ const LAUNCHER_HTTP_PORT: u16 = 18790;
 const GATEWAY_PORTS: &[u16] = &[18789, 18790, 18791, 18792, 18793, 18794, 18795];
 const MAX_LOG_LINES: usize = 1000;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 struct LogEntry {
     timestamp: u64,
     level: String,
