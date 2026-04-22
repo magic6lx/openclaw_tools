@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Tag, Space, Typography, Spin, Modal, Collapse, List } from 'antd';
-import { CheckCircleOutlined, CloseCircleOutlined, HistoryOutlined } from '@ant-design/icons';
+import { Card, Tag, Space, Typography, Spin, Modal, Collapse, List, Button } from 'antd';
+import { CheckCircleOutlined, CloseCircleOutlined, HistoryOutlined, FileTextOutlined, ReloadOutlined } from '@ant-design/icons';
 
 const { Title, Text } = Typography;
 
@@ -16,6 +16,9 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [changelogVisible, setChangelogVisible] = useState(false);
   const [changelog, setChangelog] = useState([]);
+  const [interactionLogsVisible, setInteractionLogsVisible] = useState(false);
+  const [interactionLogs, setInteractionLogs] = useState([]);
+  const [interactionLogsLoading, setInteractionLogsLoading] = useState(false);
 
   useEffect(() => {
     checkStatus();
@@ -60,6 +63,28 @@ function App() {
   };
 
   const showChangelog = () => setChangelogVisible(true);
+
+  const loadInteractionLogs = async () => {
+    setInteractionLogsLoading(true);
+    try {
+      const res = await fetch(`http://localhost:${LAUNCHER_HTTP_PORT}/api/interaction/logs?lines=200`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setInteractionLogs(data.logs || []);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load interaction logs');
+    } finally {
+      setInteractionLogsLoading(false);
+    }
+  };
+
+  const showInteractionLogs = () => {
+    setInteractionLogsVisible(true);
+    loadInteractionLogs();
+  };
 
   return (
     <div style={{ padding: 16, background: '#f0f0f0', minHeight: '100vh' }}>
@@ -107,6 +132,11 @@ function App() {
               <Tag color="gray" icon={<CloseCircleOutlined />}>未启动</Tag>
             )}
           </Space>
+          <Space>
+            <Button size="small" icon={<FileTextOutlined />} onClick={showInteractionLogs}>
+              交互日志
+            </Button>
+          </Space>
         </Space>
       </Card>
 
@@ -145,6 +175,37 @@ function App() {
             )
           }))}
         />
+      </Modal>
+
+      <Modal
+        title="客户端与服务器交互日志"
+        open={interactionLogsVisible}
+        onCancel={() => setInteractionLogsVisible(false)}
+        footer={[
+          <Button key="close" onClick={() => setInteractionLogsVisible(false)}>
+            关闭
+          </Button>,
+          <Button key="refresh" icon={<ReloadOutlined />} onClick={loadInteractionLogs}>
+            刷新
+          </Button>
+        ]}
+        width={600}
+      >
+        <div style={{ backgroundColor: '#1e1e1e', padding: 12, borderRadius: 4, maxHeight: 400, overflow: 'auto' }}>
+          {interactionLogsLoading ? (
+            <div style={{ textAlign: 'center', padding: 20 }}>
+              <Spin tip="加载中..." />
+            </div>
+          ) : interactionLogs.length === 0 ? (
+            <Text style={{ color: '#666' }}>暂无日志记录</Text>
+          ) : (
+            interactionLogs.map((log, index) => (
+              <div key={index} style={{ color: '#d4d4d4', fontSize: 11, marginBottom: 4, fontFamily: 'Consolas, Monaco, monospace' }}>
+                {log}
+              </div>
+            ))
+          )}
+        </div>
       </Modal>
     </div>
   );
