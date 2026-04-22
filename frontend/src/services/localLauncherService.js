@@ -137,6 +137,41 @@ class LocalLauncherService {
     }
   }
 
+  async installOpenClawNpm() {
+    try {
+      const response = await fetch(`${LAUNCHER_API_BASE}/api/install-npm`, {
+        method: 'POST',
+        mode: 'cors'
+      });
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  async getInstallLogs() {
+    try {
+      const response = await fetch(`${LAUNCHER_API_BASE}/api/install/logs`, {
+        method: 'GET',
+        mode: 'cors'
+      });
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      return {
+        logs: [],
+        installing: false,
+        error: error.message
+      };
+    }
+  }
+
   async stopGateway() {
     try {
       const response = await fetch(`${LAUNCHER_API_BASE}/api/stop-gateway`, {

@@ -19,6 +19,8 @@ const OpenClawInstall = () => {
   const [actionResult, setActionResult] = useState(null);
   const [operationLogs, setOperationLogs] = useState([]);
   const [changelog, setChangelog] = useState([]);
+  const [npmInstalling, setNpmInstalling] = useState(false);
+  const [npmInstallLogs, setNpmInstallLogs] = useState([]);
 
   const addLog = (type, text) => {
     setOperationLogs(prev => [...prev, { type, text, time: new Date().toLocaleTimeString() }]);
@@ -28,6 +30,26 @@ const OpenClawInstall = () => {
     checkStatus();
     loadChangelog();
   }, []);
+
+  useEffect(() => {
+    if (!npmInstalling) return;
+
+    const pollLogs = async () => {
+      const result = await localLauncherService.getInstallLogs();
+      if (result.logs) {
+        setNpmInstallLogs(result.logs);
+      }
+      if (!result.installing) {
+        setNpmInstalling(false);
+        await checkStatus();
+      }
+    };
+
+    pollLogs();
+    const interval = setInterval(pollLogs, 2000);
+
+    return () => clearInterval(interval);
+  }, [npmInstalling]);
 
   const loadChangelog = async () => {
     const result = await launcherService.getChangelog();
@@ -100,6 +122,33 @@ const OpenClawInstall = () => {
       setActionResult({ success: false, error: err.message });
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const handleInstallNpm = async () => {
+    if (!status.launcherAvailable) {
+      message.error('Launcher未运行，请先运行OpenClaw Launcher');
+      return;
+    }
+
+    if (!systemCheck?.nodeVersion) {
+      message.warning('未检测到 Node.js，请先安装 Node.js');
+      return;
+    }
+
+    setNpmInstalling(true);
+    setNpmInstallLogs([]);
+    setActionResult(null);
+
+    try {
+      const result = await localLauncherService.installOpenClawNpm();
+      if (!result.success && result.error) {
+        message.error(result.error);
+        setNpmInstalling(false);
+      }
+    } catch (err) {
+      message.error('启动 npm 安装失败: ' + err.message);
+      setNpmInstalling(false);
     }
   };
 
@@ -202,15 +251,38 @@ const OpenClawInstall = () => {
       return (
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
           <Text>点击下方按钮一键安装 OpenClaw（包含 Node.js 等依赖）</Text>
-          <Button
-            type="primary"
-            icon={<DownloadOutlined />}
-            onClick={handleInstall}
-            loading={actionLoading}
-            size="large"
-          >
-            一键安装 OpenClaw
-          </Button>
+          <Space size="middle" wrap>
+            <Button
+              type="primary"
+              icon={<DownloadOutlined />}
+              onClick={handleInstall}
+              loading={actionLoading}
+              size="large"
+            >
+              一键安装 OpenClaw（自动）
+            </Button>
+            <Button
+              icon={<DownloadOutlined />}
+              onClick={handleInstallNpm}
+              loading={npmInstalling}
+              size="large"
+              disabled={!systemCheck?.nodeVersion}
+            >
+              npm 全局安装（需 Node.js）
+            </Button>
+          </Space>
+          {npmInstalling && (
+            <div style={{ marginTop: 16, background: '#1e1e1e', padding: 16, borderRadius: 8, maxHeight: 300, overflow: 'auto' }}>
+              <Text style={{ color: '#fff', fontSize: 12 }}>npm 安装日志：</Text>
+              <div style={{ marginTop: 8 }}>
+                {npmInstallLogs.map((log, index) => (
+                  <div key={index} style={{ color: '#fff', fontSize: 12, marginBottom: 4 }}>
+                    {log}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </Space>
       );
     }

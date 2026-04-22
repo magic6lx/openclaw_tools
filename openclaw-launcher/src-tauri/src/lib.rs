@@ -25,6 +25,14 @@ static CONSOLE_LOGS: once_cell::sync::Lazy<Arc<RwLock<Vec<String>>>> = once_cell
     Arc::new(RwLock::new(Vec::new()))
 });
 
+static INSTALL_LOGS: once_cell::sync::Lazy<Arc<RwLock<Vec<String>>>> = once_cell::sync::Lazy::new(|| {
+    Arc::new(RwLock::new(Vec::new()))
+});
+
+static IS_INSTALLING: once_cell::sync::Lazy<Arc<RwLock<bool>>> = once_cell::sync::Lazy::new(|| {
+    Arc::new(RwLock::new(false))
+});
+
 static GATEWAY_PROCESS: once_cell::sync::Lazy<Arc<Mutex<Option<Child>>>> = once_cell::sync::Lazy::new(|| {
     Arc::new(Mutex::new(None))
 });
@@ -84,6 +92,44 @@ fn get_console_logs(since: u64) -> Vec<String> {
             .collect()
     } else {
         vec![]
+    }
+}
+
+fn add_install_log(line: &str) {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+
+    let log_entry = format!("[{}] {}", timestamp, line);
+
+    if let Ok(mut logs) = INSTALL_LOGS.write() {
+        logs.push(log_entry.clone());
+        if logs.len() > MAX_LOG_LINES {
+            logs.remove(0);
+        }
+    }
+}
+
+fn get_install_logs() -> Vec<String> {
+    if let Ok(logs) = INSTALL_LOGS.read() {
+        logs.clone()
+    } else {
+        vec![]
+    }
+}
+
+fn get_installing_status() -> bool {
+    if let Ok(installing) = IS_INSTALLING.read() {
+        *installing
+    } else {
+        false
+    }
+}
+
+fn set_installing_status(status: bool) {
+    if let Ok(mut installing) = IS_INSTALLING.write() {
+        *installing = status;
     }
 }
 
@@ -1548,6 +1594,118 @@ fn handle_http_request(req: &str) -> Option<String> {
         return Some(format!(
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, Authorization\r\n\r\n{}",
             serde_json::to_string(&install_result).unwrap()
+        ));
+    }
+
+    if req.starts_with("POST /api/install-npm") {
+        if get_installing_status() {
+            return Some(format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n{}",
+                serde_json::to_string(&serde_json::json!({
+                    "success": false,
+                    "message": "",
+                    "error": "安装正在进行中"
+                })).unwrap()
+            ));
+        }
+
+        set_installing_status(true);
+        add_install_log("开始 npm 全局安装 OpenClaw...");
+
+        #[cfg(target_os = "windows")]
+        std::thread::spawn(move || {
+            use std::process::Command;
+            let output = Command::new("cmd")
+                .args(["/C", "npm", "install", "-g", "openclaw@latest"])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output();
+
+            match output {
+                Ok(out) => {
+                    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+                    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+
+                    if !stdout.is_empty() {
+                        for line in stdout.lines() {
+                            add_install_log(&format!("[npm stdout] {}", line));
+                        }
+                    }
+                    if !stderr.is_empty() {
+                        for line in stderr.lines() {
+                            add_install_log(&format!("[npm stderr] {}", line));
+                        }
+                    }
+
+                    if out.status.success() {
+                        add_install_log("OpenClaw 安装成功！");
+                    } else {
+                        add_install_log(&format!("OpenClaw 安装失败，退出码: {:?}", out.status.code()));
+                    }
+                }
+                Err(e) => {
+                    add_install_log(&format!("npm 安装命令执行失败: {}", e));
+                }
+            }
+
+            add_install_log("安装进程结束");
+            set_installing_status(false);
+        });
+
+        #[cfg(not(target_os = "windows"))]
+        std::thread::spawn(move || {
+            let output = Command::new("bash")
+                .args(["-c", "npm install -g openclaw@latest"])
+                .output();
+
+            match output {
+                Ok(out) => {
+                    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+                    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+
+                    if !stdout.is_empty() {
+                        for line in stdout.lines() {
+                            add_install_log(&format!("[npm stdout] {}", line));
+                        }
+                    }
+                    if !stderr.is_empty() {
+                        for line in stderr.lines() {
+                            add_install_log(&format!("[npm stderr] {}", line));
+                        }
+                    }
+
+                    if out.status.success() {
+                        add_install_log("OpenClaw 安装成功！");
+                    } else {
+                        add_install_log(&format!("OpenClaw 安装失败，退出码: {:?}", out.status.code()));
+                    }
+                }
+                Err(e) => {
+                    add_install_log(&format!("npm 安装命令执行失败: {}", e));
+                }
+            }
+
+            add_install_log("安装进程结束");
+            set_installing_status(false);
+        });
+
+        return Some(format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n{}",
+            serde_json::to_string(&serde_json::json!({
+                "success": true,
+                "message": "安装已开始，请轮询获取日志"
+            })).unwrap()
+        ));
+    }
+
+    if req.starts_with("GET /api/install/logs") {
+        let logs = get_install_logs();
+        let installing = get_installing_status();
+        return Some(format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n{}",
+            serde_json::to_string(&serde_json::json!({
+                "logs": logs,
+                "installing": installing
+            })).unwrap()
         ));
     }
 
