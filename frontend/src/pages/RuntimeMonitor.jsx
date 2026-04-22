@@ -29,6 +29,8 @@ const RuntimeMonitor = () => {
   const [interactionLogsVisible, setInteractionLogsVisible] = useState(false);
   const [interactionLogs, setInteractionLogs] = useState([]);
   const [interactionLogsLoading, setInteractionLogsLoading] = useState(false);
+  const [logLevelFilter, setLogLevelFilter] = useState('all');
+  const [logSourceFilter, setLogSourceFilter] = useState('all');
   const [form] = Form.useForm();
   
   const openclawLogsRef = useRef(null);
@@ -280,7 +282,7 @@ const RuntimeMonitor = () => {
     setInteractionLogsVisible(true);
     setInteractionLogsLoading(true);
     try {
-      const result = await localLauncherService.getInteractionLogs(500);
+      const result = await localLauncherService.getInteractionLogs(500, logLevelFilter, logSourceFilter);
       if (result.success) {
         setInteractionLogs(result.logs || []);
       } else {
@@ -293,6 +295,34 @@ const RuntimeMonitor = () => {
     } finally {
       setInteractionLogsLoading(false);
     }
+  };
+
+  const formatLogTime = (timestamp) => {
+    if (!timestamp) return '';
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString();
+  };
+
+  const getLogLevelColor = (level) => {
+    if (!level) return 'default';
+    switch (level.toUpperCase()) {
+      case 'ERROR': return 'red';
+      case 'WARN': return 'orange';
+      case 'DEBUG': return 'gray';
+      case 'INFO': return 'blue';
+      default: return 'default';
+    }
+  };
+
+  const getLogSourceLabel = (source) => {
+    if (!source) return source;
+    const labels = {
+      launcher: '启动器',
+      gateway: '网关',
+      install: '安装',
+      frontend: '前端'
+    };
+    return labels[source] || source;
   };
 
   const handleRefreshClientInfo = () => {
@@ -812,7 +842,7 @@ const RuntimeMonitor = () => {
       </Modal>
 
       <Modal
-        title="客户端与服务器交互日志"
+        title="统一日志查看器"
         open={interactionLogsVisible}
         onCancel={() => setInteractionLogsVisible(false)}
         footer={[
@@ -823,8 +853,26 @@ const RuntimeMonitor = () => {
             刷新
           </Button>
         ]}
-        width={800}
+        width={900}
       >
+        <Space style={{ marginBottom: 12 }}>
+          <Text>级别:</Text>
+          <Select value={logLevelFilter} onChange={setLogLevelFilter} style={{ width: 100 }}>
+            <Select.Option value="all">全部</Select.Option>
+            <Select.Option value="debug">DEBUG</Select.Option>
+            <Select.Option value="info">INFO</Select.Option>
+            <Select.Option value="warn">WARN</Select.Option>
+            <Select.Option value="error">ERROR</Select.Option>
+          </Select>
+          <Text>来源:</Text>
+          <Select value={logSourceFilter} onChange={setLogSourceFilter} style={{ width: 100 }}>
+            <Select.Option value="all">全部</Select.Option>
+            <Select.Option value="launcher">启动器</Select.Option>
+            <Select.Option value="gateway">网关</Select.Option>
+            <Select.Option value="install">安装</Select.Option>
+          </Select>
+          <Button size="small" onClick={handleViewInteractionLogs}>应用筛选</Button>
+        </Space>
         <div style={{ backgroundColor: '#1e1e1e', padding: 12, borderRadius: 4, maxHeight: 500, overflow: 'auto' }}>
           {interactionLogsLoading ? (
             <div style={{ textAlign: 'center', padding: 40 }}>
@@ -834,8 +882,11 @@ const RuntimeMonitor = () => {
             <Text style={{ color: '#666' }}>暂无日志记录</Text>
           ) : (
             interactionLogs.map((log, index) => (
-              <div key={index} style={{ color: '#d4d4d4', fontSize: 12, marginBottom: 4, fontFamily: 'Consolas, Monaco, monospace' }}>
-                {log}
+              <div key={index} style={{ color: '#d4d4d4', fontSize: 12, marginBottom: 4, fontFamily: 'Consolas, Monaco, monospace', display: 'flex', gap: 8, alignItems: 'center' }}>
+                <span style={{ color: '#888', minWidth: 70 }}>{formatLogTime(log.timestamp)}</span>
+                <Text style={{ color: getLogLevelColor(log.level), fontSize: 10, fontWeight: 'bold', minWidth: 45 }}>{log.level}</Text>
+                <Text style={{ color: '#888', fontSize: 10 }}>[{getLogSourceLabel(log.source)}]</Text>
+                <span style={{ color: '#d4d4d4', flex: 1 }}>{log.message}</span>
               </div>
             ))
           )}
