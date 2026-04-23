@@ -1,45 +1,103 @@
 import React, { useState } from 'react';
-import { Form, Input, Button, Card, Typography, message } from 'antd';
+import { Card, Form, Input, Button, Typography, message, Space } from 'antd';
+import { KeyOutlined } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
-const { Title } = Typography;
+const { Title, Text, Paragraph } = Typography;
 
 function Login() {
-  const { login } = useAuth();
   const [loading, setLoading] = useState(false);
+  const { login } = useAuth();
+  const navigate = useNavigate();
 
-  const onFinish = async (values) => {
+  const handleLogin = async (values) => {
     setLoading(true);
-    const result = await login(values.username, values.password);
-    if (!result.success) {
-      message.error(result.error || '登录失败');
+    try {
+      const success = await login(values.code);
+      if (success) {
+        message.success('登录成功');
+        navigate('/');
+      }
+    } catch (err) {
+      message.error(err.message || '登录失败');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
-    <div style={{ 
-      height: '100vh', 
-      display: 'flex', 
-      alignItems: 'center', 
+    <div style={{
+      minHeight: '100vh',
+      display: 'flex',
+      alignItems: 'center',
       justifyContent: 'center',
-      background: '#f0f2f5'
+      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      padding: 24
     }}>
-      <Card style={{ width: 400 }}>
-        <Title level={3} style={{ textAlign: 'center' }}>OpenClaw 管理后台</Title>
-        <Form onFinish={onFinish} layout="vertical">
-          <Form.Item name="username" rules={[{ required: true, message: '请输入用户名' }]}>
-            <Input placeholder="用户名" />
+      <Card style={{ width: 400, boxShadow: '0 14px 40px rgba(0,0,0,0.2)' }}>
+        <div style={{ textAlign: 'center', marginBottom: 32 }}>
+          <div style={{
+            width: 64,
+            height: 64,
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            borderRadius: 16,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            margin: '0 auto 16px'
+          }}>
+            <KeyOutlined style={{ fontSize: 32, color: '#fff' }} />
+          </div>
+          <Title level={3} style={{ margin: 0 }}>OpenClaw 运维工具</Title>
+          <Paragraph type="secondary" style={{ margin: '8px 0 0' }}>
+            请输入邀请码登录
+          </Paragraph>
+        </div>
+
+        <Form layout="vertical" onFinish={handleLogin} size="large">
+          <Form.Item
+            name="code"
+            rules={[
+              { required: true, message: '请输入邀请码' },
+              { min: 8, message: '邀请码至少8位' }
+            ]}
+          >
+            <Input
+              placeholder="请输入邀请码"
+              prefix={<KeyOutlined style={{ color: '#999' }} />}
+              style={{ height: 48 }}
+            />
           </Form.Item>
-          <Form.Item name="password" rules={[{ required: true, message: '请输入密码' }]}>
-            <Input.Password placeholder="密码" />
-          </Form.Item>
-          <Form.Item>
-            <Button type="primary" htmlType="submit" block loading={loading}>
+
+          <Form.Item style={{ marginBottom: 16 }}>
+            <Button
+              type="primary"
+              htmlType="submit"
+              loading={loading}
+              block
+              style={{ height: 48 }}
+            >
               登录
             </Button>
           </Form.Item>
         </Form>
+
+        <div style={{ textAlign: 'center', marginTop: 16 }}>
+          <Space direction="vertical" size={0}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              示例邀请码
+            </Text>
+            <Space size={8}>
+              <Text code style={{ fontSize: 12 }}>ADMIN12345678</Text>
+              <Text type="secondary">管理员</Text>
+            </Space>
+            <Space size={8}>
+              <Text code style={{ fontSize: 12 }}>USER98765432</Text>
+              <Text type="secondary">普通用户</Text>
+            </Space>
+          </Space>
+        </div>
       </Card>
     </div>
   );

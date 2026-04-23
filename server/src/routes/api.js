@@ -1,10 +1,14 @@
 const express = require('express');
 const router = express.Router();
 const logService = require('../services/logService');
-const { login, verify, authMiddleware } = require('../middleware/auth');
+const { login, verify, authMiddleware, getInvitations, createInvitation, toggleInvitation, deleteInvitation } = require('../middleware/auth');
 
 router.post('/auth/login', login);
 router.get('/auth/verify', authMiddleware, verify);
+router.get('/invitations', authMiddleware, getInvitations);
+router.post('/invitations', authMiddleware, createInvitation);
+router.put('/invitations/:id/toggle', authMiddleware, toggleInvitation);
+router.delete('/invitations/:id', authMiddleware, deleteInvitation);
 
 router.post('/logs', async (req, res) => {
   try {

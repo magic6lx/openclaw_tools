@@ -4,61 +4,57 @@ const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
-  const [token, setToken] = useState(localStorage.getItem('token'));
   const [loading, setLoading] = useState(true);
 
-  const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
-
   useEffect(() => {
+    const token = localStorage.getItem('token');
     if (token) {
-      verifyToken();
+      verifyToken(token);
     } else {
       setLoading(false);
     }
   }, []);
 
-  const verifyToken = async () => {
+  const verifyToken = async (token) => {
     try {
-      const res = await fetch(`${API_BASE}/api/auth/verify`, {
+      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL || ''}/api/auth/verify`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
       if (data.success) {
         setUser(data.user);
       } else {
-        logout();
+        localStorage.removeItem('token');
       }
-    } catch {
-      logout();
+    } catch (err) {
+      localStorage.removeItem('token');
     } finally {
       setLoading(false);
     }
   };
 
-  const login = async (username, password) => {
-    const res = await fetch(`${API_BASE}/api/auth/login`, {
+  const login = async (code) => {
+    const res = await fetch(`${import.meta.env.VITE_API_BASE_URL || ''}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password })
+      body: JSON.stringify({ code })
     });
     const data = await res.json();
-    if (data.success) {
-      setToken(data.token);
-      setUser(data.user);
-      localStorage.setItem('token', data.token);
-      return { success: true };
+    if (!data.success) {
+      throw new Error(data.error);
     }
-    return { success: false, error: data.error };
+    localStorage.setItem('token', data.token);
+    setUser(data.user);
+    return true;
   };
 
   const logout = () => {
-    setToken(null);
-    setUser(null);
     localStorage.removeItem('token');
+    setUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, loading }}>
+    <AuthContext.Provider value={{ user, loading, login, logout }}>
       {children}
     </AuthContext.Provider>
   );
