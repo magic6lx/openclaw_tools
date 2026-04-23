@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Card, Typography, Row, Col, Button, Radio, Space, Tag, message, Steps, Spin } from 'antd';
+import { Card, Typography, Row, Col, Button, Radio, Space, Tag, message, Steps, Spin, Progress } from 'antd';
 import { DownloadOutlined, CheckCircleOutlined, LoadingOutlined, RocketOutlined } from '@ant-design/icons';
 
 const { Title, Text, Paragraph } = Typography;
@@ -34,35 +34,70 @@ function Install() {
   const [installing, setInstalling] = useState(false);
   const [progress, setProgress] = useState(0);
   const [logs, setLogs] = useState([]);
+  const [statusInterval, setStatusInterval] = useState(null);
 
-  const addLog = (msg) => {
-    setLogs(prev => [...prev, { time: new Date().toLocaleTimeString(), msg }]);
+  const LAUNCHER_API = 'http://127.0.0.1:3003';
+
+  const addLog = (level, msg) => {
+    const time = new Date().toLocaleTimeString();
+    setLogs(prev => [...prev, { time, level, msg }]);
+  };
+
+  const fetchInstallStatus = async () => {
+    try {
+      const res = await fetch(`${LAUNCHER_API}/install/status`);
+      const data = await res.json();
+      if (data.logs && data.logs.length > 0) {
+        setLogs(data.logs.map(l => ({
+          time: new Date(l.timestamp).toLocaleTimeString(),
+          level: l.level,
+          msg: l.message
+        })));
+      }
+      if (!data.running) {
+        if (statusInterval) clearInterval(statusInterval);
+        setInstalling(false);
+        setStep(2);
+        if (data.logs?.some(l => l.level === 'ERROR')) {
+          message.error('安装失败，请查看日志');
+        } else {
+          message.success('安装成功！');
+        }
+      }
+    } catch (err) {
+      console.error('获取安装状态失败:', err);
+    }
   };
 
   const handleInstall = async () => {
     setInstalling(true);
-    setProgress(0);
+    setProgress(10);
     setLogs([]);
     setStep(1);
+    addLog('INFO', '正在连接 Launcher...');
 
-    const steps = [
-      '正在检测系统环境...',
-      '正在下载 OpenClaw...',
-      '正在安装依赖...',
-      '正在配置...',
-      '正在应用配置模板...',
-      '安装完成！'
-    ];
+    try {
+      const res = await fetch(`${LAUNCHER_API}/install/start`, { method: 'POST' });
+      const data = await res.json();
 
-    for (let i = 0; i < steps.length; i++) {
-      addLog(steps[i]);
-      setProgress((i + 1) * (100 / steps.length));
-      await new Promise(r => setTimeout(r, 800));
+      if (!data.success && data.message === '安装已在进行中') {
+        addLog('WARN', '安装已在进行中，请稍候...');
+        const interval = setInterval(fetchInstallStatus, 2000);
+        setStatusInterval(interval);
+        return;
+      }
+
+      addLog('INFO', '安装已启动，等待完成...');
+      setProgress(30);
+
+      const interval = setInterval(fetchInstallStatus, 2000);
+      setStatusInterval(interval);
+
+    } catch (err) {
+      addLog('ERROR', `连接Launcher失败: ${err.message}`);
+      addLog('ERROR', '请确保Launcher正在运行');
+      setInstalling(false);
     }
-
-    setStep(2);
-    setInstalling(false);
-    message.success('安装成功！');
   };
 
   return (
@@ -130,20 +165,31 @@ function Install() {
           <div style={{ marginBottom: 16 }}>
             <Progress percent={progress} status="active" />
           </div>
-          <Card 
-            style={{ 
-              background: '#1e1e1e', 
-              color: '#d4d4d4', 
+          <Card
+            style={{
+              background: '#1e1e1e',
+              color: '#d4d4d4',
               fontFamily: 'Consolas, monospace',
               maxHeight: 300,
               overflow: 'auto'
             }}
           >
-            {logs.map((log, i) => (
-              <div key={i}>
-                <Text style={{ color: '#888' }}>[{log.time}]</Text> {log.msg}
-              </div>
-            ))}
+            {logs.map((log, i) => {
+              const levelColors = {
+                'INFO': '#4fc3f7',
+                'WARN': '#ffb74d',
+                'ERROR': '#ef5350'
+              };
+              return (
+                <div key={i}>
+                  <Text style={{ color: '#888' }}>[{log.time}]</Text>
+                  <Text style={{ color: levelColors[log.level] || '#d4d4d4', marginLeft: 8 }}>
+                    [{log.level}]
+                  </Text>
+                  <Text style={{ color: '#d4d4d4', marginLeft: 8 }}>{log.msg}</Text>
+                </div>
+              );
+            })}
             {installing && <Spin indicator={<LoadingOutlined style={{ color: '#fff' }} />} />}
           </Card>
         </Card>

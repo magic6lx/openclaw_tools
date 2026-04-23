@@ -73,6 +73,7 @@ function updateMenu() {
 app.whenReady().then(() => {
   launcher.setServerUrl(SERVER_URL);
   launcher.start(30000);
+  launcher.startLocalApi();
   createTray();
 });
 
