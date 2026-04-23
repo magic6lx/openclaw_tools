@@ -8,7 +8,7 @@ export default defineConfig({
     outDir: '../server/public'
   },
   server: {
-    port: 5173,
+    port: 3001,
     proxy: {
       '/api': {
         target: 'http://localhost:3002',

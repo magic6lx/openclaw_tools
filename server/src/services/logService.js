@@ -1,50 +1,98 @@
-const fs = require('fs').promises;
-const path = require('path');
-const { v4: uuidv4 } = require('uuid');
+const { query } = require('../db');
 
-const LOGS_DIR = path.join(__dirname, '../../logs');
-
-async function ensureLogsDir() {
-  await fs.mkdir(LOGS_DIR, { recursive: true });
-}
-
-async function saveLogs(deviceId, logs) {
-  await ensureLogsDir();
-  const filePath = path.join(LOGS_DIR, `launcher-${deviceId}.log`);
-  const entries = logs.map(log => {
-    const timestamp = log.timestamp || Date.now();
-    const level = log.level || 'INFO';
-    const message = log.message || '';
-    return `[${new Date(timestamp).toISOString()}] [${level}] ${message}`;
-  }).join('\n');
-  await fs.appendFile(filePath, entries + '\n');
-}
-
-async function getLogs(deviceId, limit = 500) {
-  await ensureLogsDir();
-  const files = await fs.readdir(LOGS_DIR);
-  const logFiles = files.filter(f => f.startsWith('launcher-') && f.endsWith('.log'));
-  const allLogs = [];
-
-  for (const file of logFiles) {
-    if (deviceId && !file.includes(deviceId)) continue;
-    const filePath = path.join(LOGS_DIR, file);
-    const content = await fs.readFile(filePath, 'utf-8');
-    const lines = content.split('\n').filter(l => l.trim());
-    const fileDeviceId = file.replace('launcher-', '').replace('.log', '');
-
-    for (const line of lines) {
-      const timeMatch = line.match(/\[(.*?)\]/);
-      allLogs.push({
-        deviceId: fileDeviceId,
-        message: line,
-        timestamp: timeMatch ? new Date(timeMatch[1]).getTime() : 0
-      });
-    }
+async function saveLogs(logs) {
+  if (!Array.isArray(logs) || logs.length === 0) {
+    return { success: true, count: 0 };
   }
 
-  allLogs.sort((a, b) => b.timestamp - a.timestamp);
-  return allLogs.slice(0, limit);
+  try {
+    for (const log of logs) {
+      await query(
+        `INSERT INTO logs (device_id, level, source, message, client_timestamp)
+         VALUES (?, ?, ?, ?, ?)`,
+        [
+          log.deviceId || '',
+          log.level || 'info',
+          log.source || '',
+          log.message || '',
+          log.timestamp ? new Date(log.timestamp) : null
+        ]
+      );
+    }
+    return { success: true, count: logs.length };
+  } catch (err) {
+    console.error('Save logs error:', err);
+    throw err;
+  }
 }
 
-module.exports = { saveLogs, getLogs };
+async function getLogs(options = {}) {
+  try {
+    const { deviceId, level, source, startTime, endTime, limit = 100, offset = 0 } = options;
+
+    let sql = 'SELECT * FROM logs WHERE 1=1';
+    const params = [];
+
+    if (deviceId) {
+      sql += ' AND device_id = ?';
+      params.push(deviceId);
+    }
+    if (level) {
+      sql += ' AND level = ?';
+      params.push(level);
+    }
+    if (source) {
+      sql += ' AND source LIKE ?';
+      params.push(`%${source}%`);
+    }
+    if (startTime) {
+      sql += ' AND server_timestamp >= ?';
+      params.push(new Date(startTime));
+    }
+    if (endTime) {
+      sql += ' AND server_timestamp <= ?';
+      params.push(new Date(endTime));
+    }
+
+    sql += ' ORDER BY server_timestamp DESC LIMIT ? OFFSET ?';
+    params.push(parseInt(limit), parseInt(offset));
+
+    const logs = await query(sql, params);
+    return logs;
+  } catch (err) {
+    console.error('Get logs error:', err);
+    throw err;
+  }
+}
+
+async function getLogsByDevice(deviceId, limit = 50) {
+  try {
+    const logs = await query(
+      'SELECT * FROM logs WHERE device_id = ? ORDER BY server_timestamp DESC LIMIT ?',
+      [deviceId, limit]
+    );
+    return logs;
+  } catch (err) {
+    console.error('Get logs by device error:', err);
+    throw err;
+  }
+}
+
+async function getAllDevices() {
+  try {
+    const devices = await query(
+      'SELECT d.*, i.code as invitation_code FROM devices d LEFT JOIN invitations i ON d.invitation_id = i.id ORDER BY d.last_seen DESC'
+    );
+    return devices;
+  } catch (err) {
+    console.error('Get all devices error:', err);
+    throw err;
+  }
+}
+
+module.exports = {
+  saveLogs,
+  getLogs,
+  getLogsByDevice,
+  getAllDevices
+};

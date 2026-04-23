@@ -1,12 +1,12 @@
 const { app, Tray, Menu, nativeImage, ipcMain } = require('electron');
 const path = require('path');
-const launcher = require('./index');
+const launcher = require('../src/index');
 
 let tray = null;
 const SERVER_URL = process.env.SERVER_URL || 'http://127.0.0.1:3002';
 
 function createTray() {
-  const iconPath = path.join(__dirname, '../assets/icon.png');
+  const iconPath = path.join(__dirname, '../assets/icon.ico');
   let icon;
   try {
     icon = nativeImage.createFromPath(iconPath);

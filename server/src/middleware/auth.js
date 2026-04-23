@@ -1,15 +1,8 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
+const { query } = require('../db');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'openclaw-secret-key';
-
-const invitations = [
-  { id: 1, code: 'ADMIN12345678', maxDevices: 10, usedDevices: 0, status: 'active', role: 'admin', createdAt: '2026-04-01' },
-  { id: 2, code: 'USER98765432', maxDevices: 3, usedDevices: 1, status: 'active', role: 'user', createdAt: '2026-04-05' },
-  { id: 3, code: 'TEST11111111', maxDevices: 1, usedDevices: 1, status: 'disabled', role: 'user', createdAt: '2026-04-10' },
-];
-
-let nextInvitationId = 4;
+const JWT_SECRET = process.env.JWT_SECRET || 'openclaw_jwt_secret_key_2024';
 
 function authMiddleware(req, res, next) {
   const token = req.headers.authorization?.replace('Bearer ', '');
@@ -25,112 +18,148 @@ function authMiddleware(req, res, next) {
   }
 }
 
-function login(req, res) {
-  const { code } = req.body;
-  
-  if (!code) {
-    return res.status(400).json({ error: '请输入邀请码' });
+function adminMiddleware(req, res, next) {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({ error: '需要管理员权限' });
   }
+  next();
+}
 
-  const invitation = invitations.find(i => i.code === code.toUpperCase());
-  
-  if (!invitation) {
-    return res.status(401).json({ error: '邀请码无效' });
-  }
-  
-  if (invitation.status !== 'active') {
-    return res.status(401).json({ error: '邀请码已禁用' });
-  }
-  
-  if (invitation.usedDevices >= invitation.maxDevices) {
-    return res.status(401).json({ error: '邀请码设备数已满' });
-  }
+async function login(req, res) {
+  try {
+    const { code, deviceId, deviceInfo } = req.body;
 
-  invitation.usedDevices++;
-  
-  const token = jwt.sign({ 
-    id: invitation.id, 
-    code: invitation.code, 
-    role: invitation.role 
-  }, JWT_SECRET, { expiresIn: '7d' });
-  
-  res.json({ 
-    success: true, 
-    token, 
-    user: { 
-      id: invitation.id, 
-      code: invitation.code.slice(0, 4) + '****', 
-      role: invitation.role,
-      remainingDevices: invitation.maxDevices - invitation.usedDevices
+    if (!code) {
+      return res.status(400).json({ error: '请输入邀请码' });
     }
-  });
+
+    const invitations = await query(
+      'SELECT * FROM invitations WHERE code = ?',
+      [code.toUpperCase()]
+    );
+
+    if (invitations.length === 0) {
+      return res.status(401).json({ error: '邀请码无效' });
+    }
+
+    const invitation = invitations[0];
+
+    if (invitation.status !== 'active') {
+      return res.status(401).json({ error: '邀请码已禁用' });
+    }
+
+    if (invitation.used_devices >= invitation.max_devices) {
+      return res.status(401).json({ error: '邀请码设备数已满' });
+    }
+
+    await query(
+      'UPDATE invitations SET used_devices = used_devices + 1 WHERE id = ?',
+      [invitation.id]
+    );
+
+    if (deviceId && deviceInfo) {
+      await query(
+        `INSERT INTO devices (device_id, invitation_id, device_name, os_type, os_version)
+         VALUES (?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE last_seen = CURRENT_TIMESTAMP`,
+        [deviceId, invitation.id, deviceInfo.deviceName || '', deviceInfo.osType || '', deviceInfo.osVersion || '']
+      );
+    }
+
+    const token = jwt.sign({
+      id: invitation.id,
+      code: invitation.code,
+      role: invitation.role,
+      deviceId: deviceId || null
+    }, JWT_SECRET, { expiresIn: '7d' });
+
+    res.json({
+      success: true,
+      token,
+      user: {
+        id: invitation.id,
+        code: invitation.code.slice(0, 4) + '****',
+        role: invitation.role,
+        remainingDevices: invitation.max_devices - invitation.used_devices - 1
+      }
+    });
+  } catch (err) {
+    console.error('Login error:', err);
+    res.status(500).json({ error: '服务器错误' });
+  }
 }
 
-function verify(req, res) {
-  res.json({ success: true, user: req.user });
+async function getInvitations(req, res) {
+  try {
+    const invitations = await query('SELECT * FROM invitations ORDER BY created_at DESC');
+    res.json({ success: true, data: invitations });
+  } catch (err) {
+    console.error('Get invitations error:', err);
+    res.status(500).json({ error: '服务器错误' });
+  }
 }
 
-function getInvitations(req, res) {
-  const list = invitations.map(i => ({
-    code: i.code.slice(0, 4) + '****',
-    maxDevices: i.maxDevices,
-    usedDevices: i.usedDevices,
-    status: i.status,
-    role: i.role,
-    createdAt: i.createdAt
-  }));
-  res.json({ success: true, invitations: list });
+async function createInvitation(req, res) {
+  try {
+    const { maxDevices, role } = req.body;
+    const code = generateCode();
+    await query(
+      'INSERT INTO invitations (code, max_devices, used_devices, status, role) VALUES (?, ?, 0, "active", ?)',
+      [code, maxDevices || 3, role || 'user']
+    );
+    const [invitation] = await query('SELECT * FROM invitations WHERE code = ?', [code]);
+    res.json({ success: true, data: invitation });
+  } catch (err) {
+    console.error('Create invitation error:', err);
+    res.status(500).json({ error: '服务器错误' });
+  }
 }
 
-function createInvitation(req, res) {
-  const { maxDevices = 3, role = 'user' } = req.body;
+async function updateInvitation(req, res) {
+  try {
+    const { id } = req.params;
+    const { status, maxDevices } = req.body;
+    const updates = [];
+    const params = [];
+    if (status) { updates.push('status = ?'); params.push(status); }
+    if (maxDevices) { updates.push('max_devices = ?'); params.push(maxDevices); }
+    if (updates.length === 0) return res.status(400).json({ error: '没有要更新的字段' });
+    params.push(id);
+    await query(`UPDATE invitations SET ${updates.join(', ')} WHERE id = ?`, params);
+    const [invitation] = await query('SELECT * FROM invitations WHERE id = ?', [id]);
+    res.json({ success: true, data: invitation });
+  } catch (err) {
+    console.error('Update invitation error:', err);
+    res.status(500).json({ error: '服务器错误' });
+  }
+}
+
+async function deleteInvitation(req, res) {
+  try {
+    const { id } = req.params;
+    await query('DELETE FROM invitations WHERE id = ?', [id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Delete invitation error:', err);
+    res.status(500).json({ error: '服务器错误' });
+  }
+}
+
+function generateCode() {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let code = '';
-  for (let i = 0; i < 11; i++) {
+  for (let i = 0; i < 12; i++) {
     code += chars.charAt(Math.floor(Math.random() * chars.length));
   }
-  
-  const newInvitation = {
-    id: nextInvitationId++,
-    code,
-    maxDevices,
-    usedDevices: 0,
-    status: 'active',
-    role,
-    createdAt: new Date().toISOString().split('T')[0]
-  };
-  
-  invitations.push(newInvitation);
-  res.json({ success: true, invitation: newInvitation });
+  return code;
 }
 
-function toggleInvitation(req, res) {
-  const { id } = req.params;
-  const invitation = invitations.find(i => i.id === parseInt(id));
-  if (!invitation) {
-    return res.status(404).json({ error: '邀请码不存在' });
-  }
-  invitation.status = invitation.status === 'active' ? 'disabled' : 'active';
-  res.json({ success: true, invitation });
-}
-
-function deleteInvitation(req, res) {
-  const { id } = req.params;
-  const index = invitations.findIndex(i => i.id === parseInt(id));
-  if (index === -1) {
-    return res.status(404).json({ error: '邀请码不存在' });
-  }
-  invitations.splice(index, 1);
-  res.json({ success: true });
-}
-
-module.exports = { 
-  login, 
-  verify, 
-  authMiddleware, 
+module.exports = {
+  authMiddleware,
+  adminMiddleware,
+  login,
   getInvitations,
   createInvitation,
-  toggleInvitation,
-  deleteInvitation,
-  JWT_SECRET 
+  updateInvitation,
+  deleteInvitation
 };

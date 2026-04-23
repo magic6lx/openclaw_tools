@@ -82,22 +82,6 @@ function Login() {
             </Button>
           </Form.Item>
         </Form>
-
-        <div style={{ textAlign: 'center', marginTop: 16 }}>
-          <Space direction="vertical" size={0}>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              示例邀请码
-            </Text>
-            <Space size={8}>
-              <Text code style={{ fontSize: 12 }}>ADMIN12345678</Text>
-              <Text type="secondary">管理员</Text>
-            </Space>
-            <Space size={8}>
-              <Text code style={{ fontSize: 12 }}>USER98765432</Text>
-              <Text type="secondary">普通用户</Text>
-            </Space>
-          </Space>
-        </div>
       </Card>
     </div>
   );

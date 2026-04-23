@@ -2,14 +2,33 @@
   "name": "openclaw-launcher",
   "version": "1.0.0",
   "description": "OpenClaw Launcher",
-  "main": "src/index.js",
+  "main": "electron/main.js",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "nodemon src/index.js"
+    "start": "electron .",
+    "dev": "electron .",
+    "build": "electron-builder --win --dir"
+  },
+  "build": {
+    "appId": "com.openclaw.launcher",
+    "productName": "OpenClaw Launcher",
+    "directories": {
+      "output": "dist_new"
+    },
+    "files": [
+      "electron/**/*",
+      "src/**/*",
+      "assets/**/*"
+    ],
+    "win": {
+      "target": "dir"
+    }
   },
   "dependencies": {
-    "electron": "^27.1.0",
     "axios": "^1.6.2",
     "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "electron": "^27.1.0",
+    "electron-builder": "^24.9.1"
   }
 }
