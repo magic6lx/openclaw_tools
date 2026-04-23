@@ -18,6 +18,10 @@ echo   Killing processes on port 3002...
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr :3002 ^| findstr LISTENING') do (
     taskkill /F /PID %%a > nul 2>&1
 )
+echo   Killing processes on port 3003...
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr :3003 ^| findstr LISTENING') do (
+    taskkill /F /PID %%a > nul 2>&1
+)
 echo   [OK] Cleanup done
 
 echo.
@@ -42,20 +46,16 @@ echo [3/4] Starting frontend (port 3001)...
 start "OpenClaw-Client" cmd /k "cd /d %~dp0client && npm run dev"
 
 echo.
-echo [4/4] Starting launcher (tray app)...
-if exist "%~dp0launcher\dist_new\win-unpacked\OpenClaw Launcher.exe" (
-    start "" "%~dp0launcher\dist_new\win-unpacked\OpenClaw Launcher.exe"
-    echo   [OK] Launcher started
-) else (
-    echo   [SKIP] Launcher exe not found
-)
+echo [4/4] Starting launcher (port 3003)...
+start "OpenClaw-Launcher" cmd /k "cd /d %~dp0launcher && node src/index.js"
 
 echo.
 echo ========================================
 echo   Done!
 echo ========================================
-echo   Backend API: http://localhost:3002
 echo   Frontend:    http://localhost:3001
+echo   Backend API: http://localhost:3002
+echo   Launcher:    http://localhost:3003
 echo ========================================
 echo.
 pause
