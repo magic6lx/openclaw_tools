@@ -1,51 +1,66 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Typography, Row, Col, Button, Space, Tag, Statistic, Switch, message, Modal } from 'antd';
-import { PlayCircleOutlined, StopOutlined, ReloadOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import { Card, Typography, Row, Col, Button, Space, Tag, message, Modal, Spin } from 'antd';
+import { PlayCircleOutlined, StopOutlined, ReloadOutlined, ExclamationCircleOutlined, SyncOutlined } from '@ant-design/icons';
 
 const { Title, Text, Paragraph } = Typography;
+const LAUNCHER_API = 'http://127.0.0.1:3003';
 
 function Operations() {
-  const [gatewayRunning, setGatewayRunning] = useState(false);
-  const [launcherRunning, setLauncherRunning] = useState(true);
+  const [gatewayStatus, setGatewayStatus] = useState('stopped');
+  const [launcherStatus, setLauncherStatus] = useState('unknown');
   const [loading, setLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
 
-  const handleStartGateway = () => {
+  const fetchStatus = async () => {
     setLoading(true);
-    setTimeout(() => {
-      setGatewayRunning(true);
+    try {
+      const res = await fetch(`${LAUNCHER_API}/status`);
+      if (res.ok) {
+        const data = await res.json();
+        setLauncherStatus(data.openClawStatus === 'installed' || data.openClawStatus === 'running' ? 'running' : 'stopped');
+        setGatewayStatus(data.gatewayRunning ? 'running' : 'stopped');
+      } else {
+        setLauncherStatus('not_found');
+      }
+    } catch (err) {
+      setLauncherStatus('not_found');
+    } finally {
       setLoading(false);
-      message.success('Gateway 已启动');
-    }, 1500);
+    }
   };
 
-  const handleStopGateway = () => {
+  useEffect(() => {
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleGatewayAction = async (action) => {
+    setActionLoading(true);
+    try {
+      const endpoint = action === 'start' ? '/gateway/start' : '/gateway/stop';
+      const res = await fetch(`${LAUNCHER_API}${endpoint}`, { method: 'POST' });
+      const data = await res.json();
+
+      if (data.success) {
+        message.success(`Gateway ${action === 'start' ? '启动' : '停止'}成功`);
+        fetchStatus();
+      } else {
+        message.error(data.error || `操作失败: ${data.message || '未知错误'}`);
+      }
+    } catch (err) {
+      message.error(`无法连接 Launcher: ${err.message}`);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const confirmAction = (action, actionText) => {
     Modal.confirm({
-      title: '确认停止',
+      title: `确认${actionText}`,
       icon: <ExclamationCircleOutlined />,
-      content: '确定要停止 Gateway 服务吗？',
-      onOk: () => {
-        setLoading(true);
-        setTimeout(() => {
-          setGatewayRunning(false);
-          setLoading(false);
-          message.success('Gateway 已停止');
-        }, 1000);
-      }
-    });
-  };
-
-  const handleRestartGateway = () => {
-    Modal.confirm({
-      title: '确认重启',
-      content: '确定要重启 Gateway 服务吗？',
-      onOk: () => {
-        setLoading(true);
-        setTimeout(() => {
-          setGatewayRunning(true);
-          setLoading(false);
-          message.success('Gateway 已重启');
-        }, 2000);
-      }
+      content: `确定要${actionText} Gateway 服务吗？`,
+      onOk: () => handleGatewayAction(action)
     });
   };
 
@@ -61,13 +76,19 @@ function Operations() {
               <div>
                 <Title level={4}>Launcher 服务</Title>
                 <Space>
-                  <Tag color={launcherRunning ? 'green' : 'red'}>
-                    {launcherRunning ? '运行中' : '已停止'}
-                  </Tag>
-                  <Text type="secondary">版本 1.0.0</Text>
+                  {loading ? <Spin size="small" /> : (
+                    <Tag color={launcherStatus === 'running' ? 'green' : 'red'}>
+                      {launcherStatus === 'running' ? '运行中' : launcherStatus === 'not_found' ? '未安装' : '已停止'}
+                    </Tag>
+                  )}
+                  <Text type="secondary">v1.0.0</Text>
                 </Space>
               </div>
-              <Switch checked={launcherRunning} />
+              {launcherStatus === 'not_found' && (
+                <Button type="link" onClick={() => window.open('/download', '_blank')}>
+                  下载 Launcher
+                </Button>
+              )}
             </div>
           </Card>
         </Col>
@@ -78,33 +99,38 @@ function Operations() {
               <div>
                 <Title level={4}>Gateway 服务</Title>
                 <Space>
-                  <Tag color={gatewayRunning ? 'green' : 'red'}>
-                    {gatewayRunning ? '运行中' : '已停止'}
-                  </Tag>
+                  {loading ? <Spin size="small" /> : (
+                    <Tag color={gatewayStatus === 'running' ? 'green' : 'red'}>
+                      {gatewayStatus === 'running' ? '运行中' : '已停止'}
+                    </Tag>
+                  )}
                   <Text type="secondary">端口 18789</Text>
                 </Space>
               </div>
               <Space>
-                <Button 
-                  type="primary" 
-                  icon={<PlayCircleOutlined />} 
-                  onClick={handleStartGateway}
-                  disabled={gatewayRunning || loading}
+                <Button
+                  type="primary"
+                  icon={<PlayCircleOutlined />}
+                  onClick={() => confirmAction('start', '启动')}
+                  disabled={gatewayStatus === 'running' || actionLoading || launcherStatus !== 'running'}
+                  loading={actionLoading}
                 >
                   启动
                 </Button>
-                <Button 
-                  danger 
-                  icon={<StopOutlined />} 
-                  onClick={handleStopGateway}
-                  disabled={!gatewayRunning || loading}
+                <Button
+                  danger
+                  icon={<StopOutlined />}
+                  onClick={() => confirmAction('stop', '停止')}
+                  disabled={gatewayStatus !== 'running' || actionLoading}
+                  loading={actionLoading}
                 >
                   停止
                 </Button>
-                <Button 
-                  icon={<ReloadOutlined />} 
-                  onClick={handleRestartGateway}
-                  disabled={loading}
+                <Button
+                  icon={<SyncOutlined />}
+                  onClick={() => confirmAction('restart', '重启')}
+                  disabled={actionLoading || launcherStatus !== 'running'}
+                  loading={actionLoading}
                 >
                   重启
                 </Button>
@@ -115,61 +141,74 @@ function Operations() {
       </Row>
 
       <Card style={{ marginTop: 24 }}>
-        <Title level={4}>运营操作</Title>
+        <Title level={4}>快捷操作</Title>
         <Row gutter={16}>
-          <Col span={6}>
+          <Col span={8}>
             <Card hoverable style={{ textAlign: 'center' }}>
-              <PlayCircleOutlined style={{ fontSize: 36, color: '#52c41a' }} />
+              <PlayCircleOutlined style={{ fontSize: 48, color: '#52c41a' }} />
               <Title level={5}>一键启动</Title>
-              <Paragraph type="secondary">启动所有服务</Paragraph>
-              <Button type="primary" onClick={() => { setGatewayRunning(true); setLauncherRunning(true); message.success('已启动'); }}>
+              <Paragraph type="secondary">启动 Launcher 和 Gateway</Paragraph>
+              <Button
+                type="primary"
+                disabled={launcherStatus !== 'running' || gatewayStatus === 'running'}
+                onClick={() => handleGatewayAction('start')}
+                loading={actionLoading}
+              >
                 执行
               </Button>
             </Card>
           </Col>
-          <Col span={6}>
+          <Col span={8}>
             <Card hoverable style={{ textAlign: 'center' }}>
-              <StopOutlined style={{ fontSize: 36, color: '#ff4d4f' }} />
+              <StopOutlined style={{ fontSize: 48, color: '#ff4d4f' }} />
               <Title level={5}>一键停止</Title>
-              <Paragraph type="secondary">停止所有服务</Paragraph>
-              <Button danger onClick={() => { setGatewayRunning(false); message.success('已停止'); }}>
+              <Paragraph type="secondary">停止 Gateway 服务</Paragraph>
+              <Button
+                danger
+                disabled={gatewayStatus !== 'running'}
+                onClick={() => handleGatewayAction('stop')}
+                loading={actionLoading}
+              >
                 执行
               </Button>
             </Card>
           </Col>
-          <Col span={6}>
+          <Col span={8}>
             <Card hoverable style={{ textAlign: 'center' }}>
-              <ReloadOutlined style={{ fontSize: 36, color: '#1890ff' }} />
+              <ReloadOutlined style={{ fontSize: 48, color: '#1890ff' }} />
               <Title level={5}>重启服务</Title>
-              <Paragraph type="secondary">重启 Gateway</Paragraph>
-              <Button onClick={handleRestartGateway}>执行</Button>
-            </Card>
-          </Col>
-          <Col span={6}>
-            <Card hoverable style={{ textAlign: 'center' }}>
-              <ExclamationCircleOutlined style={{ fontSize: 36, color: '#faad14' }} />
-              <Title level={5}>健康检查</Title>
-              <Paragraph type="secondary">检查服务状态</Paragraph>
-              <Button onClick={() => message.info('健康检查正常')}>执行</Button>
+              <Paragraph type="secondary">重启 Gateway 服务</Paragraph>
+              <Button
+                disabled={launcherStatus !== 'running'}
+                onClick={() => handleGatewayAction('restart')}
+                loading={actionLoading}
+              >
+                执行
+              </Button>
             </Card>
           </Col>
         </Row>
       </Card>
 
       <Card style={{ marginTop: 24 }}>
-        <Title level={4}>服务状态</Title>
+        <Title level={4}>运行状态</Title>
         <Row gutter={16}>
           <Col span={6}>
-            <Statistic title="Launcher" value={launcherRunning ? '在线' : '离线'} valueStyle={{ color: launcherRunning ? '#52c41a' : '#ff4d4f' }} />
+            <Tag color={launcherStatus === 'running' ? 'green' : 'red'}>
+              Launcher: {launcherStatus === 'running' ? '在线' : '离线'}
+            </Tag>
           </Col>
           <Col span={6}>
-            <Statistic title="Gateway" value={gatewayRunning ? '在线' : '离线'} valueStyle={{ color: gatewayRunning ? '#52c41a' : '#ff4d4f' }} />
+            <Tag color={gatewayStatus === 'running' ? 'green' : 'red'}>
+              Gateway: {gatewayStatus === 'running' ? '运行中' : '已停止'}
+            </Tag>
           </Col>
-          <Col span={6}>
-            <Statistic title="API连接" value="正常" valueStyle={{ color: '#52c41a' }} />
-          </Col>
-          <Col span={6}>
-            <Statistic title="运行时长" value="2h 30m" />
+          <Col span={12}>
+            <Text type="secondary">
+              {launcherStatus !== 'running' && '请确保 Launcher 已启动'}
+              {launcherStatus === 'running' && gatewayStatus !== 'running' && '点击"启动"按钮启动 Gateway'}
+              {launcherStatus === 'running' && gatewayStatus === 'running' && '所有服务运行正常'}
+            </Text>
           </Col>
         </Row>
       </Card>

@@ -6,6 +6,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Home from './pages/Home';
 import Install from './pages/Install';
 import Operations from './pages/Operations';
+import Config from './pages/Config';
 import Dashboard from './pages/Dashboard';
 import Clients from './pages/Clients';
 import Login from './pages/Login';
@@ -56,7 +57,7 @@ function AppRoutes() {
       <Route path="/home" element={<ProtectedRoute><Home /></ProtectedRoute>} />
       <Route path="/install" element={<ProtectedRoute><Install /></ProtectedRoute>} />
       <Route path="/operations" element={<ProtectedRoute><Operations /></ProtectedRoute>} />
-      <Route path="/config" element={<ProtectedRoute><div style={{padding:24}}><h2>配置管理</h2></div></ProtectedRoute>} />
+      <Route path="/config" element={<ProtectedRoute><Config /></ProtectedRoute>} />
       
       <Route path="/dashboard" element={<AdminRoute><Dashboard /></AdminRoute>} />
       <Route path="/clients" element={<AdminRoute><Clients /></AdminRoute>} />

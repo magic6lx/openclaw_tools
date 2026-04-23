@@ -1,9 +1,9 @@
 *.exe
 *.dmg
 *.pkg
-
-node_modules/
 dist/
+dist_new/
+node_modules/
 build/
 *.log
 .env
