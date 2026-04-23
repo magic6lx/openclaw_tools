@@ -255,11 +255,11 @@ function startLocalApi() {
   return server;
 }
 
-module.exports = { 
-  start, 
-  stop, 
-  log, 
-  getDeviceId, 
+module.exports = {
+  start,
+  stop,
+  log,
+  getDeviceId,
   setServerUrl: url => serverUrl = url,
   getStatus,
   startGateway,
@@ -269,3 +269,19 @@ module.exports = {
   installOpenClaw,
   startLocalApi
 };
+
+if (require.main === module) {
+  const localApiServer = startLocalApi();
+  start(30000);
+
+  console.log('OpenClaw Launcher 已启动');
+  console.log(`本地API: http://127.0.0.1:${LOCAL_API_PORT}`);
+  console.log('按 Ctrl+C 停止');
+
+  process.on('SIGINT', () => {
+    console.log('\n正在停止 Launcher...');
+    stop();
+    localApiServer.close();
+    process.exit(0);
+  });
+}
