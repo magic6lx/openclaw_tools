@@ -10,6 +10,7 @@ USE openclaw_tools;
 DROP TABLE IF EXISTS logs;
 DROP TABLE IF EXISTS devices;
 DROP TABLE IF EXISTS templates;
+DROP TABLE IF EXISTS token_usage;
 DROP TABLE IF EXISTS invitations;
 
 -- 邀请码表
@@ -69,6 +70,20 @@ CREATE TABLE templates (
   INDEX idx_status (status),
   INDEX idx_created_by (created_by)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='配置模版表';
+
+-- Token使用记录表
+CREATE TABLE token_usage (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  device_id VARCHAR(128) DEFAULT '' COMMENT '设备ID',
+  invitation_id INT COMMENT '邀请码ID',
+  model VARCHAR(64) DEFAULT '' COMMENT '模型',
+  input_tokens INT DEFAULT 0 COMMENT '输入Token数',
+  output_tokens INT DEFAULT 0 COMMENT '输出Token数',
+  request_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '请求时间',
+  INDEX idx_device_id (device_id),
+  INDEX idx_invitation_id (invitation_id),
+  INDEX idx_request_time (request_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Token使用记录表';
 
 -- 初始化默认邀请码
 INSERT INTO invitations (code, max_devices, used_devices, status, role) VALUES
