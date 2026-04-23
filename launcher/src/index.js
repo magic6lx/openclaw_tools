@@ -227,6 +227,90 @@ function addInstallLog(level, message) {
   });
 }
 
+function getExePath() {
+  return process.execPath;
+}
+
+function getLauncherDir() {
+  return path.dirname(getExePath());
+}
+
+async function createDesktopShortcut() {
+  const exePath = getExePath();
+  const desktopPath = path.join(os.homedir(), 'Desktop');
+  const shortcutPath = path.join(desktopPath, 'OpenClaw Launcher.lnk');
+
+  return new Promise((resolve) => {
+    try {
+      if (fs.existsSync(shortcutPath)) {
+        log('INFO', '桌面快捷方式已存在', 'shortcut');
+        resolve(true);
+        return;
+      }
+
+      const vbsScript = `
+Set WshShell = CreateObject("WScript.Shell")
+SetShortcut = WshShell.CreateShortcut("${shortcutPath.replace(/\\/g, '\\\\')}")
+Shortcut.TargetPath = "${exePath.replace(/\\/g, '\\\\')}"
+Shortcut.WorkingDirectory = "${getLauncherDir().replace(/\\/g, '\\\\')}"
+Shortcut.Description = "OpenClaw Launcher"
+Shortcut.Save
+`;
+      const vbsPath = path.join(os.tmpdir(), 'create_shortcut.vbs');
+      fs.writeFileSync(vbsPath, vbsScript);
+
+      exec(`cscript //Nologo "${vbsPath}"`, (err) => {
+        if (err) {
+          log('WARN', `创建桌面快捷方式失败: ${err.message}`, 'shortcut');
+        } else {
+          log('INFO', '桌面快捷方式已创建', 'shortcut');
+        }
+        try { fs.unlinkSync(vbsPath); } catch (e) {}
+        resolve(!err);
+      });
+    } catch (err) {
+      log('WARN', `创建桌面快捷方式异常: ${err.message}`, 'shortcut');
+      resolve(false);
+    }
+  });
+}
+
+async function registerAutoStart() {
+  const exePath = getExePath();
+  const taskName = 'OpenClawLauncher';
+  const launcherDir = getLauncherDir();
+
+  return new Promise((resolve) => {
+    try {
+      exec(`schtasks /query /tn "${taskName}" 2>nul`, (err) => {
+        if (!err) {
+          log('INFO', '开机自启任务已存在', 'autostart');
+          resolve(true);
+          return;
+        }
+
+        const cmd = `schtasks /create /tn "${taskName}" /tr "\\"${exePath}\\"" /sc onlogon /rl limited /f`;
+        exec(cmd, (err2, stdout, stderr) => {
+          if (err2) {
+            log('WARN', `创建开机自启任务失败: ${err2.message}`, 'autostart');
+          } else {
+            log('INFO', '开机自启任务已创建', 'autostart');
+          }
+          resolve(!err2);
+        });
+      });
+    } catch (err) {
+      log('WARN', `创建开机自启任务异常: ${err.message}`, 'autostart');
+      resolve(false);
+    }
+  });
+}
+
+async function setupLauncher() {
+  await createDesktopShortcut();
+  await registerAutoStart();
+}
+
 function startLocalApi() {
   const server = http.createServer((req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -267,12 +351,17 @@ module.exports = {
   checkOpenClawStatus,
   getOpenClawConfig,
   installOpenClaw,
-  startLocalApi
+  startLocalApi,
+  createDesktopShortcut,
+  registerAutoStart,
+  setupLauncher
 };
 
 if (require.main === module) {
   const localApiServer = startLocalApi();
   start(30000);
+
+  setupLauncher();
 
   console.log('OpenClaw Launcher 已启动');
   console.log(`本地API: http://127.0.0.1:${LOCAL_API_PORT}`);

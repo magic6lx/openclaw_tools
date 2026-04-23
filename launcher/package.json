@@ -6,17 +6,8 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node src/index.js",
-    "build": "pkg src/index.js --targets node18-win-x64 --output dist_new/openclaw-launcher.exe"
-  },
-  "build": {
-    "assets": "assets/**/*",
-    "targets": [
-      {
-        "target": "node18-win-x64",
-        "arch": ["x64"]
-      }
-    ],
-    "output": "dist_new"
+    "build": "pkg src/index.js --targets node18-win-x64 --output dist_new/openclaw-launcher.exe",
+    "build:zip": "npm run build && powershell Compress-Archive -Path dist_new\\openclaw-launcher.exe -DestinationPath dist_new\\OpenClawLauncher-v1.0.0-win-x64.zip -Force"
   },
   "dependencies": {
     "axios": "^1.6.2",
