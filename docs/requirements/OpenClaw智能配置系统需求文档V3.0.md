@@ -35,9 +35,8 @@
 #### 自动化部署
 | 脚本 | 说明 |
 |------|------|
-| install-deps.bat | 一键安装所有npm依赖 |
-| init-db.bat | 交互式数据库初始化 |
-| start.bat | 一键启动所有服务 |
+| server/scripts/init-db.sql | 数据库初始化脚本 |
+| start.bat | Windows一键启动服务 |
 
 ---
 
@@ -50,6 +49,7 @@
 | V3.0 | 2026-04-23 | 开发团队 | 架构重构，简化部署，添加 Token 代理转发功能 |
 | V3.1 | 2026-04-23 | 开发团队 | 增加 Launcher 下载检测引导功能 |
 | V3.2 | 2026-04-23 | 开发团队 | 增加依赖安装和数据库初始化自动化脚本 |
+| V3.3 | 2026-04-23 | 开发团队 | 改用Git方式部署，移除冗余脚本 |
 
 ---
 
@@ -506,19 +506,28 @@ CREATE TABLE token_usage (
 
 ## 七、部署架构
 
-### 7.1 服务器部署
+### 7.1 服务器部署（Git方式）
 ```bash
-# 目录结构
-/opt/openclaw_tool_server/
-├── server/           # 后端代码
-│   ├── src/
-│   ├── package.json
-│   └── scripts/      # 初始化脚本
-├── client/           # 前端代码
-│   ├── dist/         # 构建产物
-│   └── ...
-└── config/
-    └── .env          # 环境变量
+# 1. 克隆代码
+cd /opt
+git clone https://github.com/magic6lx/openclaw_tools.git
+cd openclaw_tools
+
+# 2. 安装依赖
+npm install
+
+# 3. 初始化数据库
+mysql -u root -p < server/scripts/init-db.sql
+
+# 4. 配置环境变量
+cp config/.env.example config/.env
+# 编辑 config/.env 填入数据库信息
+
+# 5. 构建前端
+cd client && npm install && npm run build && cd ..
+
+# 6. 启动服务
+npm start
 ```
 
 ### 7.2 环境变量
