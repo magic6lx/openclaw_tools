@@ -166,15 +166,7 @@ app.get('/status', (req, res) => {
 function checkGatewayRunning() {
   try {
     const result = execSync('netstat -ano | findstr ":18789"', { encoding: 'utf8', timeout: 3000, windowsHide: true });
-    if (result && result.includes('18789')) {
-      return true;
-    }
-  } catch (e) {
-  }
-
-  try {
-    const result = execSync('tasklist /FI "IMAGENAME eq node.exe" /NH', { encoding: 'utf8', timeout: 3000, windowsHide: true });
-    if (result && result.toLowerCase().includes('openclaw')) {
+    if (result && result.includes('LISTENING')) {
       return true;
     }
   } catch (e) {
@@ -185,6 +177,7 @@ function checkGatewayRunning() {
 
 app.post('/gateway/start', (req, res) => {
   if (checkGatewayRunning()) {
+    addLog('INFO', 'Gateway 已在运行中，端口 18789 已监听');
     return res.json({
       success: true,
       message: 'Gateway 已在运行',
@@ -194,10 +187,13 @@ app.post('/gateway/start', (req, res) => {
 
   const installed = isOpenClawInstalled();
   if (!installed) {
+    addLog('ERROR', '无法启动 Gateway: OpenClaw 未安装');
     return res.json({ success: false, message: 'OpenClaw 未安装，请先安装' });
   }
 
-  addLog('INFO', '正在启动 Gateway...');
+  addLog('INFO', '========== 开始启动 Gateway ==========');
+  addLog('INFO', '执行命令: openclaw gateway run');
+  addLog('INFO', '目标端口: 18789');
 
   try {
     const gatewayProcess = spawn('openclaw', ['gateway', 'run'], {
@@ -207,37 +203,51 @@ app.post('/gateway/start', (req, res) => {
       windowsHide: true
     });
 
-    let output = '';
+    gatewayState.process = gatewayProcess;
+
     gatewayProcess.stdout.on('data', (data) => {
-      output += data.toString();
-      addLog('DEBUG', `Gateway: ${data.toString().trim()}`);
+      const msg = data.toString().trim();
+      if (msg) addLog('INFO', `[Gateway stdout] ${msg}`);
     });
 
     gatewayProcess.stderr.on('data', (data) => {
-      output += data.toString();
-      addLog('DEBUG', `Gateway stderr: ${data.toString().trim()}`);
+      const msg = data.toString().trim();
+      if (msg) addLog('WARN', `[Gateway stderr] ${msg}`);
     });
 
     gatewayProcess.on('error', (err) => {
-      addLog('ERROR', `Gateway 启动失败: ${err.message}`);
+      addLog('ERROR', `Gateway 进程启动失败: ${err.message}`);
       gatewayState.running = false;
       gatewayState.process = null;
     });
 
     gatewayProcess.on('close', (code) => {
-      addLog('INFO', `Gateway 进程退出，code: ${code}`);
+      addLog('INFO', `Gateway 进程已退出，退出码: ${code}`);
+      if (code !== 0 && code !== null) {
+        addLog('WARN', 'Gateway 非正常退出，可能存在配置问题');
+      }
       gatewayState.running = false;
       gatewayState.process = null;
     });
 
+    addLog('INFO', 'Gateway 进程已创建，等待服务就绪...');
+
     setTimeout(() => {
       if (checkGatewayRunning()) {
         gatewayState.running = true;
-        gatewayState.process = gatewayProcess;
         gatewayState.dashboardUrl = `http://127.0.0.1:${DEFAULT_GATEWAY_PORT}`;
-        addLog('INFO', `Gateway 启动成功！Dashboard: ${gatewayState.dashboardUrl}`);
+        addLog('INFO', '========== Gateway 启动成功 ==========');
+        addLog('INFO', `Dashboard 地址: ${gatewayState.dashboardUrl}`);
+      } else {
+        addLog('ERROR', '========== Gateway 启动失败 ==========');
+        addLog('ERROR', '端口 18789 未监听，请检查:');
+        addLog('ERROR', '1. openclaw 是否正确安装');
+        addLog('ERROR', '2. 配置文件是否存在问题');
+        addLog('ERROR', '3. 端口是否被其他程序占用');
+        gatewayState.running = false;
+        gatewayState.process = null;
       }
-    }, 3000);
+    }, 5000);
 
     res.json({
       success: true,
