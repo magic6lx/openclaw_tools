@@ -196,7 +196,15 @@ function ConfigSection({ section, schema, meta, config, onConfigChange, disabled
     '集成': '#fa8c16',
     '自动化': '#13c2c2',
     '安全': '#f5222d',
-    '企业': '#eb2f96'
+    '企业': '#eb2f96',
+    '元信息': '#8c8c8c',
+    '日志': '#faad14',
+    '浏览器': '#13c2c2',
+    '模型': '#eb2f96',
+    '技能': '#52c41a',
+    '频道': '#1890ff',
+    '画布': '#722ed1',
+    '沙箱': '#fa8c16'
   };
 
   return (

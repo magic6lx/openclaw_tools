@@ -1,242 +1,152 @@
 export const CONFIG_SCHEMA = {
   type: 'object',
   properties: {
-    launcher: {
+    meta: {
       type: 'object',
-      title: '启动器配置',
-      description: '启动器基本设置',
+      title: '配置元信息',
       properties: {
-        autoStart: {
-          type: 'boolean',
-          title: '开机自启',
-          default: false
+        lastTouchedVersion: {
+          type: 'string',
+          title: '最后修改版本',
+          default: ''
         },
-        checkUpdate: {
-          type: 'boolean',
-          title: '自动检查更新',
-          default: true
-        },
-        logLevel: {
+        lastTouchedAt: {
+          type: 'string',
+          title: '最后修改时间',
+          default: ''
+        }
+      }
+    },
+    wizard: {
+      type: 'object',
+      title: '向导配置',
+      properties: {
+        lastRunAt: { type: 'string', title: '最后运行时间' },
+        lastRunVersion: { type: 'string', title: '最后运行版本' },
+        lastRunCommand: { type: 'string', title: '最后运行命令' },
+        lastRunMode: { type: 'string', title: '运行模式' }
+      }
+    },
+    logging: {
+      type: 'object',
+      title: '日志配置',
+      properties: {
+        level: {
           type: 'string',
           title: '日志级别',
           enum: ['debug', 'info', 'warn', 'error'],
           default: 'info'
+        },
+        file: {
+          type: 'string',
+          title: '日志文件路径',
+          default: ''
+        },
+        consoleLevel: {
+          type: 'string',
+          title: '控制台日志级别',
+          enum: ['debug', 'info', 'warn', 'error'],
+          default: 'debug'
+        },
+        consoleStyle: {
+          type: 'string',
+          title: '控制台样式',
+          enum: ['pretty', 'json'],
+          default: 'pretty'
         }
       }
     },
-    gateway: {
+    browser: {
       type: 'object',
-      title: '网关配置',
-      description: '网关服务器设置',
+      title: '浏览器配置',
       properties: {
         enabled: {
           type: 'boolean',
-          title: '启用网关',
+          title: '启用浏览器',
           default: true
         },
-        port: {
-          type: 'integer',
-          title: '端口',
-          default: 18789,
-          minimum: 1024,
-          maximum: 65535
+        executablePath: {
+          type: 'string',
+          title: '浏览器路径',
+          default: ''
         },
-        controlUi: {
+        defaultProfile: {
+          type: 'string',
+          title: '默认配置文件',
+          default: 'user'
+        }
+      }
+    },
+    models: {
+      type: 'object',
+      title: '模型配置',
+      properties: {
+        providers: {
           type: 'object',
-          title: '控制面板',
-          properties: {
-            enabled: {
-              type: 'boolean',
-              title: '启用控制面板',
-              default: true
-            },
-            allowInsecureAuth: {
-              type: 'boolean',
-              title: '允许不安全认证',
-              default: false,
-              dangerous: true
-            }
-          }
-        },
-        channelHealthCheckMinutes: {
-          type: 'integer',
-          title: '通道健康检查间隔(分钟)',
-          default: 5,
-          minimum: 0
+          title: '模型提供商'
         }
       }
     },
     agents: {
       type: 'object',
-      title: '智能体配置',
-      description: 'AI智能体核心配置',
+      title: 'Agent 配置',
       properties: {
         defaults: {
           type: 'object',
           title: '默认配置',
           properties: {
-            workspace: {
-              type: 'string',
-              title: '工作空间路径',
-              default: '~/.openclaw/workspace'
-            },
             model: {
               type: 'object',
-              title: '模型配置',
+              title: '默认模型',
               properties: {
                 primary: {
                   type: 'string',
                   title: '主模型',
-                  default: 'anthropic/claude-sonnet-4-6'
-                },
-                fallbacks: {
-                  type: 'array',
-                  title: '备用模型',
-                  items: { type: 'string' },
-                  default: []
+                  default: ''
                 }
               }
             },
-            skills: {
-              type: 'array',
-              title: '技能列表',
-              items: { type: 'string' },
-              default: []
-            },
-            sandbox: {
+            models: {
               type: 'object',
-              title: '沙箱配置',
-              properties: {
-                mode: {
-                  type: 'string',
-                  title: '沙箱模式',
-                  enum: ['off', 'non-main', 'all'],
-                  default: 'off'
-                },
-                scope: {
-                  type: 'string',
-                  title: '沙箱范围',
-                  enum: ['session', 'agent', 'shared'],
-                  default: 'agent'
-                }
-              }
+              title: '可用模型'
             },
-            heartbeat: {
-              type: 'object',
-              title: '心跳配置',
-              properties: {
-                every: {
-                  type: 'string',
-                  title: '心跳间隔',
-                  default: '30m'
-                },
-                target: {
-                  type: 'string',
-                  title: '心跳目标',
-                  enum: ['last', 'none'],
-                  default: 'last'
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    channels: {
-      type: 'object',
-      title: '消息通道',
-      description: '多平台消息通道配置',
-      properties: {
-        whatsapp: {
-          type: 'object',
-          title: 'WhatsApp',
-          properties: {
-            enabled: {
-              type: 'boolean',
-              title: '启用',
-              default: false
-            },
-            dmPolicy: {
+            workspace: {
               type: 'string',
-              title: 'DM策略',
-              enum: ['pairing', 'allowlist', 'open', 'disabled'],
-              default: 'pairing'
+              title: '默认工作空间',
+              default: ''
             },
-            allowFrom: {
-              type: 'array',
-              title: '允许列表',
-              items: { type: 'string' },
-              default: []
+            contextTokens: {
+              type: 'integer',
+              title: '上下文令牌数',
+              default: 100000,
+              minimum: 1000,
+              maximum: 1000000
+            },
+            maxConcurrent: {
+              type: 'integer',
+              title: '最大并发数',
+              default: 4,
+              minimum: 1,
+              maximum: 32
+            },
+            typingMode: {
+              type: 'string',
+              title: '输入模式',
+              enum: ['never', 'direct', 'e2e'],
+              default: 'never'
             }
           }
         },
-        telegram: {
-          type: 'object',
-          title: 'Telegram',
-          properties: {
-            enabled: {
-              type: 'boolean',
-              title: '启用',
-              default: false
-            },
-            botToken: {
-              type: 'string',
-              title: 'Bot Token',
-              sensitive: true
-            },
-            dmPolicy: {
-              type: 'string',
-              title: 'DM策略',
-              enum: ['pairing', 'allowlist', 'open', 'disabled'],
-              default: 'pairing'
-            }
-          }
-        },
-        discord: {
-          type: 'object',
-          title: 'Discord',
-          properties: {
-            enabled: {
-              type: 'boolean',
-              title: '启用',
-              default: false
-            },
-            token: {
-              type: 'string',
-              title: 'Bot Token',
-              sensitive: true
-            },
-            voice: {
-              type: 'object',
-              title: '语音配置',
-              properties: {
-                enabled: {
-                  type: 'boolean',
-                  title: '启用语音',
-                  default: false
-                }
-              }
-            }
-          }
-        },
-        slack: {
-          type: 'object',
-          title: 'Slack',
-          properties: {
-            enabled: {
-              type: 'boolean',
-              title: '启用',
-              default: false
-            },
-            botToken: {
-              type: 'string',
-              title: 'Bot Token',
-              sensitive: true
-            },
-            appToken: {
-              type: 'string',
-              title: 'App Token',
-              sensitive: true
+        list: {
+          type: 'array',
+          title: 'Agent 列表',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', title: 'Agent ID' },
+              name: { type: 'string', title: '名称' },
+              model: { type: 'string', title: '模型' },
+              default: { type: 'boolean', title: '默认' }
             }
           }
         }
@@ -245,204 +155,55 @@ export const CONFIG_SCHEMA = {
     tools: {
       type: 'object',
       title: '工具配置',
-      description: '扩展工具配置',
       properties: {
-        exec: {
-          type: 'object',
-          title: '执行工具',
-          properties: {
-            enabled: {
-              type: 'boolean',
-              title: '启用执行',
-              default: true
-            },
-            applyPatch: {
-              type: 'object',
-              title: '补丁应用',
-              properties: {
-                workspaceOnly: {
-                  type: 'boolean',
-                  title: '仅工作空间',
-                  default: true
-                }
-              }
-            }
-          }
+        profile: {
+          type: 'string',
+          title: '工具配置',
+          enum: ['minimal', 'standard', 'full'],
+          default: 'full'
         },
-        browser: {
+        agentToAgent: {
           type: 'object',
-          title: '浏览器',
-          properties: {
-            enabled: {
-              type: 'boolean',
-              title: '启用浏览器',
-              default: false
-            },
-            executablePath: {
-              type: 'string',
-              title: '浏览器路径'
-            },
-            headless: {
-              type: 'boolean',
-              title: '无头模式',
-              default: true
-            }
-          }
+          title: 'Agent间通信'
         }
       }
     },
-    session: {
+    skills: {
       type: 'object',
-      title: '会话管理',
-      description: '对话持久化配置',
-      properties: {
-        dmScope: {
-          type: 'string',
-          title: 'DM范围',
-          enum: ['main', 'per-peer', 'per-channel-peer', 'per-account-channel-peer'],
-          default: 'per-channel-peer'
-        },
-        threadBindings: {
-          type: 'object',
-          title: '线程绑定',
-          properties: {
-            enabled: {
-              type: 'boolean',
-              title: '启用',
-              default: true
-            },
-            idleHours: {
-              type: 'integer',
-              title: '空闲超时(小时)',
-              default: 24
-            }
-          }
-        },
-        reset: {
-          type: 'object',
-          title: '重置配置',
-          properties: {
-            mode: {
-              type: 'string',
-              title: '重置模式',
-              enum: ['off', 'daily', 'weekly'],
-              default: 'off'
-            },
-            atHour: {
-              type: 'integer',
-              title: '重置时间(小时)',
-              default: 4,
-              minimum: 0,
-              maximum: 23
-            }
-          }
-        }
-      }
+      title: '技能配置'
+    },
+    channels: {
+      type: 'object',
+      title: '频道配置'
     },
     hooks: {
       type: 'object',
-      title: 'Webhooks',
-      description: '外部集成配置',
-      properties: {
-        enabled: {
-          type: 'boolean',
-          title: '启用',
-          default: false
-        },
-        token: {
-          type: 'string',
-          title: '认证Token',
-          sensitive: true
-        },
-        path: {
-          type: 'string',
-          title: 'Webhook路径',
-          default: '/hooks'
-        }
-      }
+      title: '钩子配置'
     },
-    cron: {
+    canvas: {
       type: 'object',
-      title: '定时任务',
-      description: '自动化任务配置',
-      properties: {
-        enabled: {
-          type: 'boolean',
-          title: '启用',
-          default: false
-        },
-        maxConcurrentRuns: {
-          type: 'integer',
-          title: '最大并发数',
-          default: 2,
-          minimum: 1
-        },
-        sessionRetention: {
-          type: 'string',
-          title: '会话保留时间',
-          default: '24h'
-        }
-      }
+      title: '画布配置'
     },
-    secrets: {
+    sandbox: {
       type: 'object',
-      title: '密钥管理',
-      description: '安全配置',
-      properties: {
-        providers: {
-          type: 'object',
-          title: '密钥提供者',
-          properties: {
-            default: {
-              type: 'object',
-              title: '默认提供者',
-              properties: {
-                source: {
-                  type: 'string',
-                  title: '来源',
-                  enum: ['env', 'file', 'exec'],
-                  default: 'env'
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    plugins: {
-      type: 'object',
-      title: '插件系统',
-      description: '扩展插件配置',
-      properties: {
-        entries: {
-          type: 'object',
-          title: '插件列表',
-          additionalProperties: {
-            type: 'object',
-            properties: {
-              config: {
-                type: 'object',
-                title: '插件配置'
-              }
-            }
-          }
-        }
-      }
+      title: '沙箱配置'
     }
   }
 };
 
 export const SECTION_META = {
-  launcher: { icon: '🚀', order: 1, category: '基础' },
-  gateway: { icon: '🌐', order: 2, category: '基础' },
-  agents: { icon: '🤖', order: 3, category: '核心' },
-  channels: { icon: '📱', order: 4, category: '核心' },
-  tools: { icon: '🔧', order: 5, category: '扩展' },
-  session: { icon: '💬', order: 6, category: '核心' },
-  hooks: { icon: '🔗', order: 7, category: '集成' },
-  cron: { icon: '⏰', order: 8, category: '自动化' },
-  secrets: { icon: '🔐', order: 9, category: '安全' },
-  plugins: { icon: '🔌', order: 10, category: '扩展' }
+  meta: { icon: '📋', order: 1, category: '元信息' },
+  wizard: { icon: '🧙', order: 2, category: '元信息' },
+  logging: { icon: '📝', order: 3, category: '日志' },
+  browser: { icon: '🌐', order: 4, category: '浏览器' },
+  models: { icon: '🧠', order: 5, category: '模型' },
+  agents: { icon: '🤖', order: 6, category: '核心' },
+  tools: { icon: '🔧', order: 7, category: '工具' },
+  skills: { icon: '💡', order: 8, category: '技能' },
+  channels: { icon: '📱', order: 9, category: '频道' },
+  hooks: { icon: '🔗', order: 10, category: '集成' },
+  canvas: { icon: '🎨', order: 11, category: '画布' },
+  sandbox: { icon: '📦', order: 12, category: '沙箱' }
 };
 
 export function getSchemaSection(section) {
@@ -462,9 +223,9 @@ export function getDefaultValue(section, field) {
 export function validateConfigValue(section, field, value) {
   const fieldSchema = getSchemaField(section, field);
   if (!fieldSchema) return { valid: true };
-  
+
   const errors = [];
-  
+
   if (fieldSchema.type === 'integer') {
     if (typeof value !== 'number' || !Number.isInteger(value)) {
       errors.push('必须是整数');
@@ -477,38 +238,38 @@ export function validateConfigValue(section, field, value) {
       }
     }
   }
-  
+
   if (fieldSchema.type === 'boolean' && typeof value !== 'boolean') {
     errors.push('必须是布尔值');
   }
-  
+
   if (fieldSchema.enum && !fieldSchema.enum.includes(value)) {
     errors.push(`必须是以下值之一: ${fieldSchema.enum.join(', ')}`);
   }
-  
+
   if (fieldSchema.type === 'string' && typeof value !== 'string') {
     errors.push('必须是字符串');
   }
-  
+
   if (fieldSchema.type === 'array' && !Array.isArray(value)) {
     errors.push('必须是数组');
   }
-  
+
   return { valid: errors.length === 0, errors };
 }
 
 export function validateConfig(config) {
   const errors = [];
-  
+
   function validateObject(obj, schema, path = '') {
     if (!obj || typeof obj !== 'object') return;
-    
+
     for (const [key, value] of Object.entries(obj)) {
       const fieldSchema = schema?.properties?.[key];
       if (!fieldSchema) continue;
-      
+
       const currentPath = path ? `${path}.${key}` : key;
-      
+
       if (fieldSchema.type === 'object' && typeof value === 'object') {
         validateObject(value, fieldSchema, currentPath);
       } else {
@@ -522,7 +283,7 @@ export function validateConfig(config) {
       }
     }
   }
-  
+
   validateObject(config, CONFIG_SCHEMA);
   return { valid: errors.length === 0, errors };
 }
