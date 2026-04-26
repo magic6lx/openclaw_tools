@@ -3,6 +3,22 @@ const router = express.Router();
 const logService = require('../services/logService');
 const { login, authMiddleware, adminMiddleware, getInvitations, createInvitation, updateInvitation, deleteInvitation } = require('../middleware/auth');
 
+function redactSensitiveInfo(obj, depth = 0) {
+  if (depth > 10 || !obj || typeof obj !== 'object') return obj;
+  const sensitiveKeys = ['token', 'apiKey', 'api_key', 'password', 'secret', 'key', 'botToken', 'appToken'];
+  const result = Array.isArray(obj) ? [...obj] : { ...obj };
+  for (const key of Object.keys(result)) {
+    if (sensitiveKeys.some(sk => key.toLowerCase().includes(sk.toLowerCase()))) {
+      if (result[key] && typeof result[key] === 'string' && result[key].length > 0) {
+        result[key] = '***REDACTED***';
+      }
+    } else if (typeof result[key] === 'object') {
+      result[key] = redactSensitiveInfo(result[key], depth + 1);
+    }
+  }
+  return result;
+}
+
 router.post('/auth/login', login);
 router.get('/auth/verify', authMiddleware, (req, res) => {
   res.json({ success: true, user: req.user });
@@ -333,7 +349,11 @@ router.get('/config/presets', authMiddleware, (req, res) => {
       }
     }
   ];
-  res.json({ success: true, data: presets });
+  const redactedPresets = presets.map(p => ({
+    ...p,
+    config: redactSensitiveInfo(p.config)
+  }));
+  res.json({ success: true, data: redactedPresets });
 });
 
 router.get('/config/schema', authMiddleware, (req, res) => {

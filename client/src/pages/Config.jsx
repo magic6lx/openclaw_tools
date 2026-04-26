@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Typography, Row, Col, Button, Tag, Space, Modal, message, Spin, Descriptions, Divider, Table, Upload, Popconfirm } from 'antd';
+import { Card, Typography, Row, Col, Button, Tag, Space, Modal, message, Spin, Descriptions, Divider, Table, Upload, Popconfirm, Select } from 'antd';
 import { CheckCircleOutlined, ReloadOutlined, SyncOutlined, RocketOutlined, DownloadOutlined, UploadOutlined, SaveOutlined, DeleteOutlined } from '@ant-design/icons';
 
 const { Title, Text, Paragraph } = Typography;
@@ -14,7 +14,8 @@ function Config() {
   const [envPath, setEnvPath] = useState(null);
   const [keyPaths, setKeyPaths] = useState({});
   const [templates, setTemplates] = useState([]);
-  const [privateTemplate, setPrivateTemplate] = useState(null);
+  const [privateTemplates, setPrivateTemplates] = useState([]);
+  const [selectedPrivateTemplate, setSelectedPrivateTemplate] = useState(null);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [applying, setApplying] = useState(false);
@@ -54,14 +55,17 @@ function Config() {
     }
   };
 
-  const fetchPrivateTemplate = async () => {
+  const fetchPrivateTemplates = async () => {
     try {
-      const res = await fetch(`${LAUNCHER_API}/config/private-template`);
+      const res = await fetch(`${LAUNCHER_API}/config/private-templates`);
       const data = await res.json();
-      if (data.success && data.hasTemplate) {
-        setPrivateTemplate(data.template);
+      if (data.success && data.templates) {
+        setPrivateTemplates(data.templates);
+        if (data.templates.length > 0 && !selectedPrivateTemplate) {
+          setSelectedPrivateTemplate(data.templates[0]);
+        }
       } else {
-        setPrivateTemplate(null);
+        setPrivateTemplates([]);
       }
     } catch (err) {
       console.error('获取私有模板失败:', err);
@@ -71,7 +75,7 @@ function Config() {
   useEffect(() => {
     fetchLocalConfig();
     fetchTemplates();
-    fetchPrivateTemplate();
+    fetchPrivateTemplates();
   }, []);
 
   const handleExportConfig = () => {
@@ -147,6 +151,7 @@ function Config() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               config: localConfig,
+              env: configEnv,
               label: '我的私有配置',
               description: `保存于 ${new Date().toLocaleString()}`
             })
@@ -154,7 +159,7 @@ function Config() {
           const data = await res.json();
           if (data.success) {
             message.success('已保存为私有模板');
-            fetchPrivateTemplate();
+            fetchPrivateTemplates();
           } else {
             message.error(data.error || '保存失败');
           }
@@ -167,7 +172,7 @@ function Config() {
   };
 
   const handleApplyPrivateTemplate = () => {
-    if (!privateTemplate) return;
+    if (!selectedPrivateTemplate) return;
 
     Modal.confirm({
       title: '恢复私有模板',
@@ -177,7 +182,7 @@ function Config() {
           <Paragraph>确定要恢复私有模板吗？</Paragraph>
           <Descriptions size="small" column={1} style={{ marginTop: 16 }}>
             <Descriptions.Item label="保存时间">
-              {new Date(privateTemplate.savedAt).toLocaleString()}
+              {new Date(selectedPrivateTemplate.savedAt).toLocaleString()}
             </Descriptions.Item>
           </Descriptions>
           <Paragraph type="warning" style={{ marginTop: 16 }}>
@@ -191,7 +196,7 @@ function Config() {
           const res = await fetch(`${LAUNCHER_API}/config/import`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ config: privateTemplate.config })
+            body: JSON.stringify({ config: selectedPrivateTemplate.config, env: selectedPrivateTemplate.env })
           });
           const data = await res.json();
           if (data.success) {
@@ -208,20 +213,20 @@ function Config() {
     });
   };
 
-  const handleDeletePrivateTemplate = () => {
+  const handleDeletePrivateTemplate = (id) => {
     Modal.confirm({
       title: '删除私有模板',
       icon: <DeleteOutlined />,
       content: '确定要删除私有模板吗？删除后无法恢复。',
       onOk: async () => {
         try {
-          const res = await fetch(`${LAUNCHER_API}/config/private-template`, {
+          const res = await fetch(`${LAUNCHER_API}/config/private-template/${id}`, {
             method: 'DELETE'
           });
           const data = await res.json();
           if (data.success) {
             message.success('私有模板已删除');
-            setPrivateTemplate(null);
+            fetchPrivateTemplates();
           } else {
             message.error(data.error || '删除失败');
           }
@@ -245,22 +250,35 @@ function Config() {
             <Descriptions.Item label="描述">{template.description}</Descriptions.Item>
           </Descriptions>
           <Paragraph type="warning" style={{ marginTop: 16 }}>
-            注意：应用模板会覆盖当前配置，可能需要重启 Gateway
+            注意：应用模板会覆盖当前配置，已自动保存当前配置为私有模板
           </Paragraph>
         </div>
       ),
       onOk: async () => {
         setApplying(true);
         try {
+          if (localConfig) {
+            await fetch(`${LAUNCHER_API}/config/private-template`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                config: localConfig,
+                env: configEnv,
+                label: '应用模板前的备份',
+                description: `在应用"${template.label}"前自动保存`
+              })
+            });
+          }
           const res = await fetch(`${LAUNCHER_API}/config/import`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ config: template.config })
+            body: JSON.stringify({ config: template.config, env: template.env })
           });
           const data = await res.json();
           if (data.success) {
             message.success('模板已应用');
             fetchLocalConfig();
+            fetchPrivateTemplates();
           } else {
             message.error(data.error || '应用失败');
           }
@@ -334,7 +352,7 @@ function Config() {
       <Row gutter={[16, 16]}>
         <Col span={14}>
           <Card
-            title="当前本地配置"
+            title="OpenClaw核心配置"
             extra={
               <Space>
                 {configSource === 'openclaw' && <Tag color="blue">OpenClaw配置</Tag>}
@@ -382,7 +400,7 @@ function Config() {
           <Card
             size="small"
             style={{ marginTop: 16 }}
-            title="关键配置路径"
+            title="其他关键配置"
           >
             <Row gutter={[16, 12]}>
               {Object.entries(keyPaths).map(([name, info]) => (
@@ -438,56 +456,84 @@ function Config() {
             </Row>
           </Card>
 
-          {privateTemplate && (
+          {privateTemplates.length > 0 && (
             <Card
               style={{ marginTop: 16, borderColor: '#52c41a' }}
               title={
                 <Space>
                   <Text>📁 私有模板</Text>
-                  <Tag color="green">已保存</Tag>
+                  <Tag color="green">{privateTemplates.length}个</Tag>
                 </Space>
               }
               extra={
-                <Space>
-                  <Button
-                    type="primary"
-                    icon={<CheckCircleOutlined />}
-                    onClick={handleApplyPrivateTemplate}
-                    loading={applying}
-                  >
-                    恢复此配置
-                  </Button>
-                  <Popconfirm
-                    title="确定删除私有模板？"
-                    onConfirm={handleDeletePrivateTemplate}
-                    okText="删除"
-                    cancelText="取消"
-                  >
-                    <Button danger icon={<DeleteOutlined />}>
-                      删除
-                    </Button>
-                  </Popconfirm>
-                </Space>
+                <Button
+                  type="primary"
+                  icon={<SaveOutlined />}
+                  onClick={handleSavePrivateTemplate}
+                  loading={syncing}
+                >
+                  保存当前
+                </Button>
               }
             >
-              <Descriptions size="small" column={2}>
-                <Descriptions.Item label="保存时间">
-                  {new Date(privateTemplate.savedAt).toLocaleString()}
-                </Descriptions.Item>
-                <Descriptions.Item label="描述">
-                  {privateTemplate.description}
-                </Descriptions.Item>
-              </Descriptions>
+              <Select
+                style={{ width: '100%', marginBottom: 16 }}
+                placeholder="选择要恢复的私有模板"
+                value={selectedPrivateTemplate?.id}
+                onChange={(id) => {
+                  const tpl = privateTemplates.find(t => t.id === id);
+                  setSelectedPrivateTemplate(tpl);
+                }}
+              >
+                {privateTemplates.map(tpl => (
+                  <Select.Option key={tpl.id} value={tpl.id}>
+                    {tpl.label} - {new Date(tpl.savedAt).toLocaleString()}
+                  </Select.Option>
+                ))}
+              </Select>
+              {selectedPrivateTemplate && (
+                <>
+                  <Descriptions size="small" column={2}>
+                    <Descriptions.Item label="保存时间">
+                      {new Date(selectedPrivateTemplate.savedAt).toLocaleString()}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="描述">
+                      {selectedPrivateTemplate.description}
+                    </Descriptions.Item>
+                  </Descriptions>
+                  <Divider style={{ margin: '12px 0' }} />
+                  <Space>
+                    <Button
+                      type="primary"
+                      icon={<CheckCircleOutlined />}
+                      onClick={handleApplyPrivateTemplate}
+                      loading={applying}
+                    >
+                      恢复此配置
+                    </Button>
+                    <Popconfirm
+                      title="确定删除此私有模板？"
+                      onConfirm={() => handleDeletePrivateTemplate(selectedPrivateTemplate.id)}
+                      okText="删除"
+                      cancelText="取消"
+                    >
+                      <Button danger icon={<DeleteOutlined />}>
+                        删除
+                      </Button>
+                    </Popconfirm>
+                  </Space>
+                </>
+              )}
             </Card>
           )}
 
-          {!privateTemplate && localConfig && (
+          {privateTemplates.length === 0 && localConfig && (
             <Card
               style={{ marginTop: 16 }}
               title="保存私有模板"
             >
               <Paragraph type="secondary">
-                将当前配置保存为私有模板，方便随时恢复。
+                将当前配置保存为私有模板，方便随时恢复。支持保存多个版本。
               </Paragraph>
               <Button
                 type="primary"

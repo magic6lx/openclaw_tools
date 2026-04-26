@@ -32,7 +32,7 @@ const CONFIG_FILE = join(CONFIG_DIR, 'openclaw_config.json');
 const homedir = os.homedir();
 const OPENCLAW_CONFIG_DIR = join(homedir, '.openclaw');
 const OPENCLAW_CONFIG_FILE = join(OPENCLAW_CONFIG_DIR, 'openclaw.json');
-const PRIVATE_TEMPLATE_FILE = join(CONFIG_DIR, 'private_template.json');
+const PRIVATE_TEMPLATE_DIR = join(CONFIG_DIR, 'private_templates');
 const OPENCLAW_ENV_FILE = join(OPENCLAW_CONFIG_DIR, '.env');
 
 let cachedInstallStatus = null;
@@ -589,7 +589,7 @@ app.get('/config/export', (req, res) => {
 
 app.post('/config/import', (req, res) => {
   try {
-    const { config } = req.body;
+    const { config, env } = req.body;
     if (!config) {
       return res.json({ success: false, error: '配置文件为空' });
     }
@@ -599,6 +599,9 @@ app.post('/config/import', (req, res) => {
     }
 
     writeFileSync(OPENCLAW_CONFIG_FILE, JSON.stringify(config, null, 2), 'utf-8');
+    if (env) {
+      writeFileSync(OPENCLAW_ENV_FILE, env, 'utf-8');
+    }
     addLog('INFO', '配置已应用到 OpenClaw');
     res.json({ success: true });
   } catch (err) {
@@ -606,14 +609,30 @@ app.post('/config/import', (req, res) => {
   }
 });
 
-app.get('/config/private-template', (req, res) => {
+app.get('/config/private-templates', (req, res) => {
   try {
-    if (existsSync(PRIVATE_TEMPLATE_FILE)) {
-      const template = JSON.parse(readFileSync(PRIVATE_TEMPLATE_FILE, 'utf-8'));
-      res.json({ success: true, hasTemplate: true, template });
-    } else {
-      res.json({ success: true, hasTemplate: false, template: null });
+    if (!existsSync(PRIVATE_TEMPLATE_DIR)) {
+      return res.json({ success: true, templates: [] });
     }
+    const files = readdirSync(PRIVATE_TEMPLATE_DIR).filter(f => f.endsWith('.json'));
+    const templates = files.map(f => {
+      const content = JSON.parse(readFileSync(join(PRIVATE_TEMPLATE_DIR, f), 'utf-8'));
+      return { id: f.replace('.json', ''), ...content };
+    }).sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt));
+    res.json({ success: true, templates });
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+app.get('/config/private-template/:id', (req, res) => {
+  try {
+    const filePath = join(PRIVATE_TEMPLATE_DIR, `${req.params.id}.json`);
+    if (!existsSync(filePath)) {
+      return res.json({ success: false, error: '模板不存在' });
+    }
+    const template = JSON.parse(readFileSync(filePath, 'utf-8'));
+    res.json({ success: true, template });
   } catch (err) {
     res.json({ success: false, error: err.message });
   }
@@ -621,37 +640,39 @@ app.get('/config/private-template', (req, res) => {
 
 app.post('/config/private-template', (req, res) => {
   try {
-    const { config, label, description } = req.body;
+    const { config, env, label, description } = req.body;
     if (!config) {
       return res.json({ success: false, error: '配置不能为空' });
     }
 
-    if (!existsSync(CONFIG_DIR)) {
-      mkdirSync(CONFIG_DIR, { recursive: true });
+    if (!existsSync(PRIVATE_TEMPLATE_DIR)) {
+      mkdirSync(PRIVATE_TEMPLATE_DIR, { recursive: true });
     }
 
+    const templateId = `private_${Date.now()}`;
     const template = {
-      id: 'private',
       label: label || '私有配置',
       description: description || '用户保存的私有配置',
       icon: '📁',
       category: '私有',
       config,
+      env: env || null,
       savedAt: new Date().toISOString()
     };
 
-    writeFileSync(PRIVATE_TEMPLATE_FILE, JSON.stringify(template, null, 2), 'utf-8');
-    addLog('INFO', '当前配置已保存为私有模板');
-    res.json({ success: true });
+    writeFileSync(join(PRIVATE_TEMPLATE_DIR, `${templateId}.json`), JSON.stringify(template, null, 2), 'utf-8');
+    addLog('INFO', `私有模板已保存: ${template.label}`);
+    res.json({ success: true, id: templateId });
   } catch (err) {
     res.json({ success: false, error: err.message });
   }
 });
 
-app.delete('/config/private-template', (req, res) => {
+app.delete('/config/private-template/:id', (req, res) => {
   try {
-    if (existsSync(PRIVATE_TEMPLATE_FILE)) {
-      unlinkSync(PRIVATE_TEMPLATE_FILE);
+    const filePath = join(PRIVATE_TEMPLATE_DIR, `${req.params.id}.json`);
+    if (existsSync(filePath)) {
+      unlinkSync(filePath);
       addLog('INFO', '私有模板已删除');
     }
     res.json({ success: true });
