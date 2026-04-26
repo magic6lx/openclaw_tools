@@ -368,11 +368,13 @@ function Config() {
                         {name === 'workspace' && '📁'}
                         {name === 'agents' && '🤖'}
                         {name === 'skills' && '💡'}
-                        {name === 'channels' && '📱'}
-                        {name === 'tools' && '🔧'}
-                        {name === 'plugins' && '🔌'}
                         {name === 'logs' && '📋'}
                         {name === 'canvas' && '🎨'}
+                        {name === 'flows' && '🔀'}
+                        {name === 'subagents' && '👥'}
+                        {name === 'tasks' && '📝'}
+                        {name === 'memory' && '🧠'}
+                        {name === 'media' && '🖼️'}
                       </Text>
                       <Text strong>{name}/</Text>
                       {info.exists ? (
