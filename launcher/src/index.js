@@ -29,6 +29,10 @@ const DEFAULT_GATEWAY_PORT = 18789;
 const CONFIG_DIR = join(__dirname, '../../config');
 const CONFIG_FILE = join(CONFIG_DIR, 'openclaw_config.json');
 
+let cachedInstallStatus = null;
+let lastInstallCheckTime = 0;
+const INSTALL_CHECK_CACHE_MS = 30000;
+
 function addLog(level, message) {
   const cleanMessage = message.replace(/\x1b\[[0-9;]*m/g, '').trim();
   const logEntry = {
@@ -51,6 +55,11 @@ function addLog(level, message) {
 }
 
 function isOpenClawInstalled() {
+  const now = Date.now();
+  if (cachedInstallStatus !== null && (now - lastInstallCheckTime) < INSTALL_CHECK_CACHE_MS) {
+    return cachedInstallStatus;
+  }
+
   const npmGlobalPath = join(process.env['APPDATA'] || '', 'npm');
   const npmPaths = [
     join(npmGlobalPath, 'openclaw.ps1'),
@@ -63,7 +72,11 @@ function isOpenClawInstalled() {
 
   for (const openclawPath of npmPaths) {
     if (existsSync(openclawPath)) {
-      addLog('DEBUG', `Found OpenClaw via npm path: ${openclawPath}`);
+      if (cachedInstallStatus !== true) {
+        addLog('INFO', `检测到 OpenClaw 已安装: ${openclawPath}`);
+      }
+      cachedInstallStatus = true;
+      lastInstallCheckTime = now;
       return true;
     }
   }
@@ -85,7 +98,11 @@ function isOpenClawInstalled() {
 
   for (const openclawPath of windowsPaths) {
     if (existsSync(openclawPath)) {
-      addLog('DEBUG', `Found OpenClaw binary at: ${openclawPath}`);
+      if (cachedInstallStatus !== true) {
+        addLog('INFO', `检测到 OpenClaw 已安装: ${openclawPath}`);
+      }
+      cachedInstallStatus = true;
+      lastInstallCheckTime = now;
       return true;
     }
   }
@@ -101,7 +118,11 @@ function isOpenClawInstalled() {
     try {
       const result = execSync(`reg query "${regPath}" /ve`, { encoding: 'gbk', timeout: 3000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
       if (result && !result.includes('ERROR')) {
-        addLog('DEBUG', `Found OpenClaw in registry: ${regPath}`);
+        if (cachedInstallStatus !== true) {
+          addLog('INFO', `检测到 OpenClaw 已安装 (注册表)`);
+        }
+        cachedInstallStatus = true;
+        lastInstallCheckTime = now;
         return true;
       }
     } catch (e) {
@@ -111,16 +132,11 @@ function isOpenClawInstalled() {
   try {
     const result = execSync('tasklist /FI "IMAGENAME eq openclaw.exe" /NH', { encoding: 'gbk', timeout: 3000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
     if (result && result.toLowerCase().includes('openclaw')) {
-      addLog('DEBUG', 'Found OpenClaw process running');
-      return true;
-    }
-  } catch (e) {
-  }
-
-  try {
-    const result = execSync('wmic product where "name like \'%OpenClaw%\'" get name,version', { encoding: 'gbk', timeout: 5000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
-    if (result && result.toLowerCase().includes('openclaw')) {
-      addLog('DEBUG', 'Found OpenClaw via WMIC');
+      if (cachedInstallStatus !== true) {
+        addLog('INFO', '检测到 OpenClaw 进程正在运行');
+      }
+      cachedInstallStatus = true;
+      lastInstallCheckTime = now;
       return true;
     }
   } catch (e) {
@@ -129,7 +145,11 @@ function isOpenClawInstalled() {
   try {
     const result = execSync('openclaw doctor --json 2>&1', { encoding: 'utf8', timeout: 8000, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     if (result && !result.includes('command not found') && !result.includes('not recognized') && !result.includes('not found')) {
-      addLog('DEBUG', 'OpenClaw CLI is accessible via command line');
+      if (cachedInstallStatus !== true) {
+        addLog('INFO', '检测到 OpenClaw CLI 可用');
+      }
+      cachedInstallStatus = true;
+      lastInstallCheckTime = now;
       return true;
     }
   } catch (e) {
@@ -138,12 +158,21 @@ function isOpenClawInstalled() {
   try {
     const result = execSync('npm list -g openclaw --depth=0 2>&1', { encoding: 'utf8', timeout: 5000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
     if (result && result.toLowerCase().includes('openclaw')) {
-      addLog('DEBUG', 'Found OpenClaw via npm list -g');
+      if (cachedInstallStatus !== true) {
+        addLog('INFO', '检测到 OpenClaw 已通过 npm 全局安装');
+      }
+      cachedInstallStatus = true;
+      lastInstallCheckTime = now;
       return true;
     }
   } catch (e) {
   }
 
+  if (cachedInstallStatus !== false) {
+    addLog('INFO', '未检测到 OpenClaw 安装');
+  }
+  cachedInstallStatus = false;
+  lastInstallCheckTime = now;
   return false;
 }
 
