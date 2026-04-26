@@ -1,6 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { execSync, spawn } from 'child_process';
@@ -28,6 +28,8 @@ const DEFAULT_GATEWAY_PORT = 18789;
 
 const CONFIG_DIR = join(__dirname, '../../config');
 const CONFIG_FILE = join(CONFIG_DIR, 'openclaw_config.json');
+const OPENCLAW_CONFIG_FILE = join(process.env.APPDATA || join(require('os').homedir(), '.openclaw'), '.openclaw', 'openclaw.json');
+const PRIVATE_TEMPLATE_FILE = join(CONFIG_DIR, 'private_template.json');
 
 let cachedInstallStatus = null;
 let lastInstallCheckTime = 0;
@@ -472,16 +474,16 @@ app.get('/logs', (req, res) => {
 
 app.get('/config/export', (req, res) => {
   try {
-    if (!existsSync(CONFIG_FILE)) {
-      const defaultConfig = {
-        version: '1.0.0',
-        gateway: { port: 8080 },
-        openclaw: { installed: false }
-      };
-      return res.json({ success: true, config: defaultConfig });
+    if (existsSync(OPENCLAW_CONFIG_FILE)) {
+      const config = JSON.parse(readFileSync(OPENCLAW_CONFIG_FILE, 'utf-8'));
+      return res.json({ success: true, config, source: 'openclaw' });
     }
-    const config = JSON.parse(readFileSync(CONFIG_FILE, 'utf-8'));
-    res.json({ success: true, config });
+    const defaultConfig = {
+      version: '1.0.0',
+      gateway: { port: 8080 },
+      openclaw: { installed: false }
+    };
+    res.json({ success: true, config: defaultConfig, source: 'default' });
   } catch (err) {
     res.json({ success: false, error: err.message });
   }
@@ -494,12 +496,66 @@ app.post('/config/import', (req, res) => {
       return res.json({ success: false, error: '配置文件为空' });
     }
 
+    if (!existsSync(dirname(OPENCLAW_CONFIG_FILE))) {
+      mkdirSync(dirname(OPENCLAW_CONFIG_FILE), { recursive: true });
+    }
+
+    writeFileSync(OPENCLAW_CONFIG_FILE, JSON.stringify(config, null, 2), 'utf-8');
+    addLog('INFO', '配置已应用到 OpenClaw');
+    res.json({ success: true });
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+app.get('/config/private-template', (req, res) => {
+  try {
+    if (existsSync(PRIVATE_TEMPLATE_FILE)) {
+      const template = JSON.parse(readFileSync(PRIVATE_TEMPLATE_FILE, 'utf-8'));
+      res.json({ success: true, hasTemplate: true, template });
+    } else {
+      res.json({ success: true, hasTemplate: false, template: null });
+    }
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+app.post('/config/private-template', (req, res) => {
+  try {
+    const { config, label, description } = req.body;
+    if (!config) {
+      return res.json({ success: false, error: '配置不能为空' });
+    }
+
     if (!existsSync(CONFIG_DIR)) {
       mkdirSync(CONFIG_DIR, { recursive: true });
     }
 
-    writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf-8');
-    addLog('INFO', '配置已导入');
+    const template = {
+      id: 'private',
+      label: label || '私有配置',
+      description: description || '用户保存的私有配置',
+      icon: '📁',
+      category: '私有',
+      config,
+      savedAt: new Date().toISOString()
+    };
+
+    writeFileSync(PRIVATE_TEMPLATE_FILE, JSON.stringify(template, null, 2), 'utf-8');
+    addLog('INFO', '当前配置已保存为私有模板');
+    res.json({ success: true });
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+app.delete('/config/private-template', (req, res) => {
+  try {
+    if (existsSync(PRIVATE_TEMPLATE_FILE)) {
+      unlinkSync(PRIVATE_TEMPLATE_FILE);
+      addLog('INFO', '私有模板已删除');
+    }
     res.json({ success: true });
   } catch (err) {
     res.json({ success: false, error: err.message });

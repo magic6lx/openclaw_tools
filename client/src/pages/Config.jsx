@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Typography, Row, Col, Button, Tag, Space, Modal, message, Spin, Descriptions, Divider, Table, Upload } from 'antd';
-import { CheckCircleOutlined, ReloadOutlined, SyncOutlined, RocketOutlined, DownloadOutlined, UploadOutlined } from '@ant-design/icons';
+import { Card, Typography, Row, Col, Button, Tag, Space, Modal, message, Spin, Descriptions, Divider, Table, Upload, Popconfirm } from 'antd';
+import { CheckCircleOutlined, ReloadOutlined, SyncOutlined, RocketOutlined, DownloadOutlined, UploadOutlined, SaveOutlined, DeleteOutlined } from '@ant-design/icons';
 
 const { Title, Text, Paragraph } = Typography;
 const LAUNCHER_API = 'http://127.0.0.1:3003';
@@ -8,7 +8,9 @@ const SERVER_API = 'http://127.0.0.1:3002';
 
 function Config() {
   const [localConfig, setLocalConfig] = useState(null);
+  const [configSource, setConfigSource] = useState(null);
   const [templates, setTemplates] = useState([]);
+  const [privateTemplate, setPrivateTemplate] = useState(null);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [applying, setApplying] = useState(false);
@@ -21,7 +23,8 @@ function Config() {
       const data = await res.json();
       if (data.success) {
         setLocalConfig(data.config);
-        message.success('本地配置已同步');
+        setConfigSource(data.source);
+        message.success(`已同步本地配置 (${data.source})`);
       } else {
         message.error(data.message || '获取本地配置失败');
       }
@@ -43,9 +46,24 @@ function Config() {
     }
   };
 
+  const fetchPrivateTemplate = async () => {
+    try {
+      const res = await fetch(`${LAUNCHER_API}/config/private-template`);
+      const data = await res.json();
+      if (data.success && data.hasTemplate) {
+        setPrivateTemplate(data.template);
+      } else {
+        setPrivateTemplate(null);
+      }
+    } catch (err) {
+      console.error('获取私有模板失败:', err);
+    }
+  };
+
   useEffect(() => {
     fetchLocalConfig();
     fetchTemplates();
+    fetchPrivateTemplate();
   }, []);
 
   const handleExportConfig = () => {
@@ -80,6 +98,7 @@ function Config() {
             if (data.success) {
               message.success('配置已应用');
               fetchLocalConfig();
+              fetchPrivateTemplate();
             } else {
               message.error(data.error || '应用配置失败');
             }
@@ -93,6 +112,116 @@ function Config() {
       message.error(`解析配置文件失败: ${err.message}`);
     }
     return false;
+  };
+
+  const handleSavePrivateTemplate = () => {
+    if (!localConfig) {
+      message.warning('请先刷新获取当前配置');
+      return;
+    }
+
+    Modal.confirm({
+      title: '保存为私有模板',
+      icon: <SaveOutlined />,
+      content: (
+        <div>
+          <Paragraph>确定要将当前配置保存为私有模板吗？</Paragraph>
+          <Paragraph type="secondary">
+            私有模板会保存在本地，可以在任何时候恢复到当前保存的状态。
+          </Paragraph>
+        </div>
+      ),
+      onOk: async () => {
+        setSyncing(true);
+        try {
+          const res = await fetch(`${LAUNCHER_API}/config/private-template`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              config: localConfig,
+              label: '我的私有配置',
+              description: `保存于 ${new Date().toLocaleString()}`
+            })
+          });
+          const data = await res.json();
+          if (data.success) {
+            message.success('已保存为私有模板');
+            fetchPrivateTemplate();
+          } else {
+            message.error(data.error || '保存失败');
+          }
+        } catch (err) {
+          message.error(`保存失败: ${err.message}`);
+        }
+        setSyncing(false);
+      }
+    });
+  };
+
+  const handleApplyPrivateTemplate = () => {
+    if (!privateTemplate) return;
+
+    Modal.confirm({
+      title: '恢复私有模板',
+      icon: <CheckCircleOutlined />,
+      content: (
+        <div>
+          <Paragraph>确定要恢复私有模板吗？</Paragraph>
+          <Descriptions size="small" column={1} style={{ marginTop: 16 }}>
+            <Descriptions.Item label="保存时间">
+              {new Date(privateTemplate.savedAt).toLocaleString()}
+            </Descriptions.Item>
+          </Descriptions>
+          <Paragraph type="warning" style={{ marginTop: 16 }}>
+            注意：这会覆盖当前配置，可能需要重启 Gateway
+          </Paragraph>
+        </div>
+      ),
+      onOk: async () => {
+        setApplying(true);
+        try {
+          const res = await fetch(`${LAUNCHER_API}/config/import`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ config: privateTemplate.config })
+          });
+          const data = await res.json();
+          if (data.success) {
+            message.success('已恢复私有模板');
+            fetchLocalConfig();
+          } else {
+            message.error(data.error || '恢复失败');
+          }
+        } catch (err) {
+          message.error(`恢复失败: ${err.message}`);
+        }
+        setApplying(false);
+      }
+    });
+  };
+
+  const handleDeletePrivateTemplate = () => {
+    Modal.confirm({
+      title: '删除私有模板',
+      icon: <DeleteOutlined />,
+      content: '确定要删除私有模板吗？删除后无法恢复。',
+      onOk: async () => {
+        try {
+          const res = await fetch(`${LAUNCHER_API}/config/private-template`, {
+            method: 'DELETE'
+          });
+          const data = await res.json();
+          if (data.success) {
+            message.success('私有模板已删除');
+            setPrivateTemplate(null);
+          } else {
+            message.error(data.error || '删除失败');
+          }
+        } catch (err) {
+          message.error(`删除失败: ${err.message}`);
+        }
+      }
+    });
   };
 
   const handleApplyTemplate = (template) => {
@@ -163,6 +292,7 @@ function Config() {
       case '基础': return 'cyan';
       case '高级': return 'orange';
       case '企业': return 'purple';
+      case '私有': return 'green';
       default: return 'default';
     }
   };
@@ -179,7 +309,7 @@ function Config() {
             刷新
           </Button>
           <Button icon={<DownloadOutlined />} onClick={handleExportConfig} disabled={!localConfig}>
-            导出配置
+            导出
           </Button>
           <Upload
             beforeUpload={handleImportConfig}
@@ -187,7 +317,7 @@ function Config() {
             accept=".json"
           >
             <Button icon={<UploadOutlined />} loading={syncing}>
-              导入配置
+              导入
             </Button>
           </Upload>
         </Space>
@@ -198,9 +328,11 @@ function Config() {
           <Card
             title="当前本地配置"
             extra={
-              localConfig && (
-                <Tag color="green">已加载</Tag>
-              )
+              <Space>
+                {configSource === 'openclaw' && <Tag color="blue">OpenClaw配置</Tag>}
+                {configSource === 'default' && <Tag color="orange">默认配置</Tag>}
+                {localConfig && <Tag color="green">已加载</Tag>}
+              </Space>
             }
           >
             {loading ? (
@@ -214,7 +346,7 @@ function Config() {
                 columns={configColumns}
                 dataSource={getConfigData()}
                 pagination={{ pageSize: 15 }}
-                scroll={{ y: 450 }}
+                scroll={{ y: 400 }}
               />
             ) : (
               <div style={{ textAlign: 'center', padding: 40 }}>
@@ -222,6 +354,68 @@ function Config() {
               </div>
             )}
           </Card>
+
+          {privateTemplate && (
+            <Card
+              style={{ marginTop: 16, borderColor: '#52c41a' }}
+              title={
+                <Space>
+                  <Text>📁 私有模板</Text>
+                  <Tag color="green">已保存</Tag>
+                </Space>
+              }
+              extra={
+                <Space>
+                  <Button
+                    type="primary"
+                    icon={<CheckCircleOutlined />}
+                    onClick={handleApplyPrivateTemplate}
+                    loading={applying}
+                  >
+                    恢复此配置
+                  </Button>
+                  <Popconfirm
+                    title="确定删除私有模板？"
+                    onConfirm={handleDeletePrivateTemplate}
+                    okText="删除"
+                    cancelText="取消"
+                  >
+                    <Button danger icon={<DeleteOutlined />}>
+                      删除
+                    </Button>
+                  </Popconfirm>
+                </Space>
+              }
+            >
+              <Descriptions size="small" column={2}>
+                <Descriptions.Item label="保存时间">
+                  {new Date(privateTemplate.savedAt).toLocaleString()}
+                </Descriptions.Item>
+                <Descriptions.Item label="描述">
+                  {privateTemplate.description}
+                </Descriptions.Item>
+              </Descriptions>
+            </Card>
+          )}
+
+          {!privateTemplate && localConfig && (
+            <Card
+              style={{ marginTop: 16 }}
+              title="保存私有模板"
+            >
+              <Paragraph type="secondary">
+                将当前配置保存为私有模板，方便随时恢复。
+              </Paragraph>
+              <Button
+                type="primary"
+                icon={<SaveOutlined />}
+                onClick={handleSavePrivateTemplate}
+                loading={syncing}
+              >
+                保存当前配置为私有模板
+              </Button>
+            </Card>
+          )}
         </Col>
 
         <Col span={10}>
@@ -229,7 +423,7 @@ function Config() {
             <Paragraph type="secondary" style={{ marginBottom: 16 }}>
               从预设模板中选择，快速配置 OpenClaw
             </Paragraph>
-            <div style={{ maxHeight: 480, overflow: 'auto' }}>
+            <div style={{ maxHeight: 500, overflow: 'auto' }}>
               {templates.map((template) => (
                 <Card
                   key={template.id}
@@ -267,10 +461,12 @@ function Config() {
 
       <Card style={{ marginTop: 16 }} title="使用说明">
         <ul style={{ marginBottom: 0 }}>
-          <li><Text strong>刷新</Text>：从本地 Launcher 获取最新配置</li>
+          <li><Text strong>刷新</Text>：从本地 OpenClaw 配置目录获取最新配置</li>
           <li><Text strong>导出</Text>：将当前配置保存为 JSON 文件备份</li>
-          <li><Text strong>导入</Text>：从 JSON 文件加载配置并应用到本地</li>
-          <li><Text strong>模板</Text>：选择预设模板快速配置，部分模板需要重启 Gateway</li>
+          <li><Text strong>导入</Text>：从 JSON 文件加载配置并应用到本地 OpenClaw</li>
+          <li><Text strong>保存私有模板</Text>：将当前配置保存到本地，方便随时恢复</li>
+          <li><Text strong>恢复私有模板</Text>：将之前保存的私有模板应用到 OpenClaw</li>
+          <li><Text strong>预设模板</Text>：选择预设模板快速配置，部分模板需要重启 Gateway</li>
         </ul>
       </Card>
     </div>
