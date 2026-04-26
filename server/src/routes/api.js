@@ -168,7 +168,12 @@ router.get('/templates', authMiddleware, async (req, res) => {
   try {
     const db = require('../db');
     const templates = await db.query('SELECT * FROM templates ORDER BY created_at DESC');
-    res.json({ success: true, data: templates });
+    const parsedTemplates = templates.map(t => ({
+      ...t,
+      config: t.config_content ? (typeof t.config_content === 'string' ? JSON.parse(t.config_content) : t.config_content) : null,
+      env: t.env_content || null
+    }));
+    res.json({ success: true, data: parsedTemplates });
   } catch (err) {
     console.error('Get templates error:', err);
     res.status(500).json({ error: err.message });
@@ -182,7 +187,12 @@ router.get('/templates/:id', authMiddleware, async (req, res) => {
     if (!template) {
       return res.status(404).json({ error: '模板不存在' });
     }
-    res.json({ success: true, data: template });
+    const parsedTemplate = {
+      ...template,
+      config: template.config_content ? (typeof template.config_content === 'string' ? JSON.parse(template.config_content) : template.config_content) : null,
+      env: template.env_content || null
+    };
+    res.json({ success: true, data: parsedTemplate });
   } catch (err) {
     console.error('Get template error:', err);
     res.status(500).json({ error: err.message });
@@ -192,10 +202,12 @@ router.get('/templates/:id', authMiddleware, async (req, res) => {
 router.post('/templates', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const db = require('../db');
-    const { name, description, category, configContent } = req.body;
+    const { name, description, category, config, env } = req.body;
+    const configJson = config ? JSON.stringify(config) : '{}';
+    const envJson = env || null;
     const result = await db.query(
-      'INSERT INTO templates (name, description, category, config_content, status, created_by) VALUES (?, ?, ?, ?, ?, ?)',
-      [name, description || '', category || 'imported', configContent || '{}', 'pending', req.user.invitationId]
+      'INSERT INTO templates (name, description, category, config_content, env_content, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [name, description || '', category || 'imported', configJson, envJson, 'pending', req.user.invitationId]
     );
     res.json({ success: true, data: { id: result.insertId } });
   } catch (err) {
@@ -207,10 +219,12 @@ router.post('/templates', authMiddleware, adminMiddleware, async (req, res) => {
 router.put('/templates/:id', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const db = require('../db');
-    const { name, description, category, configContent, status } = req.body;
+    const { name, description, category, config, env, status } = req.body;
+    const configJson = config ? JSON.stringify(config) : null;
+    const envJson = env || null;
     await db.query(
-      'UPDATE templates SET name = ?, description = ?, category = ?, config_content = ?, status = ? WHERE id = ?',
-      [name, description || '', category, configContent || '{}', status || 'pending', req.params.id]
+      'UPDATE templates SET name = ?, description = ?, category = ?, config_content = ?, env_content = ?, status = ? WHERE id = ?',
+      [name, description || '', category, configJson, envJson, status || 'pending', req.params.id]
     );
     res.json({ success: true });
   } catch (err) {
@@ -444,6 +458,37 @@ router.post('/templates/:id/distribute', authMiddleware, adminMiddleware, async 
     res.json({ success: true, message: '模板已发放' });
   } catch (err) {
     console.error('Distribute template error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/config/launcher', authMiddleware, async (req, res) => {
+  try {
+    const response = await fetch('http://127.0.0.1:3003/config/export');
+    const data = await response.json();
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.get('/templates/approved', async (req, res) => {
+  try {
+    const db = require('../db');
+    const templates = await db.query('SELECT * FROM templates WHERE status = ? ORDER BY created_at DESC', ['approved']);
+    const parsedTemplates = templates.map(t => ({
+      id: t.id,
+      name: t.name,
+      label: t.name,
+      description: t.description,
+      icon: '📋',
+      category: t.category || '已发布',
+      config: t.config_content ? JSON.parse(t.config_content) : {},
+      env: t.env_content || null
+    }));
+    res.json({ success: true, data: parsedTemplates });
+  } catch (err) {
+    console.error('Get approved templates error:', err);
     res.status(500).json({ error: err.message });
   }
 });

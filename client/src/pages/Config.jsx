@@ -45,13 +45,29 @@ function Config() {
 
   const fetchTemplates = async () => {
     try {
-      const res = await fetch(`${SERVER_API}/api/config/presets`);
-      const data = await res.json();
-      if (data.success) {
-        setTemplates(data.data || []);
-      }
+      const [presetsRes, approvedRes] = await Promise.all([
+        fetch(`${SERVER_API}/api/config/presets`),
+        fetch(`${SERVER_API}/api/templates/approved`)
+      ]);
+      const presetsData = await presetsRes.json();
+      const approvedData = await approvedRes.json();
+
+      const presets = presetsData.success ? (presetsData.data || []) : [];
+      const approvedTemplates = approvedData.success ? (approvedData.data || []) : [];
+
+      const allTemplates = [...approvedTemplates, ...presets];
+      setTemplates(allTemplates);
     } catch (err) {
       console.error('获取模板失败:', err);
+      try {
+        const res = await fetch(`${SERVER_API}/api/config/presets`);
+        const data = await res.json();
+        if (data.success) {
+          setTemplates(data.data || []);
+        }
+      } catch (e) {
+        console.error('获取预设模板失败:', e);
+      }
     }
   };
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Table, Typography, Button, Space, Tag, Modal, Form, Input, Select, message, Popconfirm, Upload, Divider, Row, Col, Tooltip } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, SendOutlined, ReloadOutlined, UploadOutlined, DownloadOutlined, CopyOutlined, SnippetsOutlined, FileSearchOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, SendOutlined, ReloadOutlined, UploadOutlined, DownloadOutlined, CopyOutlined, SnippetsOutlined, FileSearchOutlined, CloudDownloadOutlined } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import QuickSettings from '../../components/QuickSettings';
 import { getDefaultConfig } from '../../config/presets';
@@ -8,6 +8,7 @@ import { getDefaultConfig } from '../../config/presets';
 const { Title, Text } = Typography;
 const { TextArea } = Input;
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+const LAUNCHER_API = 'http://127.0.0.1:3003';
 
 function Templates() {
   const { user } = useAuth();
@@ -17,9 +18,11 @@ function Templates() {
   const [loading, setLoading] = useState(false);
   const [form] = Form.useForm();
   const [currentConfig, setCurrentConfig] = useState({});
+  const [currentEnv, setCurrentEnv] = useState(null);
   const [pasteModalVisible, setPasteModalVisible] = useState(false);
   const [pasteContent, setPasteContent] = useState('');
   const [serverConfigLoading, setServerConfigLoading] = useState(false);
+  const [launcherConfigLoading, setLauncherConfigLoading] = useState(false);
 
   const fetchTemplates = async () => {
     setLoading(true);
@@ -59,8 +62,9 @@ function Templates() {
   const handleEdit = (t) => {
     setEditing(t);
     try {
-      const config = typeof t.config_content === 'string' ? JSON.parse(t.config_content) : (t.config_content || {});
+      const config = t.config || (typeof t.config_content === 'string' ? JSON.parse(t.config_content) : (t.config_content || {}));
       setCurrentConfig(config);
+      setCurrentEnv(t.env || null);
       form.setFieldsValue({
         name: t.name,
         category: t.category,
@@ -68,6 +72,7 @@ function Templates() {
       });
     } catch (e) {
       setCurrentConfig({});
+      setCurrentEnv(null);
     }
     setModalVisible(true);
   };
@@ -190,6 +195,7 @@ function Templates() {
       if (data.success && data.data) {
         const config = extractOpenClawConfig(data.data);
         setCurrentConfig(config);
+        setCurrentEnv(null);
         message.success('服务器配置已加载');
       } else {
         message.warning(data.message || '服务器配置文件不存在');
@@ -198,6 +204,25 @@ function Templates() {
       message.error(`加载服务器配置失败: ${err.message}`);
     } finally {
       setServerConfigLoading(false);
+    }
+  };
+
+  const handleLoadLauncherConfig = async () => {
+    setLauncherConfigLoading(true);
+    try {
+      const res = await fetch(`${LAUNCHER_API}/config/export`);
+      const data = await res.json();
+      if (data.success && data.config) {
+        setCurrentConfig(data.config);
+        setCurrentEnv(data.env || null);
+        message.success('本地配置已加载（包含config和env）');
+      } else {
+        message.warning(data.message || '本地配置文件不存在');
+      }
+    } catch (err) {
+      message.error(`加载本地配置失败: ${err.message}`);
+    } finally {
+      setLauncherConfigLoading(false);
     }
   };
 
@@ -227,7 +252,8 @@ function Templates() {
         },
         body: JSON.stringify({
           ...values,
-          configContent: JSON.stringify(currentConfig, null, 2)
+          config: currentConfig,
+          env: currentEnv
         })
       });
       const data = await res.json();
@@ -421,9 +447,18 @@ function Templates() {
         <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Text strong>配置内容</Text>
           <Space>
+            <Tooltip title="从本地 Launcher 读取 openclaw.json 和 .env 配置（推荐）">
+              <Button
+                icon={<CloudDownloadOutlined />}
+                onClick={handleLoadLauncherConfig}
+                loading={launcherConfigLoading}
+              >
+                读取本地配置
+              </Button>
+            </Tooltip>
             <Tooltip title="从服务器读取 openclaw.json 配置">
-              <Button 
-                icon={<FileSearchOutlined />} 
+              <Button
+                icon={<FileSearchOutlined />}
                 onClick={handleLoadServerConfig}
                 loading={serverConfigLoading}
               >
