@@ -170,8 +170,8 @@ router.get('/templates', authMiddleware, async (req, res) => {
     const templates = await db.query('SELECT * FROM templates ORDER BY created_at DESC');
     const parsedTemplates = templates.map(t => ({
       ...t,
-      config: t.config_content ? (typeof t.config_content === 'string' ? JSON.parse(t.config_content) : t.config_content) : null,
-      env: t.env_content || null
+      config: t.config ? (typeof t.config === 'string' ? JSON.parse(t.config) : t.config) : null,
+      env: t.env || null
     }));
     res.json({ success: true, data: parsedTemplates });
   } catch (err) {
@@ -189,8 +189,8 @@ router.get('/templates/:id', authMiddleware, async (req, res) => {
     }
     const parsedTemplate = {
       ...template,
-      config: template.config_content ? (typeof template.config_content === 'string' ? JSON.parse(template.config_content) : template.config_content) : null,
-      env: template.env_content || null
+      config: template.config ? (typeof template.config === 'string' ? JSON.parse(template.config) : template.config) : null,
+      env: template.env || null
     };
     res.json({ success: true, data: parsedTemplate });
   } catch (err) {
@@ -206,7 +206,7 @@ router.post('/templates', authMiddleware, adminMiddleware, async (req, res) => {
     const configJson = config ? JSON.stringify(config) : '{}';
     const envJson = env || null;
     const result = await db.query(
-      'INSERT INTO templates (name, description, category, config_content, env_content, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO templates (name, description, category, config, env, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [name, description || '', category || 'imported', configJson, envJson, 'pending', req.user.invitationId]
     );
     res.json({ success: true, data: { id: result.insertId } });
@@ -223,7 +223,7 @@ router.put('/templates/:id', authMiddleware, adminMiddleware, async (req, res) =
     const configJson = config ? JSON.stringify(config) : null;
     const envJson = env || null;
     await db.query(
-      'UPDATE templates SET name = ?, description = ?, category = ?, config_content = ?, env_content = ?, status = ? WHERE id = ?',
+      'UPDATE templates SET name = ?, description = ?, category = ?, config = ?, env = ?, status = ? WHERE id = ?',
       [name, description || '', category, configJson, envJson, status || 'pending', req.params.id]
     );
     res.json({ success: true });
@@ -483,8 +483,8 @@ router.get('/templates/approved', async (req, res) => {
       description: t.description,
       icon: '📋',
       category: t.category || '已发布',
-      config: t.config_content ? JSON.parse(t.config_content) : {},
-      env: t.env_content || null
+      config: t.config ? (typeof t.config === 'string' ? JSON.parse(t.config) : t.config) : {},
+      env: t.env || null
     }));
     res.json({ success: true, data: parsedTemplates });
   } catch (err) {
