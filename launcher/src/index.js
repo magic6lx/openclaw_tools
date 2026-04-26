@@ -288,7 +288,8 @@ app.post('/gateway/start', (req, res) => {
     addLog('INFO', 'Gateway 进程已创建 (PID: ' + gatewayProcess.pid + ')，等待服务就绪...');
 
     let checkCount = 0;
-    const maxChecks = 20;
+    let gatewayReadyReported = false;
+    const maxChecks = 60;
     const checkInterval = setInterval(() => {
       checkCount++;
 
@@ -316,8 +317,8 @@ app.post('/gateway/start', (req, res) => {
         return;
       }
 
-      if (checkCount % 4 === 0) {
-        addLog('INFO', `等待 Gateway 启动... (${checkCount * 0.5}/${maxChecks * 0.5}秒)`);
+      if (checkCount % 6 === 0) {
+        addLog('INFO', `等待 Gateway 启动... (${(checkCount * 0.5).toFixed(0)}/${maxChecks * 0.5}秒)`);
       }
     }, 500);
 
