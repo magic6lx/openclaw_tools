@@ -178,11 +178,12 @@ function isOpenClawInstalled() {
 
 function getStatus() {
   const installed = isOpenClawInstalled();
+  const gatewayRunning = checkGatewayRunning();
   return {
     openClawStatus: installed ? 'installed' : 'not_installed',
     openClawInstalled: installed,
-    gatewayRunning: gatewayState.running,
-    dashboardUrl: gatewayState.dashboardUrl,
+    gatewayRunning: gatewayRunning,
+    dashboardUrl: gatewayRunning ? `http://127.0.0.1:${DEFAULT_GATEWAY_PORT}` : null,
     launcherRunning: true,
     checkMethod: 'binary+registry+process+npm'
   };
