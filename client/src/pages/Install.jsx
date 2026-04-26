@@ -1,39 +1,15 @@
-import React, { useState } from 'react';
-import { Card, Typography, Row, Col, Button, Radio, Space, Tag, message, Steps, Spin, Progress } from 'antd';
-import { DownloadOutlined, CheckCircleOutlined, LoadingOutlined, RocketOutlined } from '@ant-design/icons';
+import React, { useState, useEffect } from 'react';
+import { Card, Typography, Button, Space, Tag, message, Steps, Spin, Descriptions, Divider } from 'antd';
+import { SyncOutlined, CheckCircleOutlined, LoadingOutlined, RocketOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 
 const { Title, Text, Paragraph } = Typography;
 
-const CONFIG_TEMPLATES = [
-  { 
-    id: 'basic', 
-    name: '基础配置', 
-    description: '适合入门用户，默认配置，开箱即用',
-    tags: ['基础', '推荐'],
-    icon: '🚀'
-  },
-  { 
-    id: 'standard', 
-    name: '标准配置', 
-    description: '包含常用功能配置，适合大多数用户',
-    tags: ['标准'],
-    icon: '⚡'
-  },
-  { 
-    id: 'advanced', 
-    name: '高级配置', 
-    description: '完整功能配置，适合高级用户',
-    tags: ['高级'],
-    icon: '🔥'
-  }
-];
-
 function Install() {
-  const [step, setStep] = useState(0);
-  const [selectedConfig, setSelectedConfig] = useState('basic');
+  const [checking, setChecking] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [progress, setProgress] = useState(0);
   const [logs, setLogs] = useState([]);
+  const [versionInfo, setVersionInfo] = useState(null);
   const [statusInterval, setStatusInterval] = useState(null);
 
   const LAUNCHER_API = 'http://127.0.0.1:3003';
@@ -57,11 +33,11 @@ function Install() {
       if (!data.running) {
         if (statusInterval) clearInterval(statusInterval);
         setInstalling(false);
-        setStep(2);
         if (data.logs?.some(l => l.level === 'ERROR')) {
-          message.error('安装失败，请查看日志');
+          message.error('升级失败，请查看日志');
         } else {
-          message.success('安装成功！');
+          message.success('升级成功！');
+          checkVersion();
         }
       }
     } catch (err) {
@@ -69,11 +45,48 @@ function Install() {
     }
   };
 
-  const handleInstall = async () => {
+  const checkVersion = async () => {
+    setChecking(true);
+    setLogs([]);
+    addLog('INFO', '正在检测 OpenClaw 版本...');
+
+    try {
+      const res = await fetch(`${LAUNCHER_API}/version`);
+      const data = await res.json();
+
+      if (data.installed) {
+        setVersionInfo({
+          installed: true,
+          currentVersion: data.currentVersion,
+          latestVersion: data.latestVersion,
+          isLatest: data.isLatest,
+          npmPath: data.npmPath
+        });
+        addLog('INFO', `当前版本: ${data.currentVersion}`);
+        if (data.isLatest) {
+          addLog('INFO', '已是最新版本');
+        } else {
+          addLog('WARN', `发现新版本: ${data.latestVersion}`);
+        }
+      } else {
+        setVersionInfo({
+          installed: false,
+          message: data.message || '未检测到 OpenClaw 安装'
+        });
+        addLog('WARN', '未检测到 OpenClaw 安装');
+      }
+    } catch (err) {
+      console.error('检测版本失败:', err);
+      setVersionInfo({ installed: false, error: err.message });
+      addLog('ERROR', `检测失败: ${err.message}`);
+    }
+    setChecking(false);
+  };
+
+  const handleUpgrade = async () => {
     setInstalling(true);
     setProgress(10);
     setLogs([]);
-    setStep(1);
     addLog('INFO', '正在连接 Launcher...');
 
     try {
@@ -87,7 +100,7 @@ function Install() {
         return;
       }
 
-      addLog('INFO', '安装已启动，等待完成...');
+      addLog('INFO', '升级已启动，等待完成...');
       setProgress(30);
 
       const interval = setInterval(fetchInstallStatus, 2000);
@@ -100,116 +113,133 @@ function Install() {
     }
   };
 
+  useEffect(() => {
+    checkVersion();
+  }, []);
+
+  const renderVersionCard = () => {
+    if (!versionInfo) return null;
+
+    if (versionInfo.installed && versionInfo.isLatest) {
+      return (
+        <Card style={{ textAlign: 'center', padding: 20 }}>
+          <CheckCircleOutlined style={{ fontSize: 48, color: '#52c41a' }} />
+          <Title level={4} style={{ marginTop: 16 }}>已是最新版本</Title>
+          <Descriptions style={{ marginTop: 16 }} bordered size="small">
+            <Descriptions.Item label="当前版本">{versionInfo.currentVersion}</Descriptions.Item>
+            <Descriptions.Item label="最新版本">{versionInfo.latestVersion}</Descriptions.Item>
+          </Descriptions>
+          <Paragraph type="secondary" style={{ marginTop: 16 }}>
+            安装路径: {versionInfo.npmPath}
+          </Paragraph>
+        </Card>
+      );
+    }
+
+    if (versionInfo.installed && !versionInfo.isLatest) {
+      return (
+        <Card style={{ textAlign: 'center', padding: 20 }}>
+          <ExclamationCircleOutlined style={{ fontSize: 48, color: '#faad14' }} />
+          <Title level={4} style={{ marginTop: 16 }}>发现新版本</Title>
+          <Descriptions style={{ marginTop: 16 }} bordered size="small">
+            <Descriptions.Item label="当前版本">{versionInfo.currentVersion}</Descriptions.Item>
+            <Descriptions.Item label="最新版本">
+              <Tag color="blue">{versionInfo.latestVersion}</Tag>
+            </Descriptions.Item>
+          </Descriptions>
+          <Paragraph type="secondary" style={{ marginTop: 16 }}>
+            安装路径: {versionInfo.npmPath}
+          </Paragraph>
+          <Button type="primary" size="large" icon={<SyncOutlined />} onClick={handleUpgrade} style={{ marginTop: 16 }}>
+            升级到最新版本
+          </Button>
+        </Card>
+      );
+    }
+
+    return (
+      <Card style={{ textAlign: 'center', padding: 20 }}>
+        <ExclamationCircleOutlined style={{ fontSize: 48, color: '#ff4d4f' }} />
+        <Title level={4} style={{ marginTop: 16 }}>未安装 OpenClaw</Title>
+        <Paragraph type="secondary">
+          {versionInfo.message || '请先安装 OpenClaw'}
+        </Paragraph>
+      </Card>
+    );
+  };
+
+  const renderLogCard = () => {
+    if (logs.length === 0) return null;
+
+    return (
+      <Card style={{ marginTop: 16 }}>
+        <Title level={5}>操作日志</Title>
+        <Card
+          style={{
+            background: '#1e1e1e',
+            color: '#d4d4d4',
+            fontFamily: 'Consolas, monospace',
+            maxHeight: 250,
+            overflow: 'auto'
+          }}
+        >
+          {logs.map((log, i) => {
+            const levelColors = {
+              'INFO': '#4fc3f7',
+              'WARN': '#ffb74d',
+              'ERROR': '#ef5350'
+            };
+            return (
+              <div key={i}>
+                <Text style={{ color: '#888' }}>[{log.time}]</Text>
+                <Text style={{ color: levelColors[log.level] || '#d4d4d4', marginLeft: 8 }}>
+                  [{log.level}]
+                </Text>
+                <Text style={{ color: '#d4d4d4', marginLeft: 8 }}>{log.msg}</Text>
+              </div>
+            );
+          })}
+          {installing && <Spin indicator={<LoadingOutlined style={{ color: '#fff' }} />} />}
+        </Card>
+        {installing && (
+          <Progress percent={progress} status="active" style={{ marginTop: 16 }} />
+        )}
+      </Card>
+    );
+  };
+
   return (
     <div style={{ padding: 24, background: '#f0f2f5', minHeight: '100vh' }}>
-      <Title level={2}>安装及配置</Title>
+      <Title level={2}>版本检测与升级</Title>
 
-      <Steps current={step} style={{ marginBottom: 24 }}>
-        <Steps.Step title="选择配置" />
-        <Steps.Step title="执行安装" />
-        <Steps.Step title="完成" />
-      </Steps>
+      <Card>
+        <Space style={{ marginBottom: 16 }}>
+          <Button icon={<SyncOutlined />} onClick={checkVersion} loading={checking}>
+            刷新检测
+          </Button>
+        </Space>
 
-      {step === 0 && (
-        <Card>
-          <Title level={4}>选择配置模板</Title>
-          <Paragraph type="secondary">选择适合您的配置模板，然后点击安装</Paragraph>
-          
-          <Radio.Group 
-            value={selectedConfig} 
-            onChange={e => setSelectedConfig(e.target.value)}
-            style={{ width: '100%' }}
-          >
-            <Row gutter={[16, 16]}>
-              {CONFIG_TEMPLATES.map(t => (
-                <Col span={8} key={t.id}>
-                  <Card 
-                    hoverable
-                    style={{ 
-                      border: selectedConfig === t.id ? '2px solid #1890ff' : '1px solid #e8e8e8',
-                      background: selectedConfig === t.id ? '#f0f7ff' : '#fff'
-                    }}
-                  >
-                    <Radio value={t.id}>
-                      <Space direction="vertical" style={{ width: '100%' }}>
-                        <Text style={{ fontSize: 24 }}>{t.icon}</Text>
-                        <Title level={5} style={{ margin: 0 }}>{t.name}</Title>
-                        <Paragraph type="secondary" style={{ margin: 0 }}>{t.description}</Paragraph>
-                        <Space>
-                          {t.tags.map(tag => <Tag key={tag} color={tag === '推荐' ? 'blue' : 'default'}>{tag}</Tag>)}
-                        </Space>
-                      </Space>
-                    </Radio>
-                  </Card>
-                </Col>
-              ))}
-            </Row>
-          </Radio.Group>
+        <Divider style={{ margin: '16px 0' }} />
 
-          <div style={{ marginTop: 24, textAlign: 'center' }}>
-            <Button 
-              type="primary" 
-              size="large" 
-              icon={<DownloadOutlined />} 
-              onClick={handleInstall}
-            >
-              开始安装
-            </Button>
+        {checking && !versionInfo ? (
+          <div style={{ textAlign: 'center', padding: 40 }}>
+            <Spin size="large" indicator={<LoadingOutlined style={{ fontSize: 48 }} />} />
+            <Paragraph style={{ marginTop: 16 }}>正在检测 OpenClaw 版本...</Paragraph>
           </div>
-        </Card>
-      )}
+        ) : (
+          renderVersionCard()
+        )}
 
-      {step === 1 && (
-        <Card>
-          <Title level={4}>正在安装...</Title>
-          <div style={{ marginBottom: 16 }}>
-            <Progress percent={progress} status="active" />
-          </div>
-          <Card
-            style={{
-              background: '#1e1e1e',
-              color: '#d4d4d4',
-              fontFamily: 'Consolas, monospace',
-              maxHeight: 300,
-              overflow: 'auto'
-            }}
-          >
-            {logs.map((log, i) => {
-              const levelColors = {
-                'INFO': '#4fc3f7',
-                'WARN': '#ffb74d',
-                'ERROR': '#ef5350'
-              };
-              return (
-                <div key={i}>
-                  <Text style={{ color: '#888' }}>[{log.time}]</Text>
-                  <Text style={{ color: levelColors[log.level] || '#d4d4d4', marginLeft: 8 }}>
-                    [{log.level}]
-                  </Text>
-                  <Text style={{ color: '#d4d4d4', marginLeft: 8 }}>{log.msg}</Text>
-                </div>
-              );
-            })}
-            {installing && <Spin indicator={<LoadingOutlined style={{ color: '#fff' }} />} />}
-          </Card>
-        </Card>
-      )}
+        {renderLogCard()}
 
-      {step === 2 && (
-        <Card style={{ textAlign: 'center', padding: 40 }}>
-          <CheckCircleOutlined style={{ fontSize: 64, color: '#52c41a' }} />
-          <Title level={3} style={{ marginTop: 16 }}>安装完成！</Title>
-          <Paragraph type="secondary">OpenClaw 已成功安装并配置</Paragraph>
-          <Space style={{ marginTop: 24 }}>
-            <Button type="primary" icon={<RocketOutlined />} onClick={() => setStep(0)}>
-              重新安装
-            </Button>
+        {!installing && versionInfo?.installed && (
+          <div style={{ marginTop: 16, textAlign: 'center' }}>
             <Button onClick={() => window.location.href = '/operations'}>
-              前往运营
+              前往运营页面
             </Button>
-          </Space>
-        </Card>
-      )}
+          </div>
+        )}
+      </Card>
     </div>
   );
 }

@@ -348,7 +348,68 @@ app.post('/gateway/stop', (req, res) => {
       gatewayState.dashboardUrl = null;
       addLog('INFO', 'Gateway 已停止');
     }
-  }, 2000);
+}, 2000);
+});
+
+app.get('/version', (req, res) => {
+  const npmGlobalPath = join(process.env['APPDATA'] || '', 'npm');
+  const openclawPaths = [
+    join(npmGlobalPath, 'openclaw.ps1'),
+    join(npmGlobalPath, 'openclaw'),
+    join(npmGlobalPath, 'openclaw.cmd'),
+    join(process.env['UserProfile'] || '', '.npm-global', 'bin', 'openclaw.ps1'),
+  ];
+
+  let npmPath = null;
+  for (const p of openclawPaths) {
+    if (existsSync(p)) {
+      npmPath = p;
+      break;
+    }
+  }
+
+  if (!npmPath) {
+    return res.json({ installed: false, message: '未检测到 OpenClaw 安装' });
+  }
+
+  try {
+    const result = execSync('npm view openclaw version', { encoding: 'utf8', timeout: 10000, windowsHide: true });
+    const latestVersion = result.trim();
+
+    let currentVersion = 'unknown';
+    try {
+      const showResult = execSync('npm show openclaw version', { encoding: 'utf8', timeout: 10000, windowsHide: true });
+      currentVersion = showResult.trim();
+    } catch (e) {
+      try {
+        const pkgPath = join(npmGlobalPath, 'node_modules', 'openclaw', 'package.json');
+        if (existsSync(pkgPath)) {
+          const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+          currentVersion = pkg.version || 'unknown';
+        }
+      } catch (e2) {
+      }
+    }
+
+    const isLatest = currentVersion === latestVersion;
+
+    return res.json({
+      installed: true,
+      npmPath,
+      currentVersion,
+      latestVersion,
+      isLatest
+    });
+  } catch (err) {
+    return res.json({
+      installed: true,
+      npmPath,
+      currentVersion: 'unknown',
+      latestVersion: 'unknown',
+      isLatest: false,
+      error: err.message
+    });
+  }
 });
 
 app.post('/install/start', (req, res) => {
