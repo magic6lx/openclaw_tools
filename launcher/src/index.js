@@ -30,6 +30,7 @@ const CONFIG_DIR = join(__dirname, '../../config');
 const CONFIG_FILE = join(CONFIG_DIR, 'openclaw_config.json');
 const OPENCLAW_CONFIG_FILE = join(process.env.APPDATA || join(require('os').homedir(), '.openclaw'), '.openclaw', 'openclaw.json');
 const PRIVATE_TEMPLATE_FILE = join(CONFIG_DIR, 'private_template.json');
+const OPENCLAW_ENV_FILE = join(process.env.APPDATA || join(require('os').homedir(), '.openclaw'), '.openclaw', '.env');
 
 let cachedInstallStatus = null;
 let lastInstallCheckTime = 0;
@@ -474,16 +475,43 @@ app.get('/logs', (req, res) => {
 
 app.get('/config/export', (req, res) => {
   try {
-    if (existsSync(OPENCLAW_CONFIG_FILE)) {
-      const config = JSON.parse(readFileSync(OPENCLAW_CONFIG_FILE, 'utf-8'));
-      return res.json({ success: true, config, source: 'openclaw' });
-    }
-    const defaultConfig = {
-      version: '1.0.0',
-      gateway: { port: 8080 },
-      openclaw: { installed: false }
+    const result = {
+      success: true,
+      config: null,
+      env: null,
+      source: 'default',
+      configPath: OPENCLAW_CONFIG_FILE,
+      envPath: OPENCLAW_ENV_FILE,
+      directories: []
     };
-    res.json({ success: true, config: defaultConfig, source: 'default' });
+
+    if (existsSync(OPENCLAW_CONFIG_FILE)) {
+      result.config = JSON.parse(readFileSync(OPENCLAW_CONFIG_FILE, 'utf-8'));
+      result.source = 'openclaw';
+    }
+
+    if (existsSync(OPENCLAW_ENV_FILE)) {
+      result.env = readFileSync(OPENCLAW_ENV_FILE, 'utf-8');
+    }
+
+    const openclawDir = dirname(OPENCLAW_CONFIG_FILE);
+    if (existsSync(openclawDir)) {
+      try {
+        result.directories = readdirSync(openclawDir);
+      } catch (e) {
+        result.directories = [];
+      }
+    }
+
+    if (!result.config) {
+      result.config = {
+        version: '1.0.0',
+        gateway: { port: 8080 },
+        openclaw: { installed: false }
+      };
+    }
+
+    res.json(result);
   } catch (err) {
     res.json({ success: false, error: err.message });
   }

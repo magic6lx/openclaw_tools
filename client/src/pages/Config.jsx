@@ -8,7 +8,11 @@ const SERVER_API = 'http://127.0.0.1:3002';
 
 function Config() {
   const [localConfig, setLocalConfig] = useState(null);
+  const [configEnv, setConfigEnv] = useState(null);
   const [configSource, setConfigSource] = useState(null);
+  const [configPath, setConfigPath] = useState(null);
+  const [envPath, setEnvPath] = useState(null);
+  const [directories, setDirectories] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [privateTemplate, setPrivateTemplate] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -23,8 +27,12 @@ function Config() {
       const data = await res.json();
       if (data.success) {
         setLocalConfig(data.config);
+        setConfigEnv(data.env);
         setConfigSource(data.source);
-        message.success(`已同步本地配置 (${data.source})`);
+        setConfigPath(data.configPath);
+        setEnvPath(data.envPath);
+        setDirectories(data.directories || []);
+        message.success(`已同步 (${data.source})`);
       } else {
         message.error(data.message || '获取本地配置失败');
       }
@@ -335,6 +343,22 @@ function Config() {
               </Space>
             }
           >
+            {configPath && (
+              <Descriptions size="small" column={1} style={{ marginBottom: 12 }}>
+                <Descriptions.Item label="配置文件">
+                  <Text type="secondary" style={{ fontSize: 11 }} copyable={{ text: configPath }}>
+                    {configPath}
+                  </Text>
+                </Descriptions.Item>
+                {envPath && (
+                  <Descriptions.Item label="密钥文件">
+                    <Text type="secondary" style={{ fontSize: 11 }} copyable={{ text: envPath }}>
+                      {configEnv ? '✓ 已存在' : '✗ 不存在'}
+                    </Text>
+                  </Descriptions.Item>
+                )}
+              </Descriptions>
+            )}
             {loading ? (
               <div style={{ textAlign: 'center', padding: 40 }}>
                 <Spin size="large" />
@@ -346,7 +370,7 @@ function Config() {
                 columns={configColumns}
                 dataSource={getConfigData()}
                 pagination={{ pageSize: 15 }}
-                scroll={{ y: 400 }}
+                scroll={{ y: 350 }}
               />
             ) : (
               <div style={{ textAlign: 'center', padding: 40 }}>
@@ -354,6 +378,22 @@ function Config() {
               </div>
             )}
           </Card>
+
+          {directories.length > 0 && (
+            <Card
+              size="small"
+              style={{ marginTop: 16 }}
+              title="OpenClaw 目录内容"
+            >
+              <Space wrap>
+                {directories.map(dir => (
+                  <Tag key={dir} color={dir.startsWith('.') ? 'default' : 'blue'}>
+                    {dir}
+                  </Tag>
+                ))}
+              </Space>
+            </Card>
+          )}
 
           {privateTemplate && (
             <Card
