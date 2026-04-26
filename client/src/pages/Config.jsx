@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Typography, Row, Col, Button, Tag, Space, Modal, message, Spin, Descriptions, Divider, Table, Popconfirm, Select } from 'antd';
+import { Card, Typography, Row, Col, Button, Tag, Space, Modal, message, Spin, Descriptions, Divider, Popconfirm, Select } from 'antd';
 import { CheckCircleOutlined, ReloadOutlined, RocketOutlined, SaveOutlined, DeleteOutlined } from '@ant-design/icons';
+import QuickSettings from '../../components/QuickSettings';
 
 const { Title, Text, Paragraph } = Typography;
 const LAUNCHER_API = 'http://127.0.0.1:3003';
@@ -258,28 +259,6 @@ function Config() {
     });
   };
 
-  const configColumns = [
-    { title: '配置项', dataIndex: 'key', key: 'key', width: 200 },
-    { title: '值', dataIndex: 'value', key: 'value', ellipsis: true }
-  ];
-
-  const getConfigData = () => {
-    if (!localConfig) return [];
-    const items = [];
-    const flatten = (obj, prefix = '') => {
-      for (const key in obj) {
-        const fullKey = prefix ? `${prefix}.${key}` : key;
-        if (typeof obj[key] === 'object' && obj[key] !== null) {
-          flatten(obj[key], fullKey);
-        } else {
-          items.push({ key: fullKey, value: String(obj[key]) });
-        }
-      }
-    };
-    flatten(localConfig);
-    return items;
-  };
-
   const getTagColor = (category) => {
     switch (category) {
       case '推荐': return 'blue';
@@ -334,13 +313,7 @@ function Config() {
                 <Paragraph style={{ marginTop: 16 }}>正在获取本地配置...</Paragraph>
               </div>
             ) : localConfig ? (
-              <Table
-                size="small"
-                columns={configColumns}
-                dataSource={getConfigData()}
-                pagination={{ pageSize: 15 }}
-                scroll={{ y: 350 }}
-              />
+              <QuickSettings config={localConfig} disabled />
             ) : (
               <div style={{ textAlign: 'center', padding: 40 }}>
                 <Text type="secondary">点击「刷新」按钮获取本地配置</Text>
@@ -543,17 +516,6 @@ function Config() {
           </Card>
         </Col>
       </Row>
-
-      <Card style={{ marginTop: 16 }} title="使用说明">
-        <ul style={{ marginBottom: 0 }}>
-          <li><Text strong>刷新</Text>：从本地 OpenClaw 配置目录获取最新配置</li>
-          <li><Text strong>导出</Text>：将当前配置保存为 JSON 文件备份</li>
-          <li><Text strong>导入</Text>：从 JSON 文件加载配置并应用到本地 OpenClaw</li>
-          <li><Text strong>保存私有模板</Text>：将当前配置保存到本地，方便随时恢复</li>
-          <li><Text strong>恢复私有模板</Text>：将之前保存的私有模板应用到 OpenClaw</li>
-          <li><Text strong>预设模板</Text>：选择预设模板快速配置，部分模板需要重启 Gateway</li>
-        </ul>
-      </Card>
     </div>
   );
 }
