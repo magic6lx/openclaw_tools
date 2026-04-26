@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Table, Typography, Button, Space, Tag, Modal, Form, Input, Select, message, Popconfirm, Upload, Divider, Row, Col, Tooltip } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, SendOutlined, ReloadOutlined, UploadOutlined, DownloadOutlined, CopyOutlined, SnippetsOutlined, FileSearchOutlined, CloudDownloadOutlined } from '@ant-design/icons';
+import { Card, Table, Typography, Button, Space, Tag, Modal, Form, Input, Select, message, Popconfirm, Divider, Row, Col } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, SendOutlined, ReloadOutlined, CloudDownloadOutlined } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import QuickSettings from '../../components/QuickSettings';
 import { getDefaultConfig } from '../../config/presets';
@@ -446,34 +446,13 @@ function Templates() {
 
         <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Text strong>配置内容</Text>
-          <Space>
-            <Tooltip title="从本地 Launcher 读取 openclaw.json 和 .env 配置（推荐）">
-              <Button
-                icon={<CloudDownloadOutlined />}
-                onClick={handleLoadLauncherConfig}
-                loading={launcherConfigLoading}
-              >
-                读取本地配置
-              </Button>
-            </Tooltip>
-            <Tooltip title="从服务器读取 openclaw.json 配置">
-              <Button
-                icon={<FileSearchOutlined />}
-                onClick={handleLoadServerConfig}
-                loading={serverConfigLoading}
-              >
-                读取服务器配置
-              </Button>
-            </Tooltip>
-            <Button icon={<SnippetsOutlined />} onClick={() => setPasteModalVisible(true)}>
-              粘贴配置
-            </Button>
-            <Upload beforeUpload={handleImport} showUploadList={false} accept=".json">
-              <Button icon={<UploadOutlined />}>导入文件</Button>
-            </Upload>
-            <Button icon={<CopyOutlined />} onClick={handleCopy}>复制</Button>
-            <Button icon={<DownloadOutlined />} onClick={handleExport}>导出</Button>
-          </Space>
+          <Button
+            icon={<CloudDownloadOutlined />}
+            onClick={handleLoadLauncherConfig}
+            loading={launcherConfigLoading}
+          >
+            读取本地配置
+          </Button>
         </div>
 
         <QuickSettings
