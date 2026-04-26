@@ -287,27 +287,39 @@ app.post('/gateway/start', (req, res) => {
 
     addLog('INFO', 'Gateway 进程已创建 (PID: ' + gatewayProcess.pid + ')，等待服务就绪...');
 
-    setTimeout(() => {
+    let checkCount = 0;
+    const maxChecks = 20;
+    const checkInterval = setInterval(() => {
+      checkCount++;
+
       if (checkGatewayRunning()) {
+        clearInterval(checkInterval);
         gatewayState.running = true;
         gatewayState.dashboardUrl = `http://127.0.0.1:${DEFAULT_GATEWAY_PORT}`;
         addLog('INFO', '========== Gateway 启动成功 ==========');
         addLog('INFO', `Dashboard 地址: ${gatewayState.dashboardUrl}`);
-      } else {
+        return;
+      }
+
+      if (checkCount >= maxChecks) {
+        clearInterval(checkInterval);
         addLog('ERROR', '========== Gateway 启动失败 ==========');
-        addLog('ERROR', '端口 18789 未监听，请检查:');
-        addLog('ERROR', '1. openclaw 是否正确安装');
-        addLog('ERROR', '2. 配置文件是否存在问题');
-        addLog('ERROR', '3. 端口是否被其他程序占用');
-        if (!hasOutput) {
-          addLog('ERROR', '4. 进程没有任何输出，请确认 openclaw 命令可执行');
-        } else {
+        addLog('ERROR', `等待 ${maxChecks * 0.5} 秒后端口仍未监听`);
+        addLog('ERROR', '请检查:');
+        addLog('ERROR', '1. openclaw 配置文件是否存在问题');
+        addLog('ERROR', '2. 端口 18789 是否被其他程序占用');
+        if (hasOutput) {
           addLog('ERROR', `进程最后输出: ${lastOutput}`);
         }
         gatewayState.running = false;
         gatewayState.process = null;
+        return;
       }
-    }, 5000);
+
+      if (checkCount % 4 === 0) {
+        addLog('INFO', `等待 Gateway 启动... (${checkCount * 0.5}/${maxChecks * 0.5}秒)`);
+      }
+    }, 500);
 
     res.json({
       success: true,
