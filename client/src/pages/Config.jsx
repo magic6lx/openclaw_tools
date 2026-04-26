@@ -12,7 +12,7 @@ function Config() {
   const [configSource, setConfigSource] = useState(null);
   const [configPath, setConfigPath] = useState(null);
   const [envPath, setEnvPath] = useState(null);
-  const [directories, setDirectories] = useState([]);
+  const [keyPaths, setKeyPaths] = useState({});
   const [templates, setTemplates] = useState([]);
   const [privateTemplate, setPrivateTemplate] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -31,7 +31,7 @@ function Config() {
         setConfigSource(data.source);
         setConfigPath(data.configPath);
         setEnvPath(data.envPath);
-        setDirectories(data.directories || []);
+        setKeyPaths(data.keyPaths || {});
         message.success(`已同步 (${data.source})`);
       } else {
         message.error(data.message || '获取本地配置失败');
@@ -379,21 +379,56 @@ function Config() {
             )}
           </Card>
 
-          {directories.length > 0 && (
-            <Card
-              size="small"
-              style={{ marginTop: 16 }}
-              title="OpenClaw 目录内容"
-            >
-              <Space wrap>
-                {directories.map(dir => (
-                  <Tag key={dir} color={dir.startsWith('.') ? 'default' : 'blue'}>
-                    {dir}
-                  </Tag>
-                ))}
-              </Space>
-            </Card>
-          )}
+          <Card
+            size="small"
+            style={{ marginTop: 16 }}
+            title="关键配置路径"
+          >
+            <Row gutter={[16, 12]}>
+              {Object.entries(keyPaths).map(([name, info]) => (
+                <Col span={12} key={name}>
+                  <Card
+                    size="small"
+                    style={{
+                      background: info.exists ? '#f6ffed' : '#fff2f0',
+                      borderColor: info.exists ? '#52c41a' : '#ff4d4f'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                      <Text strong style={{ fontSize: 16 }}>
+                        {name === 'workspace' && '📁'}
+                        {name === 'agents' && '🤖'}
+                        {name === 'channels' && '📨'}
+                        {name === 'skills' && '🛠️'}
+                        {name === 'tools' && '🔧'}
+                        {name === 'hooks' && '🪝'}
+                        {name === 'logs' && '📋'}
+                        {name === 'canvas' && '🎨'}
+                      </Text>
+                      <Text strong>{name}/</Text>
+                      {info.exists ? (
+                        <Tag color="success">存在</Tag>
+                      ) : (
+                        <Tag color="error">不存在</Tag>
+                      )}
+                    </div>
+                    {info.exists ? (
+                      <div style={{ fontSize: 11, color: '#666' }}>
+                        {info.subDirs.length > 0 && (
+                          <div>子目录: {info.subDirs.slice(0, 5).join(', ')}{info.more ? ` 等${info.subDirs.length}个` : ''}</div>
+                        )}
+                        {info.files.length > 0 && (
+                          <div>文件: {info.files.slice(0, 5).join(', ')}{info.more ? ` 等${info.files.length + (info.more || 0)}个` : ''}</div>
+                        )}
+                      </div>
+                    ) : (
+                      <Text type="secondary" style={{ fontSize: 11 }}>点击「刷新」后会自动检测</Text>
+                    )}
+                  </Card>
+                </Col>
+              ))}
+            </Row>
+          </Card>
 
           {privateTemplate && (
             <Card

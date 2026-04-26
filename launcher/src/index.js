@@ -484,7 +484,7 @@ app.get('/config/export', (req, res) => {
       source: 'default',
       configPath: OPENCLAW_CONFIG_FILE,
       envPath: OPENCLAW_ENV_FILE,
-      directories: []
+      keyPaths: {}
     };
 
     if (existsSync(OPENCLAW_CONFIG_FILE)) {
@@ -496,13 +496,33 @@ app.get('/config/export', (req, res) => {
       result.env = readFileSync(OPENCLAW_ENV_FILE, 'utf-8');
     }
 
+    const keyDirs = ['workspace', 'agents', 'channels', 'skills', 'tools', 'hooks', 'logs', 'canvas'];
     const openclawDir = OPENCLAW_CONFIG_DIR;
-    if (existsSync(openclawDir)) {
-      try {
-        result.directories = readdirSync(openclawDir);
-      } catch (e) {
-        result.directories = [];
+
+    for (const dir of keyDirs) {
+      const dirPath = join(openclawDir, dir);
+      const item = {
+        path: dirPath,
+        exists: existsSync(dirPath),
+        files: [],
+        subDirs: []
+      };
+      if (item.exists) {
+        try {
+          const entries = readdirSync(dirPath, { withFileTypes: true });
+          for (const entry of entries.slice(0, 10)) {
+            if (entry.isDirectory()) {
+              item.subDirs.push(entry.name);
+            } else {
+              item.files.push(entry.name);
+            }
+          }
+          if (entries.length > 10) {
+            item.more = entries.length - 10;
+          }
+        } catch (e) {}
       }
+      result.keyPaths[dir] = item;
     }
 
     if (!result.config) {
