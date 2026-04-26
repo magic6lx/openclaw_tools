@@ -499,26 +499,46 @@ app.get('/config/export', (req, res) => {
 
     const keyDirs = ['agents', 'skills', 'canvas', 'logs'];
     const openclawDir = OPENCLAW_CONFIG_DIR;
+    const configWorkspace = result.config?.agents?.defaults?.workspace || null;
+    const agentWorkspaces = [];
+
+    if (existsSync(openclawDir)) {
+      try {
+        const entries = readdirSync(openclawDir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (entry.isDirectory() && entry.name.startsWith('workspace-')) {
+            agentWorkspaces.push(entry.name);
+          }
+        }
+      } catch (e) {}
+    }
 
     const workspaceItem = {
       path: join(openclawDir, 'workspace'),
-      exists: existsSync(join(openclawDir, 'workspace')),
+      exists: existsSync(join(openclawDir, 'workspace')) || (configWorkspace ? existsSync(configWorkspace) : false),
       files: [],
       subDirs: [],
-      agentWorkspaces: [],
-      configWorkspaceDir: result.config?.agents?.defaults?.workspace || null
+      agentWorkspaces: agentWorkspaces,
+      configWorkspaceDir: configWorkspace
     };
 
-    if (workspaceItem.exists) {
+    if (configWorkspace && existsSync(configWorkspace)) {
+      try {
+        const entries = readdirSync(configWorkspace, { withFileTypes: true });
+        for (const entry of entries.slice(0, 10)) {
+          if (entry.isDirectory()) {
+            workspaceItem.subDirs.push(entry.name);
+          } else {
+            workspaceItem.files.push(entry.name);
+          }
+        }
+      } catch (e) {}
+    } else if (existsSync(join(openclawDir, 'workspace'))) {
       try {
         const entries = readdirSync(join(openclawDir, 'workspace'), { withFileTypes: true });
-        for (const entry of entries) {
+        for (const entry of entries.slice(0, 10)) {
           if (entry.isDirectory()) {
-            if (entry.name.startsWith('workspace-')) {
-              workspaceItem.agentWorkspaces.push(entry.name);
-            } else {
-              workspaceItem.subDirs.push(entry.name);
-            }
+            workspaceItem.subDirs.push(entry.name);
           } else {
             workspaceItem.files.push(entry.name);
           }
