@@ -32,10 +32,13 @@ function Config() {
       const res = await fetch(`${SERVER_API}/api/config/server`);
       const data = await res.json();
       if (data.success) {
-        setCurrentConfig(data.data);
+        setCurrentConfig({ ...data.data, _path: data.path });
+      } else {
+        message.warning(data.message || '获取当前配置失败，请确保已登录管理员账号');
       }
     } catch (err) {
       console.error('获取当前配置失败:', err);
+      message.error(`获取当前配置失败: ${err.message}`);
     }
   };
 
