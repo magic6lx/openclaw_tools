@@ -398,10 +398,7 @@ function Config() {
                       <Text strong style={{ fontSize: 16 }}>
                         {name === 'workspace' && '📁'}
                         {name === 'agents' && '🤖'}
-                        {name === 'channels' && '📨'}
                         {name === 'skills' && '🛠️'}
-                        {name === 'tools' && '🔧'}
-                        {name === 'hooks' && '🪝'}
                         {name === 'logs' && '📋'}
                         {name === 'canvas' && '🎨'}
                       </Text>
