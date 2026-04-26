@@ -411,6 +411,17 @@ function Config() {
                     </div>
                     {info.exists ? (
                       <div style={{ fontSize: 11, color: '#666' }}>
+                        {info.agentWorkspaces && info.agentWorkspaces.length > 0 && (
+                          <div style={{ color: '#1890ff', marginBottom: 4 }}>
+                            Agent工作区: {info.agentWorkspaces.slice(0, 5).join(', ')}
+                            {info.agentWorkspaces.length > 5 ? ` 等${info.agentWorkspaces.length}个` : ''}
+                          </div>
+                        )}
+                        {info.configWorkspaceDir && (
+                          <div style={{ color: '#52c41a', marginBottom: 4 }}>
+                            配置路径: {info.configWorkspaceDir}
+                          </div>
+                        )}
                         {info.subDirs.length > 0 && (
                           <div>子目录: {info.subDirs.slice(0, 5).join(', ')}{info.more ? ` 等${info.subDirs.length}个` : ''}</div>
                         )}

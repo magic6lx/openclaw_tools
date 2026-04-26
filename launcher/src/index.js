@@ -497,8 +497,35 @@ app.get('/config/export', (req, res) => {
       result.env = readFileSync(OPENCLAW_ENV_FILE, 'utf-8');
     }
 
-    const keyDirs = ['workspace', 'agents', 'skills', 'canvas', 'logs'];
+    const keyDirs = ['agents', 'skills', 'canvas', 'logs'];
     const openclawDir = OPENCLAW_CONFIG_DIR;
+
+    const workspaceItem = {
+      path: join(openclawDir, 'workspace'),
+      exists: existsSync(join(openclawDir, 'workspace')),
+      files: [],
+      subDirs: [],
+      agentWorkspaces: [],
+      configWorkspaceDir: result.config?.agents?.defaults?.workspace || null
+    };
+
+    if (workspaceItem.exists) {
+      try {
+        const entries = readdirSync(join(openclawDir, 'workspace'), { withFileTypes: true });
+        for (const entry of entries) {
+          if (entry.isDirectory()) {
+            if (entry.name.startsWith('workspace-')) {
+              workspaceItem.agentWorkspaces.push(entry.name);
+            } else {
+              workspaceItem.subDirs.push(entry.name);
+            }
+          } else {
+            workspaceItem.files.push(entry.name);
+          }
+        }
+      } catch (e) {}
+    }
+    result.keyPaths['workspace'] = workspaceItem;
 
     for (const dir of keyDirs) {
       const dirPath = join(openclawDir, dir);
