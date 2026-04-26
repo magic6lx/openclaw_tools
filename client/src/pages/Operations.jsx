@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, Typography, Row, Col, Button, Space, Tag, message, Modal, Spin } from 'antd';
-import { PlayCircleOutlined, StopOutlined, ReloadOutlined, ExclamationCircleOutlined, SyncOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, StopOutlined, SyncOutlined, ExclamationCircleOutlined, DeleteOutlined } from '@ant-design/icons';
 
 const { Title, Text, Paragraph } = Typography;
 const LAUNCHER_API = 'http://127.0.0.1:3003';
@@ -11,6 +11,10 @@ function Operations() {
   const [openclawStatus, setOpenclawStatus] = useState('unknown');
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [logs, setLogs] = useState([]);
+  const [isPollingLogs, setIsPollingLogs] = useState(false);
+  const logIntervalRef = useRef(null);
+  const logContainerRef = useRef(null);
 
   const checkLauncherStatus = useCallback(async () => {
     setLoading(true);
@@ -48,8 +52,50 @@ function Operations() {
     return () => clearInterval(interval);
   }, [checkLauncherStatus]);
 
+  const fetchLogs = useCallback(async () => {
+    try {
+      const res = await fetch(`${LAUNCHER_API}/logs?limit=50`);
+      const data = await res.json();
+      if (data.logs && data.logs.length > 0) {
+        setLogs(data.logs.reverse());
+      }
+    } catch (err) {
+      console.error('获取日志失败:', err);
+    }
+  }, []);
+
+  const startLogPolling = () => {
+    setIsPollingLogs(true);
+    fetchLogs();
+    logIntervalRef.current = setInterval(fetchLogs, 1500);
+  };
+
+  const stopLogPolling = () => {
+    setIsPollingLogs(false);
+    if (logIntervalRef.current) {
+      clearInterval(logIntervalRef.current);
+      logIntervalRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (logIntervalRef.current) {
+        clearInterval(logIntervalRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (logContainerRef.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+    }
+  }, [logs]);
+
   const handleGatewayAction = async (action) => {
     setActionLoading(true);
+    startLogPolling();
+
     try {
       const endpoint = action === 'start' ? '/gateway/start' : action === 'stop' ? '/gateway/stop' : '/gateway/restart';
       const res = await fetch(`${LAUNCHER_API}${endpoint}`, { method: 'POST' });
@@ -64,7 +110,10 @@ function Operations() {
     } catch (err) {
       message.error(`无法连接 Launcher: ${err.message}`);
     } finally {
-      setActionLoading(false);
+      setTimeout(() => {
+        setActionLoading(false);
+        stopLogPolling();
+      }, 5000);
     }
   };
 
@@ -75,6 +124,10 @@ function Operations() {
       content: `确定要${actionText} Gateway 服务吗？`,
       onOk: () => handleGatewayAction(action)
     });
+  };
+
+  const clearLogs = () => {
+    setLogs([]);
   };
 
   const getLauncherTag = () => {
@@ -105,6 +158,16 @@ function Operations() {
   };
 
   const canOperateGateway = launcherStatus === 'online' && (openclawStatus === 'running' || openclawStatus === 'installed');
+
+  const getLogLevelColor = (level) => {
+    switch (level) {
+      case 'INFO': return '#4fc3f7';
+      case 'WARN': return '#ffb74d';
+      case 'ERROR': return '#ef5350';
+      case 'DEBUG': return '#90a4ae';
+      default: return '#d4d4d4';
+    }
+  };
 
   return (
     <div style={{ padding: 24, background: '#f0f2f5', minHeight: '100vh' }}>
@@ -175,53 +238,63 @@ function Operations() {
       </Row>
 
       <Card style={{ marginTop: 24 }}>
-        <Title level={4}>快捷操作</Title>
-        <Row gutter={16}>
-          <Col span={8}>
-            <Card hoverable style={{ textAlign: 'center' }}>
-              <PlayCircleOutlined style={{ fontSize: 48, color: '#52c41a' }} />
-              <Title level={5}>一键启动</Title>
-              <Paragraph type="secondary">启动 Launcher 和 Gateway</Paragraph>
-              <Button
-                type="primary"
-                disabled={!canOperateGateway || gatewayStatus === 'running'}
-                onClick={() => handleGatewayAction('start')}
-                loading={actionLoading}
-              >
-                执行
-              </Button>
-            </Card>
-          </Col>
-          <Col span={8}>
-            <Card hoverable style={{ textAlign: 'center' }}>
-              <StopOutlined style={{ fontSize: 48, color: '#ff4d4f' }} />
-              <Title level={5}>一键停止</Title>
-              <Paragraph type="secondary">停止 Gateway 服务</Paragraph>
-              <Button
-                danger
-                disabled={gatewayStatus !== 'running'}
-                onClick={() => handleGatewayAction('stop')}
-                loading={actionLoading}
-              >
-                执行
-              </Button>
-            </Card>
-          </Col>
-          <Col span={8}>
-            <Card hoverable style={{ textAlign: 'center' }}>
-              <ReloadOutlined style={{ fontSize: 48, color: '#1890ff' }} />
-              <Title level={5}>重启服务</Title>
-              <Paragraph type="secondary">重启 Gateway 服务</Paragraph>
-              <Button
-                disabled={!canOperateGateway}
-                onClick={() => handleGatewayAction('restart')}
-                loading={actionLoading}
-              >
-                执行
-              </Button>
-            </Card>
-          </Col>
-        </Row>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <Title level={4} style={{ margin: 0 }}>实时日志</Title>
+          <Space>
+            {isPollingLogs && <Tag color="blue">实时监控中</Tag>}
+            <Button
+              size="small"
+              icon={<DeleteOutlined />}
+              onClick={clearLogs}
+              disabled={logs.length === 0}
+            >
+              清空
+            </Button>
+            <Button
+              size="small"
+              icon={<SyncOutlined />}
+              onClick={fetchLogs}
+            >
+              刷新
+            </Button>
+          </Space>
+        </div>
+        <Card
+          ref={logContainerRef}
+          style={{
+            background: '#1e1e1e',
+            color: '#d4d4d4',
+            fontFamily: 'Consolas, "Courier New", monospace',
+            fontSize: 12,
+            maxHeight: 400,
+            overflow: 'auto',
+            padding: '8px 12px'
+          }}
+        >
+          {logs.length === 0 ? (
+            <Text style={{ color: '#666' }}>暂无日志，点击启动/停止后会自动刷新</Text>
+          ) : (
+            logs.map((log, index) => (
+              <div key={index} style={{ marginBottom: 4, display: 'flex', alignItems: 'flex-start' }}>
+                <Text style={{ color: '#666', marginRight: 8, flexShrink: 0 }}>
+                  {new Date(log.timestamp).toLocaleTimeString()}
+                </Text>
+                <Text style={{ color: getLogLevelColor(log.level), marginRight: 8, flexShrink: 0, width: 50 }}>
+                  [{log.level}]
+                </Text>
+                <Text style={{ color: '#d4d4d4' }}>
+                  {log.message}
+                </Text>
+              </div>
+            ))
+          )}
+          {actionLoading && (
+            <div style={{ marginTop: 8 }}>
+              <Spin size="small" style={{ color: '#fff' }} />
+              <Text style={{ color: '#666', marginLeft: 8 }}>操作进行中...</Text>
+            </div>
+          )}
+        </Card>
       </Card>
 
       <Card style={{ marginTop: 24 }}>
