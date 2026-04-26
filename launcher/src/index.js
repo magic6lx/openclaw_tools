@@ -32,7 +32,7 @@ const CONFIG_FILE = join(CONFIG_DIR, 'openclaw_config.json');
 const homedir = os.homedir();
 const OPENCLAW_CONFIG_DIR = join(homedir, '.openclaw');
 const OPENCLAW_CONFIG_FILE = join(OPENCLAW_CONFIG_DIR, 'openclaw.json');
-const PRIVATE_TEMPLATE_DIR = join(CONFIG_DIR, 'private_templates');
+const PRIVATE_TEMPLATE_DIR = join(OPENCLAW_CONFIG_DIR, 'private_templates');
 const OPENCLAW_ENV_FILE = join(OPENCLAW_CONFIG_DIR, '.env');
 
 let cachedInstallStatus = null;
