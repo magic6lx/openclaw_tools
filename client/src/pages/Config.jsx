@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Typography, Row, Col, Button, Tag, Space, Modal, message, Spin, Descriptions, Divider, Table, Upload, Popconfirm, Select } from 'antd';
-import { CheckCircleOutlined, ReloadOutlined, SyncOutlined, RocketOutlined, DownloadOutlined, UploadOutlined, SaveOutlined, DeleteOutlined } from '@ant-design/icons';
+import { Card, Typography, Row, Col, Button, Tag, Space, Modal, message, Spin, Descriptions, Divider, Table, Popconfirm, Select } from 'antd';
+import { CheckCircleOutlined, ReloadOutlined, RocketOutlined, SaveOutlined, DeleteOutlined } from '@ant-design/icons';
 
 const { Title, Text, Paragraph } = Typography;
 const LAUNCHER_API = 'http://127.0.0.1:3003';
@@ -93,54 +93,6 @@ function Config() {
     fetchTemplates();
     fetchPrivateTemplates();
   }, []);
-
-  const handleExportConfig = () => {
-    if (!localConfig) return;
-    const blob = new Blob([JSON.stringify(localConfig, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `openclaw-config-${Date.now()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    message.success('配置已导出');
-  };
-
-  const handleImportConfig = async (file) => {
-    try {
-      const text = await file.text();
-      const config = JSON.parse(text);
-
-      Modal.confirm({
-        title: '确认导入配置',
-        content: '确定要将此配置应用到本地 OpenClaw 吗？',
-        onOk: async () => {
-          setSyncing(true);
-          try {
-            const res = await fetch(`${LAUNCHER_API}/config/import`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ config })
-            });
-            const data = await res.json();
-            if (data.success) {
-              message.success('配置已应用');
-              fetchLocalConfig();
-              fetchPrivateTemplate();
-            } else {
-              message.error(data.error || '应用配置失败');
-            }
-          } catch (err) {
-            message.error(`导入失败: ${err.message}`);
-          }
-          setSyncing(false);
-        }
-      });
-    } catch (err) {
-      message.error(`解析配置文件失败: ${err.message}`);
-    }
-    return false;
-  };
 
   const handleSavePrivateTemplate = () => {
     if (!localConfig) {
@@ -342,27 +294,10 @@ function Config() {
   return (
     <div style={{ padding: 24, background: '#f0f2f5', minHeight: '100vh' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <div>
-          <Title level={2}>本地配置</Title>
-          <Paragraph type="secondary">管理本地 OpenClaw 的配置和模板</Paragraph>
-        </div>
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={fetchLocalConfig} loading={loading}>
-            刷新
-          </Button>
-          <Button icon={<DownloadOutlined />} onClick={handleExportConfig} disabled={!localConfig}>
-            导出
-          </Button>
-          <Upload
-            beforeUpload={handleImportConfig}
-            showUploadList={false}
-            accept=".json"
-          >
-            <Button icon={<UploadOutlined />} loading={syncing}>
-              导入
-            </Button>
-          </Upload>
-        </Space>
+        <Title level={2}>配置管理</Title>
+        <Button icon={<ReloadOutlined />} onClick={fetchLocalConfig} loading={loading}>
+          刷新
+        </Button>
       </div>
 
       <Row gutter={[16, 16]}>
@@ -432,7 +367,10 @@ function Config() {
                       <Text strong style={{ fontSize: 16 }}>
                         {name === 'workspace' && '📁'}
                         {name === 'agents' && '🤖'}
-                        {name === 'skills' && '🛠️'}
+                        {name === 'skills' && '💡'}
+                        {name === 'channels' && '📱'}
+                        {name === 'tools' && '🔧'}
+                        {name === 'plugins' && '🔌'}
                         {name === 'logs' && '📋'}
                         {name === 'canvas' && '🎨'}
                       </Text>
@@ -564,7 +502,7 @@ function Config() {
         </Col>
 
         <Col span={10}>
-          <Card title="快速应用模板">
+          <Card title="模版应用选择">
             <Paragraph type="secondary" style={{ marginBottom: 16 }}>
               从预设模板中选择，快速配置 OpenClaw
             </Paragraph>

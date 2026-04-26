@@ -497,7 +497,7 @@ app.get('/config/export', (req, res) => {
       result.env = readFileSync(OPENCLAW_ENV_FILE, 'utf-8');
     }
 
-    const keyDirs = ['agents', 'skills', 'canvas', 'logs'];
+    const keyDirs = ['agents', 'skills', 'channels', 'tools', 'plugins', 'canvas', 'logs'];
     const openclawDir = OPENCLAW_CONFIG_DIR;
     const configWorkspace = result.config?.agents?.defaults?.workspace || null;
     const agentWorkspaces = [];
