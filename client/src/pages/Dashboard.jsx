@@ -22,26 +22,27 @@ function Dashboard() {
       });
       const data = await res.json();
       if (data.success) {
-        setLogs(data.logs);
+        const logsData = data.data || [];
+        setLogs(logsData);
         
-        const uniqueClients = new Set(data.logs.map(l => l.deviceId));
+        const uniqueClients = new Set(logsData.map(l => l.device_id));
         const today = new Date();
         today.setHours(0, 0, 0, 0);
-        const todayLogs = data.logs.filter(l => new Date(l.timestamp) >= today).length;
+        const todayLogs = logsData.filter(l => new Date(l.server_timestamp) >= today).length;
         
         setStats({
           totalClients: uniqueClients.size,
-          totalLogs: data.logs.length,
+          totalLogs: logsData.length,
           todayLogs,
           onlineClients: uniqueClients.size
         });
 
         const clientMap = new Map();
-        data.logs.forEach(log => {
-          if (!clientMap.has(log.deviceId)) {
-            clientMap.set(log.deviceId, { deviceId: log.deviceId, lastSeen: log.timestamp, logCount: 0 });
+        logsData.forEach(log => {
+          if (!clientMap.has(log.device_id)) {
+            clientMap.set(log.device_id, { deviceId: log.device_id, lastSeen: log.server_timestamp, logCount: 0 });
           }
-          clientMap.get(log.deviceId).logCount++;
+          clientMap.get(log.device_id).logCount++;
         });
         setRecentClients(Array.from(clientMap.values()).slice(0, 5));
       }
@@ -66,12 +67,12 @@ function Dashboard() {
   const columns = [
     { 
       title: '时间', 
-      dataIndex: 'timestamp', 
-      key: 'timestamp', 
+      dataIndex: 'server_timestamp', 
+      key: 'server_timestamp', 
       width: 180,
-      render: t => <Space><ClockCircleOutlined />{new Date(t).toLocaleString()}</Space>
+      render: t => <Space><ClockCircleOutlined />{t ? new Date(t).toLocaleString() : '-'}</Space>
     },
-    { title: '设备ID', dataIndex: 'deviceId', key: 'deviceId', width: 150, render: id => <Tag><UserOutlined /> {id?.slice(0, 8)}...</Tag> },
+    { title: '设备ID', dataIndex: 'device_id', key: 'device_id', width: 150, render: id => <Tag><UserOutlined /> {id?.slice(0, 8)}...</Tag> },
     { title: '级别', dataIndex: 'level', key: 'level', width: 80, render: level => getLogLevelTag(level) },
     { title: '日志内容', dataIndex: 'message', key: 'message', ellipsis: true }
   ];

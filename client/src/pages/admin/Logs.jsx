@@ -20,7 +20,7 @@ function AdminLogs() {
       });
       const data = await res.json();
       if (data.success) {
-        setLogs(data.logs);
+        setLogs(data.data || []);
       }
     } catch (err) {
       console.error('获取日志失败:', err);
@@ -39,13 +39,13 @@ function AdminLogs() {
   const filteredLogs = logs.filter(log => {
     if (filters.level && log.level !== filters.level) return false;
     if (filters.source && log.source !== filters.source) return false;
-    if (filters.deviceId && !log.deviceId?.includes(filters.deviceId)) return false;
+    if (filters.deviceId && !log.device_id?.includes(filters.deviceId)) return false;
     return true;
   });
 
   const columns = [
-    { title: '时间', dataIndex: 'timestamp', width: 180, render: t => new Date(t).toLocaleString() },
-    { title: '设备ID', dataIndex: 'deviceId', width: 150, ellipsis: true },
+    { title: '时间', dataIndex: 'server_timestamp', width: 180, render: t => t ? new Date(t).toLocaleString() : '-' },
+    { title: '设备ID', dataIndex: 'device_id', width: 150, ellipsis: true },
     { title: '级别', dataIndex: 'level', width: 80, render: getLevelTag },
     { title: '来源', dataIndex: 'source', width: 100 },
     { title: '内容', dataIndex: 'message', ellipsis: true }
@@ -82,9 +82,9 @@ function AdminLogs() {
       </Card>
 
       <Card>
-        <Table 
-          dataSource={filteredLogs} 
-          columns={columns} 
+        <Table
+          dataSource={filteredLogs}
+          columns={columns}
           rowKey={(r, i) => `${r.timestamp}-${i}`}
           loading={loading}
           pagination={{ pageSize: 20, showSizeChanger: true }}

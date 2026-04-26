@@ -1,35 +1,100 @@
-import React, { useState } from 'react';
-import { Card, Row, Col, Statistic, Typography, Table, Select, Space, Progress } from 'antd';
+import React, { useState, useEffect } from 'react';
+import { Card, Row, Col, Statistic, Typography, Table, Select, Space, Progress, Spin } from 'antd';
 import { UserOutlined, FileTextOutlined, RiseOutlined } from '@ant-design/icons';
 import { Area, Column, Pie } from '@ant-design/charts';
 
 const { Title, Text } = Typography;
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
 function Statistics() {
   const [timeRange, setTimeRange] = useState('7d');
+  const [loading, setLoading] = useState(false);
+  const [trendData, setTrendData] = useState([]);
+  const [categoryData, setCategoryData] = useState([]);
+  const [recentUsers, setRecentUsers] = useState([]);
+  const [stats, setStats] = useState({ totalUsers: 0, activeToday: 0, totalLogs: 0, todayLogs: 0 });
 
-  const trendData = [
-    { date: '04-16', logs: 120, clients: 15 },
-    { date: '04-17', logs: 180, clients: 18 },
-    { date: '04-18', logs: 150, clients: 17 },
-    { date: '04-19', logs: 220, clients: 22 },
-    { date: '04-20', logs: 280, clients: 25 },
-    { date: '04-21', logs: 350, clients: 28 },
-    { date: '04-22', logs: 400, clients: 32 },
-  ];
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const token = localStorage.getItem('token');
+        const headers = { Authorization: `Bearer ${token}` };
 
-  const categoryData = [
-    { category: '基础配置', value: 156 },
-    { category: '标准配置', value: 89 },
-    { category: '高级配置', value: 45 },
-  ];
+        const [logsRes, devicesRes] = await Promise.all([
+          fetch(`${API_BASE}/api/logs?limit=5000`, { headers }).then(r => r.json()),
+          fetch(`${API_BASE}/api/devices`, { headers }).then(r => r.json())
+        ]);
 
-  const recentUsers = [
-    { id: 1, username: 'user1@example.com', lastLogin: '2026-04-22 10:30', template: '基础配置' },
-    { id: 2, username: 'user2@example.com', lastLogin: '2026-04-22 09:15', template: '标准配置' },
-    { id: 3, username: 'user3@example.com', lastLogin: '2026-04-21 18:40', template: '高级配置' },
-    { id: 4, username: 'user4@example.com', lastLogin: '2026-04-21 14:20', template: '基础配置' },
-  ];
+        let totalLogs = 0;
+        let todayLogs = 0;
+        let totalUsers = 0;
+        let activeToday = 0;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        if (logsRes.success) {
+          const logsData = logsRes.data || [];
+          totalLogs = logsData.length;
+          
+          const trendMap = new Map();
+          logsData.forEach(log => {
+            const d = new Date(log.timestamp || log.server_timestamp || Date.now());
+            if (d >= today) todayLogs++;
+            
+            const dateStr = `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            if (!trendMap.has(dateStr)) {
+              trendMap.set(dateStr, { date: dateStr, logs: 0, clients: new Set() });
+            }
+            const entry = trendMap.get(dateStr);
+            entry.logs += 1;
+            if (log.device_id) entry.clients.add(log.device_id);
+          });
+          const tData = Array.from(trendMap.values())
+            .map(e => ({ date: e.date, logs: e.logs, clients: e.clients.size }))
+            .sort((a,b) => a.date.localeCompare(b.date));
+          setTrendData(tData.length > 0 ? tData : [{ date: '今天', logs: 0, clients: 0 }]);
+        }
+
+        if (devicesRes.success) {
+          const devicesData = devicesRes.data || [];
+          totalUsers = devicesData.length;
+          
+          // Category Data (OS Types)
+          const osMap = new Map();
+          devicesData.forEach(d => {
+            const dTime = new Date(d.last_seen || 0);
+            if (dTime >= today) activeToday++;
+
+            const os = d.os_type || 'Unknown';
+            osMap.set(os, (osMap.get(os) || 0) + 1);
+          });
+          const cData = Array.from(osMap.entries()).map(([category, value]) => ({ category, value }));
+          setCategoryData(cData.length ? cData : [{ category: '无设备', value: 1 }]);
+
+          // Recent Users Data
+          const rUsers = devicesData
+            .sort((a, b) => new Date(b.last_seen || 0) - new Date(a.last_seen || 0))
+            .slice(0, 10)
+            .map(d => ({
+              id: d.id || d.device_id,
+              username: d.device_name || d.device_id || 'Unknown',
+              lastLogin: d.last_seen ? new Date(d.last_seen).toLocaleString() : 'N/A',
+              template: d.os_type || '未知OS'
+            }));
+          setRecentUsers(rUsers);
+        }
+        
+        setStats({ totalUsers, activeToday, totalLogs, todayLogs });
+      } catch (err) {
+        console.error('获取统计数据失败:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [timeRange]);
 
   const trendConfig = {
     data: trendData,
@@ -61,30 +126,31 @@ function Statistics() {
   ];
 
   return (
-    <div style={{ padding: 24, background: '#f0f2f5', minHeight: '100vh' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 24 }}>
-        <Title level={2}>统计分析</Title>
-        <Space>
-          <Select value={timeRange} onChange={setTimeRange} style={{ width: 120 }}>
-            <Select.Option value="7d">最近7天</Select.Option>
-            <Select.Option value="30d">最近30天</Select.Option>
-            <Select.Option value="90d">最近90天</Select.Option>
-          </Select>
-        </Space>
-      </div>
+    <Spin spinning={loading}>
+      <div style={{ padding: 24, background: '#f0f2f5', minHeight: '100vh' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 24 }}>
+          <Title level={2}>统计分析</Title>
+          <Space>
+            <Select value={timeRange} onChange={setTimeRange} style={{ width: 120 }}>
+              <Select.Option value="7d">最近7天</Select.Option>
+              <Select.Option value="30d">最近30天</Select.Option>
+              <Select.Option value="90d">最近90天</Select.Option>
+            </Select>
+          </Space>
+        </div>
 
       <Row gutter={[16, 16]}>
         <Col span={6}>
-          <Card><Statistic title="总用户数" value={156} prefix={<UserOutlined />} /></Card>
+          <Card><Statistic title="总用户数" value={stats.totalUsers} prefix={<UserOutlined />} /></Card>
         </Col>
         <Col span={6}>
-          <Card><Statistic title="今日活跃" value={32} prefix={<UserOutlined />} valueStyle={{ color: '#52c41a' }} /></Card>
+          <Card><Statistic title="今日活跃" value={stats.activeToday} prefix={<UserOutlined />} valueStyle={{ color: '#52c41a' }} /></Card>
         </Col>
         <Col span={6}>
-          <Card><Statistic title="总日志数" value={12890} prefix={<FileTextOutlined />} /></Card>
+          <Card><Statistic title="总日志数" value={stats.totalLogs} prefix={<FileTextOutlined />} /></Card>
         </Col>
         <Col span={6}>
-          <Card><Statistic title="今日新增日志" value={400} prefix={<RiseOutlined />} valueStyle={{ color: '#1890ff' }} /></Card>
+          <Card><Statistic title="今日新增日志" value={stats.todayLogs} prefix={<RiseOutlined />} valueStyle={{ color: '#1890ff' }} /></Card>
         </Col>
       </Row>
 
@@ -95,24 +161,16 @@ function Statistics() {
           </Card>
         </Col>
         <Col span={8}>
-          <Card title="模板使用分布">
+          <Card title="设备系统分布">
             <Pie {...pieConfig} style={{ height: 250 }} />
           </Card>
         </Col>
       </Row>
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col span={12}>
+        <Col span={24}>
           <Card title="活跃用户趋势">
             <Column {...columnConfig} style={{ height: 200 }} />
-          </Card>
-        </Col>
-        <Col span={12}>
-          <Card title="Token使用情况">
-            <Space direction="vertical" style={{ width: '100%' }}>
-              <div><Text>已用 / 总量</Text><Progress percent={45} format={() => '45,000 / 100,000'} /></div>
-              <div><Text>请求次数</Text><Progress percent={32} status="active" /></div>
-            </Space>
           </Card>
         </Col>
       </Row>
@@ -120,7 +178,8 @@ function Statistics() {
       <Card title="最近活跃用户" style={{ marginTop: 16 }}>
         <Table dataSource={recentUsers} columns={columns} rowKey="id" pagination={false} size="small" />
       </Card>
-    </div>
+      </div>
+    </Spin>
   );
 }
 

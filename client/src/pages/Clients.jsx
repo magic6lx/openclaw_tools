@@ -24,23 +24,24 @@ function Clients() {
       });
       const data = await res.json();
       if (data.success) {
-        setLogs(data.logs);
+        const logsData = data.data || [];
+        setLogs(logsData);
         const clientMap = new Map();
-        data.logs.forEach(log => {
-          if (!clientMap.has(log.deviceId)) {
-            clientMap.set(log.deviceId, {
-              key: log.deviceId,
-              deviceId: log.deviceId,
-              firstSeen: log.timestamp,
-              lastSeen: log.timestamp,
+        logsData.forEach(log => {
+          if (!clientMap.has(log.device_id)) {
+            clientMap.set(log.device_id, {
+              key: log.device_id,
+              deviceId: log.device_id,
+              firstSeen: log.server_timestamp,
+              lastSeen: log.server_timestamp,
               logCount: 0,
               levels: new Set(),
               sources: new Set()
             });
           }
-          const client = clientMap.get(log.deviceId);
+          const client = clientMap.get(log.device_id);
           client.logCount++;
-          client.lastSeen = log.timestamp;
+          client.lastSeen = log.server_timestamp;
           if (log.level) client.levels.add(log.level);
           if (log.source) client.sources.add(log.source);
         });
@@ -62,7 +63,7 @@ function Clients() {
 
   const handleViewLogs = (client) => {
     setSelectedClient(client);
-    setClientLogs(logs.filter(l => l.deviceId === client.deviceId).reverse());
+    setClientLogs(logs.filter(l => l.device_id === client.deviceId).reverse());
   };
 
   const getStatusBadge = (lastSeen) => {
@@ -72,7 +73,7 @@ function Clients() {
   };
 
   const filteredClients = clients.filter(c => 
-    !filter || c.deviceId.toLowerCase().includes(filter.toLowerCase())
+    !filter || c.deviceId?.toLowerCase().includes(filter.toLowerCase())
   );
 
   const columns = [
@@ -122,7 +123,7 @@ function Clients() {
   ];
 
   const logColumns = [
-    { title: '时间', dataIndex: 'timestamp', key: 'timestamp', width: 180, render: t => new Date(t).toLocaleString() },
+    { title: '时间', dataIndex: 'server_timestamp', key: 'server_timestamp', width: 180, render: t => t ? new Date(t).toLocaleString() : '-' },
     { title: '级别', dataIndex: 'level', key: 'level', width: 80, render: l => <Tag color={l === 'error' ? 'red' : l === 'warn' ? 'orange' : 'blue'}>{l?.toUpperCase()}</Tag> },
     { title: '来源', dataIndex: 'source', key: 'source', width: 100 },
     { title: '内容', dataIndex: 'message', key: 'message', ellipsis: true }
@@ -164,7 +165,7 @@ function Clients() {
         <Table 
           dataSource={clientLogs} 
           columns={logColumns} 
-          rowKey={(r, i) => `${r.timestamp}-${i}`}
+          rowKey={(r, i) => `${r.server_timestamp || i}-${i}`}
           size="small"
           pagination={{ pageSize: 20 }}
           scroll={{ y: 400 }}

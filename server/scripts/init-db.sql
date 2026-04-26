@@ -62,12 +62,15 @@ CREATE TABLE templates (
   id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(128) NOT NULL COMMENT '模版名称',
   description TEXT COMMENT '模版描述',
-  config JSON COMMENT '配置内容',
+  category VARCHAR(32) DEFAULT '标准' COMMENT '分类：基础/标准/高级/开发/测试/导入',
+  config_content JSON COMMENT '配置内容JSON',
   status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending' COMMENT '审核状态',
+  used_count INT DEFAULT 0 COMMENT '使用次数',
   created_by INT COMMENT '创建者邀请码ID',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_status (status),
+  INDEX idx_category (category),
   INDEX idx_created_by (created_by)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='配置模版表';
 

@@ -5,7 +5,11 @@ export default defineConfig({
   plugins: [react()],
   base: './',
   build: {
-    outDir: '../server/public'
+    outDir: '../server/public',
+    emptyOutDir: true,
+    commonjsOptions: {
+      include: [/node_modules/]
+    }
   },
   server: {
     port: 3001,
@@ -15,5 +19,8 @@ export default defineConfig({
         changeOrigin: true
       }
     }
+  },
+  optimizeDeps: {
+    include: ['@ant-design/icons', 'async-validator']
   }
 });

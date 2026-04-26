@@ -14,6 +14,8 @@ import Templates from './pages/admin/Templates';
 import Logs from './pages/admin/Logs';
 import Invitations from './pages/admin/Invitations';
 import Statistics from './pages/admin/Statistics';
+import LauncherDiagnostics from './pages/LauncherDiagnostics';
+import MainLayout from './layouts/MainLayout';
 import { LoadingOutlined } from '@ant-design/icons';
 
 function ProtectedRoute({ children }) {
@@ -54,17 +56,19 @@ function AppRoutes() {
       <Route path="/login" element={user ? <Navigate to="/" /> : <Login />} />
       <Route path="/" element={<Navigate to={isAdmin ? '/admin/templates' : '/home'} />} />
       
-      <Route path="/home" element={<ProtectedRoute><Home /></ProtectedRoute>} />
-      <Route path="/install" element={<ProtectedRoute><Install /></ProtectedRoute>} />
-      <Route path="/operations" element={<ProtectedRoute><Operations /></ProtectedRoute>} />
-      <Route path="/config" element={<ProtectedRoute><Config /></ProtectedRoute>} />
+      <Route path="/home" element={<ProtectedRoute><MainLayout><Home /></MainLayout></ProtectedRoute>} />
+      <Route path="/install" element={<ProtectedRoute><MainLayout><Install /></MainLayout></ProtectedRoute>} />
+      <Route path="/operations" element={<ProtectedRoute><MainLayout><Operations /></MainLayout></ProtectedRoute>} />
+       <Route path="/dashboard" element={<AdminRoute><MainLayout><Dashboard /></MainLayout></AdminRoute>} />
+      <Route path="/config" element={<ProtectedRoute><MainLayout><Config /></MainLayout></ProtectedRoute>} />
       
-      <Route path="/dashboard" element={<AdminRoute><Dashboard /></AdminRoute>} />
-      <Route path="/clients" element={<AdminRoute><Clients /></AdminRoute>} />
-      <Route path="/admin/templates" element={<AdminRoute><Templates /></AdminRoute>} />
-      <Route path="/admin/logs" element={<AdminRoute><Logs /></AdminRoute>} />
-      <Route path="/admin/invitations" element={<AdminRoute><Invitations /></AdminRoute>} />
-      <Route path="/admin/statistics" element={<AdminRoute><Statistics /></AdminRoute>} />
+     
+      <Route path="/clients" element={<AdminRoute><MainLayout><Clients /></MainLayout></AdminRoute>} />
+      <Route path="/admin/templates" element={<AdminRoute><MainLayout><Templates /></MainLayout></AdminRoute>} />
+      <Route path="/admin/logs" element={<AdminRoute><MainLayout><Logs /></MainLayout></AdminRoute>} />
+      <Route path="/admin/invitations" element={<AdminRoute><MainLayout><Invitations /></MainLayout></AdminRoute>} />
+      <Route path="/admin/statistics" element={<AdminRoute><MainLayout><Statistics /></MainLayout></AdminRoute>} />
+      <Route path="/diagnostics" element={<ProtectedRoute><MainLayout><LauncherDiagnostics /></MainLayout></ProtectedRoute>} />
     </Routes>
   );
 }

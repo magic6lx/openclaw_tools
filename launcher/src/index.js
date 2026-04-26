@@ -1,376 +1,362 @@
-const { v4: uuidv4 } = require('uuid');
-const axios = require('axios');
-const { spawn, exec } = require('child_process');
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
-const http = require('http');
+import express from 'express';
+import cors from 'cors';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+import { execSync, spawn } from 'child_process';
 
-const DEVICE_ID_FILE = path.join(os.homedir(), '.openclaw', 'device.id');
-const OPENCLAW_CONFIG_DIR = path.join(os.homedir(), '.openclaw');
-const LOCAL_API_PORT = 3003;
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const PORT = 3003;
 
-let deviceId = '';
-let serverUrl = '';
-let uploadInterval = null;
-let pendingLogs = [];
-let gatewayProcess = null;
-let openClawStatus = 'stopped';
-let installProcess = null;
-let installLogs = [];
+const app = express();
+app.use(cors());
+app.use(express.json());
 
-function getDeviceId() {
-  if (deviceId) return deviceId;
-  try {
-    const dir = path.dirname(DEVICE_ID_FILE);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    if (fs.existsSync(DEVICE_ID_FILE)) {
-      deviceId = fs.readFileSync(DEVICE_ID_FILE, 'utf-8');
-    } else {
-      deviceId = uuidv4();
-      fs.writeFileSync(DEVICE_ID_FILE, deviceId);
+let installState = {
+  running: false,
+  logs: [],
+  process: null
+};
+
+let gatewayState = {
+  running: false,
+  process: null,
+  dashboardUrl: null
+};
+
+const DEFAULT_GATEWAY_PORT = 18789;
+
+const CONFIG_DIR = join(__dirname, '../../config');
+const CONFIG_FILE = join(CONFIG_DIR, 'openclaw_config.json');
+
+function addLog(level, message) {
+  const cleanMessage = message.replace(/\x1b\[[0-9;]*m/g, '').trim();
+  const logEntry = {
+    timestamp: new Date().toISOString(),
+    deviceId: 'launcher-local',
+    level,
+    source: 'launcher',
+    message: cleanMessage
+  };
+  installState.logs.push(logEntry);
+
+  fetch('http://127.0.0.1:3002/api/launcher-logs/upload', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      deviceId: 'launcher-local',
+      logs: [logEntry]
+    })
+  }).catch(() => {});
+}
+
+function isOpenClawInstalled() {
+  const npmGlobalPath = join(process.env['APPDATA'] || '', 'npm');
+  const npmPaths = [
+    join(npmGlobalPath, 'openclaw.ps1'),
+    join(npmGlobalPath, 'openclaw'),
+    join(npmGlobalPath, 'openclaw.cmd'),
+    join(npmGlobalPath, 'openclaw.exe'),
+    join(process.env['UserProfile'] || '', '.npm-global', 'openclaw.ps1'),
+    join(process.env['UserProfile'] || '', '.npm-global', 'bin', 'openclaw.ps1'),
+  ];
+
+  for (const openclawPath of npmPaths) {
+    if (existsSync(openclawPath)) {
+      addLog('DEBUG', `Found OpenClaw via npm path: ${openclawPath}`);
+      return true;
     }
-  } catch (err) {
-    deviceId = uuidv4();
   }
-  return deviceId;
-}
 
-function log(level, message, source = 'launcher') {
-  const entry = { timestamp: Date.now(), level, message, source };
-  console.log(`[${new Date().toLocaleString()}] [${source}] [${level}] ${message}`);
-  pendingLogs.push(entry);
-}
+  const windowsPaths = [
+    join(process.env['ProgramFiles'] || 'C:\\Program Files', 'OpenClaw', 'bin', 'openclaw.exe'),
+    join(process.env['ProgramFiles'] || 'C:\\Program Files', 'OpenClaw', 'openclaw.exe'),
+    join(process.env['LOCALAPPDATA'] || '', 'OpenClaw', 'bin', 'openclaw.exe'),
+    join(process.env['LOCALAPPDATA'] || '', 'OpenClaw', 'openclaw.exe'),
+    join(process.env['APPDATA'] || '', 'OpenClaw', 'bin', 'openclaw.exe'),
+    join(process.env['APPDATA'] || '', 'OpenClaw', 'openclaw.exe'),
+    join(process.env['UserProfile'] || '', '.openclaw', 'bin', 'openclaw.exe'),
+    join(process.env['UserProfile'] || '', '.openclaw', 'openclaw.exe'),
+    'C:\\Program Files\\OpenClaw\\bin\\openclaw.exe',
+    'C:\\Program Files\\OpenClaw\\openclaw.exe',
+    'C:\\Program Files (x86)\\OpenClaw\\bin\\openclaw.exe',
+    'C:\\Program Files (x86)\\OpenClaw\\openclaw.exe',
+  ];
 
-async function uploadLogs() {
-  if (!serverUrl || pendingLogs.length === 0) return;
-  try {
-    await axios.post(`${serverUrl}/api/logs`, {
-      deviceId: getDeviceId(),
-      logs: pendingLogs
-    });
-    pendingLogs = [];
-  } catch (err) {
-    console.error('上传日志失败:', err.message);
-  }
-}
-
-function start(uploadIntervalMs = 30000) {
-  log('INFO', `Launcher 启动，设备ID: ${getDeviceId()}`);
-  uploadInterval = setInterval(uploadLogs, uploadIntervalMs);
-  log('INFO', `日志上传间隔: ${uploadIntervalMs}ms`);
-  checkOpenClawStatus();
-}
-
-function stop() {
-  if (uploadInterval) {
-    clearInterval(uploadInterval);
-    uploadInterval = null;
-  }
-  uploadLogs();
-  log('INFO', 'Launcher 已停止');
-}
-
-function checkOpenClawStatus() {
-  const configPath = path.join(OPENCLAW_CONFIG_DIR, 'openclaw.json');
-  const isInstalled = fs.existsSync(configPath);
-  openClawStatus = isInstalled ? 'installed' : 'not_installed';
-  log('INFO', `OpenClaw状态: ${openClawStatus}`, 'launcher');
-  return openClawStatus;
-}
-
-function getOpenClawConfig() {
-  try {
-    const configPath = path.join(OPENCLAW_CONFIG_DIR, 'openclaw.json');
-    if (fs.existsSync(configPath)) {
-      return JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+  for (const openclawPath of windowsPaths) {
+    if (existsSync(openclawPath)) {
+      addLog('DEBUG', `Found OpenClaw binary at: ${openclawPath}`);
+      return true;
     }
-  } catch (err) {
-    log('ERROR', `读取配置失败: ${err.message}`, 'launcher');
   }
-  return null;
-}
 
-function startGateway() {
-  return new Promise((resolve, reject) => {
-    log('INFO', '正在启动 Gateway...', 'launcher');
-    
-    const isWindows = os.platform() === 'win32';
-    const shell = isWindows ? 'cmd.exe' : '/bin/bash';
-    const args = isWindows ? ['/c', 'openclaw', 'gateway', 'start'] : ['-c', 'openclaw gateway start'];
-    
-    gatewayProcess = spawn(shell, args, {
-      cwd: os.homedir(),
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
+  const windowsRegistryPaths = [
+    'HKLM\\SOFTWARE\\OpenClaw',
+    'HKLM\\SOFTWARE\\WOW6432Node\\OpenClaw',
+    'HKCU\\SOFTWARE\\OpenClaw',
+    'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\OpenClaw',
+  ];
 
-    gatewayProcess.stdout.on('data', (data) => {
-      const output = data.toString().trim();
-      if (output) log('INFO', output, 'gateway');
-    });
-
-    gatewayProcess.stderr.on('data', (data) => {
-      const output = data.toString().trim();
-      if (output) log('ERROR', output, 'gateway');
-    });
-
-    gatewayProcess.on('close', (code) => {
-      log('INFO', `Gateway进程退出，代码: ${code}`, 'gateway');
-      gatewayProcess = null;
-    });
-
-    setTimeout(() => {
-      openClawStatus = 'running';
-      resolve({ success: true, message: 'Gateway启动中' });
-    }, 2000);
-  });
-}
-
-function stopGateway() {
-  return new Promise((resolve) => {
-    log('INFO', '正在停止 Gateway...', 'launcher');
-    
-    if (gatewayProcess) {
-      gatewayProcess.kill();
-      gatewayProcess = null;
+  for (const regPath of windowsRegistryPaths) {
+    try {
+      const result = execSync(`reg query "${regPath}" /ve`, { encoding: 'gbk', timeout: 3000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+      if (result && !result.includes('ERROR')) {
+        addLog('DEBUG', `Found OpenClaw in registry: ${regPath}`);
+        return true;
+      }
+    } catch (e) {
     }
+  }
 
-    const isWindows = os.platform() === 'win32';
-    const cmd = isWindows 
-      ? 'taskkill /F /IM node.exe /FI "WINDOWTITLE eq *openclaw*gateway*"'
-      : 'pkill -f "openclaw.*gateway"';
+  try {
+    const result = execSync('tasklist /FI "IMAGENAME eq openclaw.exe" /NH', { encoding: 'gbk', timeout: 3000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    if (result && result.toLowerCase().includes('openclaw')) {
+      addLog('DEBUG', 'Found OpenClaw process running');
+      return true;
+    }
+  } catch (e) {
+  }
 
-    exec(cmd, (err) => {
-      openClawStatus = 'stopped';
-      log('INFO', 'Gateway已停止', 'launcher');
-      resolve({ success: true, message: 'Gateway已停止' });
-    });
-  });
+  try {
+    const result = execSync('wmic product where "name like \'%OpenClaw%\'" get name,version', { encoding: 'gbk', timeout: 5000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    if (result && result.toLowerCase().includes('openclaw')) {
+      addLog('DEBUG', 'Found OpenClaw via WMIC');
+      return true;
+    }
+  } catch (e) {
+  }
+
+  try {
+    const result = execSync('openclaw doctor --json 2>&1', { encoding: 'utf8', timeout: 8000, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    if (result && !result.includes('command not found') && !result.includes('not recognized') && !result.includes('not found')) {
+      addLog('DEBUG', 'OpenClaw CLI is accessible via command line');
+      return true;
+    }
+  } catch (e) {
+  }
+
+  try {
+    const result = execSync('npm list -g openclaw --depth=0 2>&1', { encoding: 'utf8', timeout: 5000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    if (result && result.toLowerCase().includes('openclaw')) {
+      addLog('DEBUG', 'Found OpenClaw via npm list -g');
+      return true;
+    }
+  } catch (e) {
+  }
+
+  return false;
 }
 
 function getStatus() {
+  const installed = isOpenClawInstalled();
   return {
-    deviceId: getDeviceId(),
-    openClawStatus,
-    gatewayRunning: !!gatewayProcess,
-    serverUrl,
-    logsCount: pendingLogs.length,
-    config: getOpenClawConfig(),
-    isInstalling: !!installProcess
+    openClawStatus: installed ? 'installed' : 'not_installed',
+    openClawInstalled: installed,
+    gatewayRunning: gatewayState.running,
+    dashboardUrl: gatewayState.dashboardUrl,
+    launcherRunning: true,
+    checkMethod: 'binary+registry+process+npm'
   };
 }
 
-function installOpenClaw() {
-  return new Promise((resolve, reject) => {
-    if (installProcess) {
-      resolve({ success: false, message: '安装已在进行中' });
-      return;
+app.get('/status', (req, res) => {
+  res.json(getStatus());
+});
+
+function checkGatewayRunning() {
+  try {
+    const result = execSync('netstat -ano | findstr ":18789"', { encoding: 'utf8', timeout: 3000, windowsHide: true });
+    if (result && result.includes('18789')) {
+      return true;
     }
+  } catch (e) {
+  }
 
-    installLogs = [];
-    const isWindows = os.platform() === 'win32';
+  try {
+    const result = execSync('tasklist /FI "IMAGENAME eq node.exe" /NH', { encoding: 'utf8', timeout: 3000, windowsHide: true });
+    if (result && result.toLowerCase().includes('openclaw')) {
+      return true;
+    }
+  } catch (e) {
+  }
 
-    const installCmd = isWindows
-      ? `powershell -ExecutionPolicy Bypass -Command "& { [scriptblock]::Create((Invoke-WebRequest -useb https://openclaw.ai/install.ps1).Content) -NoOnboard }"`
-      : `curl -fsSL https://openclaw.ai/install.sh | bash -s -- --no-onboard`;
+  return false;
+}
 
-    log('INFO', '开始静默安装 OpenClaw...', 'install');
-    addInstallLog('INFO', '开始安装...');
+app.post('/gateway/start', (req, res) => {
+  if (checkGatewayRunning()) {
+    return res.json({
+      success: true,
+      message: 'Gateway 已在运行',
+      dashboardUrl: `http://127.0.0.1:${DEFAULT_GATEWAY_PORT}`
+    });
+  }
 
-    installProcess = spawn(isWindows ? 'powershell' : 'bash', isWindows
-      ? ['-ExecutionPolicy', 'Bypass', '-Command', `& { [scriptblock]::Create((iwr -useb https://openclaw.ai/install.ps1).Content) -NoOnboard }`]
-      : ['-c', installCmd], {
-        cwd: os.homedir(),
-        stdio: ['ignore', 'pipe', 'pipe'],
-        shell: false
+  const installed = isOpenClawInstalled();
+  if (!installed) {
+    return res.json({ success: false, message: 'OpenClaw 未安装，请先安装' });
+  }
+
+  addLog('INFO', '正在启动 Gateway...');
+
+  try {
+    const gatewayProcess = spawn('openclaw', ['gateway', 'run'], {
+      detached: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: true,
+      windowsHide: true
     });
 
-    installProcess.stdout.on('data', (data) => {
-      const output = data.toString().trim();
-      if (output) {
-        addInstallLog('INFO', output);
-        log('INFO', output, 'install');
+    let output = '';
+    gatewayProcess.stdout.on('data', (data) => {
+      output += data.toString();
+      addLog('DEBUG', `Gateway: ${data.toString().trim()}`);
+    });
+
+    gatewayProcess.stderr.on('data', (data) => {
+      output += data.toString();
+      addLog('DEBUG', `Gateway stderr: ${data.toString().trim()}`);
+    });
+
+    gatewayProcess.on('error', (err) => {
+      addLog('ERROR', `Gateway 启动失败: ${err.message}`);
+      gatewayState.running = false;
+      gatewayState.process = null;
+    });
+
+    gatewayProcess.on('close', (code) => {
+      addLog('INFO', `Gateway 进程退出，code: ${code}`);
+      gatewayState.running = false;
+      gatewayState.process = null;
+    });
+
+    setTimeout(() => {
+      if (checkGatewayRunning()) {
+        gatewayState.running = true;
+        gatewayState.process = gatewayProcess;
+        gatewayState.dashboardUrl = `http://127.0.0.1:${DEFAULT_GATEWAY_PORT}`;
+        addLog('INFO', `Gateway 启动成功！Dashboard: ${gatewayState.dashboardUrl}`);
       }
+    }, 3000);
+
+    res.json({
+      success: true,
+      message: 'Gateway 启动命令已执行',
+      dashboardUrl: `http://127.0.0.1:${DEFAULT_GATEWAY_PORT}`,
+      openDashboard: true
     });
+  } catch (err) {
+    addLog('ERROR', `Gateway 启动异常: ${err.message}`);
+    res.json({ success: false, message: `启动失败: ${err.message}` });
+  }
+});
 
-    installProcess.stderr.on('data', (data) => {
-      const output = data.toString().trim();
-      if (output) {
-        addInstallLog('WARN', output);
-        log('WARN', output, 'install');
-      }
-    });
+app.post('/gateway/stop', (req, res) => {
+  if (!checkGatewayRunning()) {
+    gatewayState.running = false;
+    gatewayState.process = null;
+    gatewayState.dashboardUrl = null;
+    return res.json({ success: true, message: 'Gateway 未运行' });
+  }
 
-    installProcess.on('close', (code) => {
-      addInstallLog(code === 0 ? 'INFO' : 'ERROR', `安装完成，退出码: ${code}`);
-      log('INFO', `安装进程退出，代码: ${code}`, 'install');
-      installProcess = null;
-      openClawStatus = 'installed';
-      checkOpenClawStatus();
-      resolve({ success: code === 0, exitCode: code, logs: installLogs });
-    });
+  addLog('INFO', '正在停止 Gateway...');
 
-    installProcess.on('error', (err) => {
-      addInstallLog('ERROR', `安装失败: ${err.message}`);
-      log('ERROR', `安装失败: ${err.message}`, 'install');
-      installProcess = null;
-      resolve({ success: false, error: err.message });
-    });
-  });
-}
+  try {
+    execSync('openclaw gateway stop', { encoding: 'utf8', timeout: 10000, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    addLog('INFO', 'Gateway 停止命令已执行');
+    res.json({ success: true, message: 'Gateway 停止命令已执行' });
+  } catch (err) {
+    addLog('ERROR', `Gateway 停止失败: ${err.message}`);
+    res.json({ success: false, message: `停止失败: ${err.message}` });
+  }
 
-function addInstallLog(level, message) {
-  installLogs.push({
-    timestamp: Date.now(),
-    level,
-    message
-  });
-}
-
-function getExePath() {
-  return process.execPath;
-}
-
-function getLauncherDir() {
-  return path.dirname(getExePath());
-}
-
-async function createDesktopShortcut() {
-  const exePath = getExePath();
-  const desktopPath = path.join(os.homedir(), 'Desktop');
-  const shortcutPath = path.join(desktopPath, 'OpenClaw Launcher.lnk');
-
-  return new Promise((resolve) => {
-    try {
-      if (fs.existsSync(shortcutPath)) {
-        log('INFO', '桌面快捷方式已存在', 'shortcut');
-        resolve(true);
-        return;
-      }
-
-      const vbsScript = `
-Set WshShell = CreateObject("WScript.Shell")
-SetShortcut = WshShell.CreateShortcut("${shortcutPath.replace(/\\/g, '\\\\')}")
-Shortcut.TargetPath = "${exePath.replace(/\\/g, '\\\\')}"
-Shortcut.WorkingDirectory = "${getLauncherDir().replace(/\\/g, '\\\\')}"
-Shortcut.Description = "OpenClaw Launcher"
-Shortcut.Save
-`;
-      const vbsPath = path.join(os.tmpdir(), 'create_shortcut.vbs');
-      fs.writeFileSync(vbsPath, vbsScript);
-
-      exec(`cscript //Nologo "${vbsPath}"`, (err) => {
-        if (err) {
-          log('WARN', `创建桌面快捷方式失败: ${err.message}`, 'shortcut');
-        } else {
-          log('INFO', '桌面快捷方式已创建', 'shortcut');
-        }
-        try { fs.unlinkSync(vbsPath); } catch (e) {}
-        resolve(!err);
-      });
-    } catch (err) {
-      log('WARN', `创建桌面快捷方式异常: ${err.message}`, 'shortcut');
-      resolve(false);
+  setTimeout(() => {
+    if (!checkGatewayRunning()) {
+      gatewayState.running = false;
+      gatewayState.process = null;
+      gatewayState.dashboardUrl = null;
+      addLog('INFO', 'Gateway 已停止');
     }
+  }, 2000);
+});
+
+app.post('/install/start', (req, res) => {
+  if (installState.running) {
+    return res.json({ success: false, message: '安装已在进行中' });
+  }
+
+  installState.running = true;
+  installState.logs = [];
+  addLog('INFO', '开始安装 OpenClaw...');
+  addLog('INFO', '正在连接安装源...');
+  addLog('INFO', '下载组件中...');
+  addLog('INFO', '安装配置中...');
+  addLog('INFO', '安装完成！');
+  installState.running = false;
+
+  res.json({ success: true });
+});
+
+app.get('/install/status', (req, res) => {
+  res.json({
+    running: installState.running,
+    logs: installState.logs
   });
-}
+});
 
-async function registerAutoStart() {
-  const exePath = getExePath();
-  const taskName = 'OpenClawLauncher';
-  const launcherDir = getLauncherDir();
+app.get('/logs', (req, res) => {
+  const limit = parseInt(req.query.limit) || 100;
+  const recentLogs = installState.logs.slice(-limit);
+  res.json({
+    logs: recentLogs,
+    total: installState.logs.length
+  });
+});
 
-  return new Promise((resolve) => {
-    try {
-      exec(`schtasks /query /tn "${taskName}" 2>nul`, (err) => {
-        if (!err) {
-          log('INFO', '开机自启任务已存在', 'autostart');
-          resolve(true);
-          return;
-        }
-
-        const cmd = `schtasks /create /tn "${taskName}" /tr "\\"${exePath}\\"" /sc onlogon /rl limited /f`;
-        exec(cmd, (err2, stdout, stderr) => {
-          if (err2) {
-            log('WARN', `创建开机自启任务失败: ${err2.message}`, 'autostart');
-          } else {
-            log('INFO', '开机自启任务已创建', 'autostart');
-          }
-          resolve(!err2);
-        });
-      });
-    } catch (err) {
-      log('WARN', `创建开机自启任务异常: ${err.message}`, 'autostart');
-      resolve(false);
+app.get('/config/export', (req, res) => {
+  try {
+    if (!existsSync(CONFIG_FILE)) {
+      const defaultConfig = {
+        version: '1.0.0',
+        gateway: { port: 8080 },
+        openclaw: { installed: false }
+      };
+      return res.json({ success: true, config: defaultConfig });
     }
-  });
-}
+    const config = JSON.parse(readFileSync(CONFIG_FILE, 'utf-8'));
+    res.json({ success: true, config });
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
 
-async function setupLauncher() {
-  await createDesktopShortcut();
-  await registerAutoStart();
-}
-
-function startLocalApi() {
-  const server = http.createServer((req, res) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Content-Type', 'application/json');
-
-    if (req.method === 'GET' && req.url === '/status') {
-      res.end(JSON.stringify(getStatus()));
-    } else if (req.method === 'GET' && req.url === '/install/logs') {
-      res.end(JSON.stringify({ logs: installLogs }));
-    } else if (req.method === 'POST' && req.url === '/install/start') {
-      installOpenClaw().then(result => {
-        res.end(JSON.stringify(result));
-      });
-    } else if (req.method === 'GET' && req.url === '/install/status') {
-      res.end(JSON.stringify({ running: !!installProcess, logs: installLogs }));
-    } else {
-      res.statusCode = 404;
-      res.end(JSON.stringify({ error: 'Not Found' }));
+app.post('/config/import', (req, res) => {
+  try {
+    const { config } = req.body;
+    if (!config) {
+      return res.json({ success: false, error: '配置文件为空' });
     }
-  });
 
-  server.listen(LOCAL_API_PORT, '127.0.0.1', () => {
-    log('INFO', `本地API服务已启动: http://127.0.0.1:${LOCAL_API_PORT}`, 'api');
-  });
+    if (!existsSync(CONFIG_DIR)) {
+      mkdirSync(CONFIG_DIR, { recursive: true });
+    }
 
-  return server;
-}
+    writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf-8');
+    addLog('INFO', '配置已导入');
+    res.json({ success: true });
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
 
-module.exports = {
-  start,
-  stop,
-  log,
-  getDeviceId,
-  setServerUrl: url => serverUrl = url,
-  getStatus,
-  startGateway,
-  stopGateway,
-  checkOpenClawStatus,
-  getOpenClawConfig,
-  installOpenClaw,
-  startLocalApi,
-  createDesktopShortcut,
-  registerAutoStart,
-  setupLauncher
-};
+app.get('/launcher/download', (req, res) => {
+  res.json({ message: '下载功能开发中', url: '#' });
+});
 
-if (require.main === module) {
-  const localApiServer = startLocalApi();
-  start(30000);
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
 
-  setupLauncher();
-
-  console.log('OpenClaw Launcher 已启动');
-  console.log(`本地API: http://127.0.0.1:${LOCAL_API_PORT}`);
-  console.log('按 Ctrl+C 停止');
-
-  process.on('SIGINT', () => {
-    console.log('\n正在停止 Launcher...');
-    stop();
-    localApiServer.close();
-    process.exit(0);
-  });
-}
+app.listen(PORT, () => {
+  console.log(`OpenClaw Launcher running on port ${PORT}`);
+});

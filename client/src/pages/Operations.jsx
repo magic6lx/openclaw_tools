@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Typography, Row, Col, Button, Space, Tag, message, Modal, Spin } from 'antd';
 import { PlayCircleOutlined, StopOutlined, ReloadOutlined, ExclamationCircleOutlined, SyncOutlined } from '@ant-design/icons';
 
@@ -7,44 +7,57 @@ const LAUNCHER_API = 'http://127.0.0.1:3003';
 
 function Operations() {
   const [gatewayStatus, setGatewayStatus] = useState('stopped');
-  const [launcherStatus, setLauncherStatus] = useState('unknown');
+  const [launcherStatus, setLauncherStatus] = useState('checking');
+  const [openclawStatus, setOpenclawStatus] = useState('unknown');
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
 
-  const fetchStatus = async () => {
+  const checkLauncherStatus = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${LAUNCHER_API}/status`);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+
+      const res = await fetch(`${LAUNCHER_API}/status`, {
+        signal: controller.signal,
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      clearTimeout(timeoutId);
+
       if (res.ok) {
         const data = await res.json();
-        setLauncherStatus(data.openClawStatus === 'installed' || data.openClawStatus === 'running' ? 'running' : 'stopped');
+        setLauncherStatus('online');
+        setOpenclawStatus(data.openClawStatus || 'unknown');
         setGatewayStatus(data.gatewayRunning ? 'running' : 'stopped');
       } else {
-        setLauncherStatus('not_found');
+        setLauncherStatus('offline');
       }
     } catch (err) {
-      setLauncherStatus('not_found');
+      setLauncherStatus('offline');
+      setGatewayStatus('stopped');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    fetchStatus();
-    const interval = setInterval(fetchStatus, 5000);
+    checkLauncherStatus();
+    const interval = setInterval(checkLauncherStatus, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [checkLauncherStatus]);
 
   const handleGatewayAction = async (action) => {
     setActionLoading(true);
     try {
-      const endpoint = action === 'start' ? '/gateway/start' : '/gateway/stop';
+      const endpoint = action === 'start' ? '/gateway/start' : action === 'stop' ? '/gateway/stop' : '/gateway/restart';
       const res = await fetch(`${LAUNCHER_API}${endpoint}`, { method: 'POST' });
       const data = await res.json();
 
       if (data.success) {
-        message.success(`Gateway ${action === 'start' ? '启动' : '停止'}成功`);
-        fetchStatus();
+        message.success(`Gateway ${action === 'start' ? '启动' : action === 'stop' ? '停止' : '重启'}成功`);
+        checkLauncherStatus();
       } else {
         message.error(data.error || `操作失败: ${data.message || '未知错误'}`);
       }
@@ -64,6 +77,35 @@ function Operations() {
     });
   };
 
+  const getLauncherTag = () => {
+    if (launcherStatus === 'checking' || loading) {
+      return <Tag icon={<Spin size="small" />} color="default">检测中</Tag>;
+    }
+    if (launcherStatus === 'online') {
+      return <Tag color="green">运行中</Tag>;
+    }
+    return <Tag color="red">离线</Tag>;
+  };
+
+  const getOpenclawTag = () => {
+    if (openclawStatus === 'running' || openclawStatus === 'installed') {
+      return <Tag color="green">已安装</Tag>;
+    }
+    if (openclawStatus === 'not_installed') {
+      return <Tag color="orange">未安装</Tag>;
+    }
+    return <Tag color="default">未检测</Tag>;
+  };
+
+  const getGatewayTag = () => {
+    if (gatewayStatus === 'running') {
+      return <Tag color="green">运行中</Tag>;
+    }
+    return <Tag color="red">已停止</Tag>;
+  };
+
+  const canOperateGateway = launcherStatus === 'online' && (openclawStatus === 'running' || openclawStatus === 'installed');
+
   return (
     <div style={{ padding: 24, background: '#f0f2f5', minHeight: '100vh' }}>
       <Title level={2}>日常运营</Title>
@@ -76,15 +118,11 @@ function Operations() {
               <div>
                 <Title level={4}>Launcher 服务</Title>
                 <Space>
-                  {loading ? <Spin size="small" /> : (
-                    <Tag color={launcherStatus === 'running' ? 'green' : 'red'}>
-                      {launcherStatus === 'running' ? '运行中' : launcherStatus === 'not_found' ? '未安装' : '已停止'}
-                    </Tag>
-                  )}
+                  {getLauncherTag()}
                   <Text type="secondary">v1.0.0</Text>
                 </Space>
               </div>
-              {launcherStatus === 'not_found' && (
+              {launcherStatus === 'offline' && (
                 <Button type="link" onClick={() => window.open('/download', '_blank')}>
                   下载 Launcher
                 </Button>
@@ -99,11 +137,7 @@ function Operations() {
               <div>
                 <Title level={4}>Gateway 服务</Title>
                 <Space>
-                  {loading ? <Spin size="small" /> : (
-                    <Tag color={gatewayStatus === 'running' ? 'green' : 'red'}>
-                      {gatewayStatus === 'running' ? '运行中' : '已停止'}
-                    </Tag>
-                  )}
+                  {getGatewayTag()}
                   <Text type="secondary">端口 18789</Text>
                 </Space>
               </div>
@@ -112,7 +146,7 @@ function Operations() {
                   type="primary"
                   icon={<PlayCircleOutlined />}
                   onClick={() => confirmAction('start', '启动')}
-                  disabled={gatewayStatus === 'running' || actionLoading || launcherStatus !== 'running'}
+                  disabled={!canOperateGateway || actionLoading}
                   loading={actionLoading}
                 >
                   启动
@@ -129,7 +163,7 @@ function Operations() {
                 <Button
                   icon={<SyncOutlined />}
                   onClick={() => confirmAction('restart', '重启')}
-                  disabled={actionLoading || launcherStatus !== 'running'}
+                  disabled={!canOperateGateway || actionLoading}
                   loading={actionLoading}
                 >
                   重启
@@ -150,7 +184,7 @@ function Operations() {
               <Paragraph type="secondary">启动 Launcher 和 Gateway</Paragraph>
               <Button
                 type="primary"
-                disabled={launcherStatus !== 'running' || gatewayStatus === 'running'}
+                disabled={!canOperateGateway || gatewayStatus === 'running'}
                 onClick={() => handleGatewayAction('start')}
                 loading={actionLoading}
               >
@@ -179,7 +213,7 @@ function Operations() {
               <Title level={5}>重启服务</Title>
               <Paragraph type="secondary">重启 Gateway 服务</Paragraph>
               <Button
-                disabled={launcherStatus !== 'running'}
+                disabled={!canOperateGateway}
                 onClick={() => handleGatewayAction('restart')}
                 loading={actionLoading}
               >
@@ -194,20 +228,24 @@ function Operations() {
         <Title level={4}>运行状态</Title>
         <Row gutter={16}>
           <Col span={6}>
-            <Tag color={launcherStatus === 'running' ? 'green' : 'red'}>
-              Launcher: {launcherStatus === 'running' ? '在线' : '离线'}
-            </Tag>
+            {getLauncherTag()}
+            <Text style={{ marginLeft: 8 }}>Launcher</Text>
           </Col>
           <Col span={6}>
-            <Tag color={gatewayStatus === 'running' ? 'green' : 'red'}>
-              Gateway: {gatewayStatus === 'running' ? '运行中' : '已停止'}
-            </Tag>
+            {getOpenclawTag()}
+            <Text style={{ marginLeft: 8 }}>OpenClaw</Text>
           </Col>
-          <Col span={12}>
+          <Col span={6}>
+            {getGatewayTag()}
+            <Text style={{ marginLeft: 8 }}>Gateway</Text>
+          </Col>
+          <Col span={6}>
             <Text type="secondary">
-              {launcherStatus !== 'running' && '请确保 Launcher 已启动'}
-              {launcherStatus === 'running' && gatewayStatus !== 'running' && '点击"启动"按钮启动 Gateway'}
-              {launcherStatus === 'running' && gatewayStatus === 'running' && '所有服务运行正常'}
+              {launcherStatus === 'checking' && '检测中...'}
+              {launcherStatus === 'offline' && 'Launcher离线'}
+              {launcherStatus === 'online' && openclawStatus === 'not_installed' && '请先安装OpenClaw'}
+              {launcherStatus === 'online' && (openclawStatus === 'running' || openclawStatus === 'installed') && gatewayStatus !== 'running' && '可启动Gateway'}
+              {launcherStatus === 'online' && (openclawStatus === 'running' || openclawStatus === 'installed') && gatewayStatus === 'running' && '运行正常'}
             </Text>
           </Col>
         </Row>

@@ -27,6 +27,20 @@ router.post('/logs/upload', async (req, res) => {
   }
 });
 
+router.post('/launcher-logs/upload', async (req, res) => {
+  try {
+    const { deviceId, logs } = req.body;
+    if (!logs || !Array.isArray(logs)) {
+      return res.status(400).json({ error: '缺少 logs 参数' });
+    }
+    const result = await logService.saveLogs(logs);
+    res.json(result);
+  } catch (err) {
+    console.error('保存日志失败:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/logs', authMiddleware, async (req, res) => {
   try {
     const { deviceId, level, source, startTime, endTime, limit = 100, offset = 0 } = req.query;
@@ -207,6 +221,209 @@ router.post('/templates/:id/approve', authMiddleware, adminMiddleware, async (re
     res.json({ success: true });
   } catch (err) {
     console.error('Approve template error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/config/presets', authMiddleware, (req, res) => {
+  const presets = [
+    {
+      id: 'minimal',
+      label: '最小配置',
+      description: '仅基础启动配置',
+      icon: '⚡',
+      category: '基础',
+      config: {
+        launcher: { autoStart: false, checkUpdate: true, logLevel: 'info' },
+        gateway: { enabled: true, port: 18789 }
+      }
+    },
+    {
+      id: 'standard',
+      label: '标准配置',
+      description: '包含智能体和会话管理',
+      icon: '🎯',
+      category: '推荐',
+      config: {
+        launcher: { autoStart: false, checkUpdate: true, logLevel: 'info' },
+        gateway: { 
+          enabled: true, 
+          port: 18789,
+          controlUi: { enabled: true, allowInsecureAuth: false },
+          channelHealthCheckMinutes: 5
+        },
+        agents: {
+          defaults: {
+            workspace: '~/.openclaw/workspace',
+            model: { primary: 'anthropic/claude-sonnet-4-6', fallbacks: [] },
+            skills: [],
+            sandbox: { mode: 'off', scope: 'agent' },
+            heartbeat: { every: '30m', target: 'last' }
+          }
+        },
+        session: {
+          dmScope: 'per-channel-peer',
+          threadBindings: { enabled: true, idleHours: 24 },
+          reset: { mode: 'off', atHour: 4 }
+        }
+      }
+    },
+    {
+      id: 'multi-channel',
+      label: '多通道配置',
+      description: '启用多个消息平台',
+      icon: '📱',
+      category: '高级',
+      config: {
+        launcher: { autoStart: false, checkUpdate: true, logLevel: 'info' },
+        gateway: { enabled: true, port: 18789 },
+        agents: {
+          defaults: {
+            workspace: '~/.openclaw/workspace',
+            model: { primary: 'anthropic/claude-sonnet-4-6', fallbacks: ['openai/gpt-4.1'] }
+          }
+        },
+        channels: {
+          whatsapp: { enabled: false, dmPolicy: 'pairing', allowFrom: [] },
+          telegram: { enabled: false, botToken: '', dmPolicy: 'pairing' },
+          discord: { enabled: false, token: '', voice: { enabled: false } },
+          slack: { enabled: false, botToken: '', appToken: '' }
+        }
+      }
+    },
+    {
+      id: 'automation',
+      label: '自动化配置',
+      description: '启用定时任务和Webhooks',
+      icon: '🤖',
+      category: '高级',
+      config: {
+        launcher: { autoStart: true, checkUpdate: true, logLevel: 'info' },
+        gateway: { enabled: true, port: 18789 },
+        agents: {
+          defaults: {
+            workspace: '~/.openclaw/workspace',
+            model: { primary: 'anthropic/claude-sonnet-4-6' },
+            skills: ['github', 'weather']
+          }
+        },
+        hooks: { enabled: true, token: '', path: '/hooks' },
+        cron: { enabled: true, maxConcurrentRuns: 2, sessionRetention: '24h' },
+        tools: { exec: { enabled: true, applyPatch: { workspaceOnly: true } } }
+      }
+    },
+    {
+      id: 'secure',
+      label: '安全配置',
+      description: '启用沙箱和密钥管理',
+      icon: '🔒',
+      category: '企业',
+      config: {
+        launcher: { autoStart: false, checkUpdate: true, logLevel: 'warn' },
+        gateway: { enabled: true, port: 18789, controlUi: { enabled: true, allowInsecureAuth: false } },
+        agents: {
+          defaults: {
+            workspace: '~/.openclaw/workspace',
+            model: { primary: 'anthropic/claude-sonnet-4-6' },
+            sandbox: { mode: 'non-main', scope: 'agent' }
+          }
+        },
+        secrets: { providers: { default: { source: 'env' } } },
+        tools: { exec: { enabled: true, applyPatch: { workspaceOnly: true } } }
+      }
+    }
+  ];
+  res.json({ success: true, data: presets });
+});
+
+router.get('/config/schema', authMiddleware, (req, res) => {
+  const { CONFIG_SCHEMA, SECTION_META } = require('../config/configSchema');
+  res.json({ success: true, data: { schema: CONFIG_SCHEMA, sectionMeta: SECTION_META } });
+});
+
+router.get('/config/server', authMiddleware, adminMiddleware, async (req, res) => {
+  const fs = require('fs');
+  const path = require('path');
+  
+  const configPath = process.env.OPENCLAW_CONFIG_PATH || 
+    path.join(require('os').homedir(), '.openclaw', 'openclaw.json');
+  
+  try {
+    if (!fs.existsSync(configPath)) {
+      return res.json({ 
+        success: false, 
+        message: `配置文件不存在: ${configPath}` 
+      });
+    }
+    
+    const content = fs.readFileSync(configPath, 'utf-8');
+    const config = JSON.parse(content);
+    
+    res.json({ 
+      success: true, 
+      data: config,
+      path: configPath
+    });
+  } catch (err) {
+    console.error('Read server config error:', err);
+    res.status(500).json({ 
+      success: false, 
+      error: `读取配置文件失败: ${err.message}` 
+    });
+  }
+});
+
+router.post('/config/save', authMiddleware, adminMiddleware, async (req, res) => {
+  const fs = require('fs');
+  const path = require('path');
+  
+  const configPath = process.env.OPENCLAW_CONFIG_PATH || 
+    path.join(require('os').homedir(), '.openclaw', 'openclaw.json');
+  
+  try {
+    const config = req.body;
+    
+    if (!config || typeof config !== 'object') {
+      return res.status(400).json({ 
+        success: false, 
+        error: '无效的配置数据' 
+      });
+    }
+    
+    const configDir = path.dirname(configPath);
+    if (!fs.existsSync(configDir)) {
+      fs.mkdirSync(configDir, { recursive: true });
+    }
+    
+    const tempPath = `${configPath}.${process.pid}.${Date.now()}.tmp`;
+    fs.writeFileSync(tempPath, JSON.stringify(config, null, 2), { mode: 0o600 });
+    fs.renameSync(tempPath, configPath);
+    
+    res.json({ 
+      success: true, 
+      message: '配置保存成功',
+      path: configPath
+    });
+  } catch (err) {
+    console.error('Save config error:', err);
+    res.status(500).json({ 
+      success: false, 
+      error: `保存配置失败: ${err.message}` 
+    });
+  }
+});
+
+router.post('/templates/:id/distribute', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const db = require('../db');
+    const [template] = await db.query('SELECT * FROM templates WHERE id = ?', [req.params.id]);
+    if (!template) {
+      return res.status(404).json({ error: '模板不存在' });
+    }
+    await db.query('UPDATE templates SET used_count = used_count + 1 WHERE id = ?', [req.params.id]);
+    res.json({ success: true, message: '模板已发放' });
+  } catch (err) {
+    console.error('Distribute template error:', err);
     res.status(500).json({ error: err.message });
   }
 });

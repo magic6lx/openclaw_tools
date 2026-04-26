@@ -54,8 +54,7 @@ async function getLogs(options = {}) {
       params.push(new Date(endTime));
     }
 
-    sql += ' ORDER BY server_timestamp DESC LIMIT ? OFFSET ?';
-    params.push(parseInt(limit), parseInt(offset));
+    sql += ' ORDER BY server_timestamp DESC LIMIT ' + parseInt(limit) + ' OFFSET ' + parseInt(offset);
 
     const logs = await query(sql, params);
     return logs;
@@ -68,8 +67,8 @@ async function getLogs(options = {}) {
 async function getLogsByDevice(deviceId, limit = 50) {
   try {
     const logs = await query(
-      'SELECT * FROM logs WHERE device_id = ? ORDER BY server_timestamp DESC LIMIT ?',
-      [deviceId, limit]
+      'SELECT * FROM logs WHERE device_id = ? ORDER BY server_timestamp DESC LIMIT ' + parseInt(limit),
+      [deviceId]
     );
     return logs;
   } catch (err) {
