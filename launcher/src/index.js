@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlink
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { execSync, spawn } from 'child_process';
+import os from 'os';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = 3003;
@@ -28,7 +29,7 @@ const DEFAULT_GATEWAY_PORT = 18789;
 
 const CONFIG_DIR = join(__dirname, '../../config');
 const CONFIG_FILE = join(CONFIG_DIR, 'openclaw_config.json');
-const homedir = require('os').homedir();
+const homedir = os.homedir();
 const OPENCLAW_CONFIG_DIR = join(homedir, '.openclaw');
 const OPENCLAW_CONFIG_FILE = join(OPENCLAW_CONFIG_DIR, 'openclaw.json');
 const PRIVATE_TEMPLATE_FILE = join(CONFIG_DIR, 'private_template.json');
