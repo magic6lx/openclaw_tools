@@ -28,9 +28,11 @@ const DEFAULT_GATEWAY_PORT = 18789;
 
 const CONFIG_DIR = join(__dirname, '../../config');
 const CONFIG_FILE = join(CONFIG_DIR, 'openclaw_config.json');
-const OPENCLAW_CONFIG_FILE = join(process.env.APPDATA || join(require('os').homedir(), '.openclaw'), '.openclaw', 'openclaw.json');
+const homedir = require('os').homedir();
+const OPENCLAW_CONFIG_DIR = join(homedir, '.openclaw');
+const OPENCLAW_CONFIG_FILE = join(OPENCLAW_CONFIG_DIR, 'openclaw.json');
 const PRIVATE_TEMPLATE_FILE = join(CONFIG_DIR, 'private_template.json');
-const OPENCLAW_ENV_FILE = join(process.env.APPDATA || join(require('os').homedir(), '.openclaw'), '.openclaw', '.env');
+const OPENCLAW_ENV_FILE = join(OPENCLAW_CONFIG_DIR, '.env');
 
 let cachedInstallStatus = null;
 let lastInstallCheckTime = 0;
@@ -494,7 +496,7 @@ app.get('/config/export', (req, res) => {
       result.env = readFileSync(OPENCLAW_ENV_FILE, 'utf-8');
     }
 
-    const openclawDir = dirname(OPENCLAW_CONFIG_FILE);
+    const openclawDir = OPENCLAW_CONFIG_DIR;
     if (existsSync(openclawDir)) {
       try {
         result.directories = readdirSync(openclawDir);
@@ -524,8 +526,8 @@ app.post('/config/import', (req, res) => {
       return res.json({ success: false, error: '配置文件为空' });
     }
 
-    if (!existsSync(dirname(OPENCLAW_CONFIG_FILE))) {
-      mkdirSync(dirname(OPENCLAW_CONFIG_FILE), { recursive: true });
+    if (!existsSync(OPENCLAW_CONFIG_DIR)) {
+      mkdirSync(OPENCLAW_CONFIG_DIR, { recursive: true });
     }
 
     writeFileSync(OPENCLAW_CONFIG_FILE, JSON.stringify(config, null, 2), 'utf-8');
