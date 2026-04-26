@@ -233,33 +233,58 @@ app.post('/gateway/start', (req, res) => {
     });
 
     gatewayState.process = gatewayProcess;
+    let hasOutput = false;
+    let lastOutput = '';
 
     gatewayProcess.stdout.on('data', (data) => {
       const msg = data.toString().trim();
-      if (msg) addLog('INFO', `[Gateway stdout] ${msg}`);
+      if (msg) {
+        hasOutput = true;
+        lastOutput = msg;
+        addLog('INFO', `[Gateway stdout] ${msg}`);
+      }
     });
 
     gatewayProcess.stderr.on('data', (data) => {
       const msg = data.toString().trim();
-      if (msg) addLog('WARN', `[Gateway stderr] ${msg}`);
+      if (msg) {
+        hasOutput = true;
+        lastOutput = msg;
+        addLog('WARN', `[Gateway stderr] ${msg}`);
+      }
     });
 
     gatewayProcess.on('error', (err) => {
       addLog('ERROR', `Gateway 进程启动失败: ${err.message}`);
+      addLog('ERROR', `错误代码: ${err.code}`);
+      addLog('ERROR', `错误详情: ${JSON.stringify({
+        errno: err.errno,
+        syscall: err.syscall,
+        path: err.path
+      })}`);
       gatewayState.running = false;
       gatewayState.process = null;
     });
 
-    gatewayProcess.on('close', (code) => {
-      addLog('INFO', `Gateway 进程已退出，退出码: ${code}`);
+    gatewayProcess.on('close', (code, signal) => {
+      addLog('INFO', `Gateway 进程已退出，退出码: ${code}, 信号: ${signal}`);
       if (code !== 0 && code !== null) {
-        addLog('WARN', 'Gateway 非正常退出，可能存在配置问题');
+        addLog('ERROR', '========== Gateway 启动失败 ==========');
+        addLog('ERROR', `进程异常退出，退出码: ${code}`);
+        if (!hasOutput) {
+          addLog('ERROR', '进程没有任何输出，可能原因:');
+          addLog('ERROR', '1. openclaw 命令不存在或不在 PATH 中');
+          addLog('ERROR', '2. PowerShell 执行策略限制');
+          addLog('ERROR', '3. 权限不足');
+        } else {
+          addLog('ERROR', `最后输出: ${lastOutput}`);
+        }
       }
       gatewayState.running = false;
       gatewayState.process = null;
     });
 
-    addLog('INFO', 'Gateway 进程已创建，等待服务就绪...');
+    addLog('INFO', 'Gateway 进程已创建 (PID: ' + gatewayProcess.pid + ')，等待服务就绪...');
 
     setTimeout(() => {
       if (checkGatewayRunning()) {
@@ -273,6 +298,11 @@ app.post('/gateway/start', (req, res) => {
         addLog('ERROR', '1. openclaw 是否正确安装');
         addLog('ERROR', '2. 配置文件是否存在问题');
         addLog('ERROR', '3. 端口是否被其他程序占用');
+        if (!hasOutput) {
+          addLog('ERROR', '4. 进程没有任何输出，请确认 openclaw 命令可执行');
+        } else {
+          addLog('ERROR', `进程最后输出: ${lastOutput}`);
+        }
         gatewayState.running = false;
         gatewayState.process = null;
       }
@@ -286,6 +316,7 @@ app.post('/gateway/start', (req, res) => {
     });
   } catch (err) {
     addLog('ERROR', `Gateway 启动异常: ${err.message}`);
+    addLog('ERROR', `异常堆栈: ${err.stack}`);
     res.json({ success: false, message: `启动失败: ${err.message}` });
   }
 });
