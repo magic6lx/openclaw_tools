@@ -337,8 +337,20 @@ app.post('/gateway/stop', (req, res) => {
     addLog('INFO', 'Gateway 停止命令已执行');
     res.json({ success: true, message: 'Gateway 停止命令已执行' });
   } catch (err) {
-    addLog('ERROR', `Gateway 停止失败: ${err.message}`);
-    res.json({ success: false, message: `停止失败: ${err.message}` });
+    addLog('WARN', `正常停止命令超时，尝试强制终止...`);
+
+    try {
+      execSync('taskkill /F /IM openclaw.exe', { encoding: 'utf8', timeout: 5000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+      addLog('INFO', 'Gateway 进程已强制终止');
+      gatewayState.running = false;
+      gatewayState.process = null;
+      gatewayState.dashboardUrl = null;
+      res.json({ success: true, message: 'Gateway 已强制终止' });
+    } catch (killErr) {
+      addLog('ERROR', `Gateway 停止失败: ${err.message}`);
+      addLog('ERROR', `强制终止也失败: ${killErr.message}`);
+      res.json({ success: false, message: `停止失败: ${err.message}` });
+    }
   }
 
   setTimeout(() => {
@@ -348,7 +360,7 @@ app.post('/gateway/stop', (req, res) => {
       gatewayState.dashboardUrl = null;
       addLog('INFO', 'Gateway 已停止');
     }
-}, 2000);
+  }, 2000);
 });
 
 app.get('/version', (req, res) => {
