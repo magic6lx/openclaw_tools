@@ -7,6 +7,7 @@ import Home from './pages/Home';
 import Install from './pages/Install';
 import Operations from './pages/Operations';
 import Config from './pages/Config';
+import FeishuChannel from './pages/FeishuChannel';
 import Dashboard from './pages/Dashboard';
 import Clients from './pages/Clients';
 import Login from './pages/Login';
@@ -61,6 +62,7 @@ function AppRoutes() {
       <Route path="/operations" element={<ProtectedRoute><MainLayout><Operations /></MainLayout></ProtectedRoute>} />
        <Route path="/dashboard" element={<AdminRoute><MainLayout><Dashboard /></MainLayout></AdminRoute>} />
       <Route path="/config" element={<ProtectedRoute><MainLayout><Config /></MainLayout></ProtectedRoute>} />
+      <Route path="/feishu" element={<ProtectedRoute><MainLayout><FeishuChannel /></MainLayout></ProtectedRoute>} />
       
      
       <Route path="/clients" element={<AdminRoute><MainLayout><Clients /></MainLayout></AdminRoute>} />

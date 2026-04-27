@@ -12,7 +12,8 @@ import {
   KeyOutlined,
   DesktopOutlined,
   DownloadOutlined,
-  ToolOutlined
+  ToolOutlined,
+  MessageOutlined
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -41,17 +42,22 @@ const MainLayout = ({ children }) => {
     {
       key: '/install',
       icon: <DownloadOutlined />,
-      label: '安装部署',
-    },
-    {
-      key: '/operations',
-      icon: <ToolOutlined />,
-      label: '运维工具',
+      label: '安装及配置',
     },
     {
       key: '/config',
       icon: <SettingOutlined />,
       label: '配置管理',
+    },
+    {
+      key: '/feishu',
+      icon: <MessageOutlined />,
+      label: '飞书消息通道',
+    },
+    {
+      key: '/operations',
+      icon: <ToolOutlined />,
+      label: '日常运营',
     },
   ];
 
