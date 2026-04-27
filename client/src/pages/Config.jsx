@@ -1,74 +1,69 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Typography, Row, Col, Button, Tag, Space, Modal, message, Spin, Descriptions, Divider, Popconfirm, Select } from 'antd';
-import { CheckCircleOutlined, ReloadOutlined, RocketOutlined, SaveOutlined, DeleteOutlined } from '@ant-design/icons';
-import QuickSettings from '../../components/QuickSettings';
+import { Card, Typography, Row, Col, Button, Tag, Space, Modal, message, Spin, Descriptions, Divider, Popconfirm, Select, Checkbox, Switch } from 'antd';
+import { CheckCircleOutlined, ReloadOutlined, RocketOutlined, SaveOutlined, DeleteOutlined, LinuxOutlined } from '@ant-design/icons';
+import QuickSettings from '../components/QuickSettings';
+import { useConfig } from '../hooks/useConfig';
 
 const { Title, Text, Paragraph } = Typography;
 const LAUNCHER_API = 'http://127.0.0.1:3003';
 const SERVER_API = 'http://127.0.0.1:3002';
 
 function Config() {
-  const [localConfig, setLocalConfig] = useState(null);
-  const [configEnv, setConfigEnv] = useState(null);
-  const [configSource, setConfigSource] = useState(null);
-  const [configPath, setConfigPath] = useState(null);
-  const [envPath, setEnvPath] = useState(null);
-  const [keyPaths, setKeyPaths] = useState({});
+  const {
+    config: localConfig,
+    env: configEnv,
+    source: configSource,
+    configPath,
+    envPath,
+    keyPaths,
+    loading,
+    error,
+    fetchConfig,
+    updateConfig,
+    saveConfig
+  } = useConfig();
+
   const [templates, setTemplates] = useState([]);
   const [privateTemplates, setPrivateTemplates] = useState([]);
   const [selectedPrivateTemplate, setSelectedPrivateTemplate] = useState(null);
-  const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [applying, setApplying] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
+  const [selectedConfigKeys, setSelectedConfigKeys] = useState([]);
+  const [savingProxy, setSavingProxy] = useState(false);
+  const [cliLoading, setCliLoading] = useState(false);
+  const [cliResults, setCliResults] = useState(null);
 
-  const fetchLocalConfig = async () => {
-    setLoading(true);
+  const handleCliCheck = async () => {
+    setCliLoading(true);
+    setCliResults(null);
     try {
-      const res = await fetch(`${LAUNCHER_API}/config/export`);
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${SERVER_API}/api/config/cli/all`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
       const data = await res.json();
-      if (data.success) {
-        setLocalConfig(data.config);
-        setConfigEnv(data.env);
-        setConfigSource(data.source);
-        setConfigPath(data.configPath);
-        setEnvPath(data.envPath);
-        setKeyPaths(data.keyPaths || {});
-        message.success(`已同步 (${data.source})`);
-      } else {
-        message.error(data.message || '获取本地配置失败');
-      }
+      setCliResults(data);
     } catch (err) {
-      message.error(`无法连接 Launcher: ${err.message}`);
+      message.error(`CLI检测失败: ${err.message}`);
     }
-    setLoading(false);
+    setCliLoading(false);
   };
 
   const fetchTemplates = async () => {
     try {
-      const [presetsRes, approvedRes] = await Promise.all([
-        fetch(`${SERVER_API}/api/config/presets`),
-        fetch(`${SERVER_API}/api/templates/approved`)
-      ]);
-      const presetsData = await presetsRes.json();
+      const approvedRes = await fetch(`${SERVER_API}/api/templates/approved`);
       const approvedData = await approvedRes.json();
 
-      const presets = presetsData.success ? (presetsData.data || []) : [];
       const approvedTemplates = approvedData.success ? (approvedData.data || []) : [];
-
-      const allTemplates = [...approvedTemplates, ...presets];
-      setTemplates(allTemplates);
+      setTemplates(approvedTemplates);
     } catch (err) {
       console.error('获取模板失败:', err);
-      try {
-        const res = await fetch(`${SERVER_API}/api/config/presets`);
-        const data = await res.json();
-        if (data.success) {
-          setTemplates(data.data || []);
-        }
-      } catch (e) {
-        console.error('获取预设模板失败:', e);
-      }
+      setTemplates([]);
     }
   };
 
@@ -90,10 +85,67 @@ function Config() {
   };
 
   useEffect(() => {
-    fetchLocalConfig();
+    fetchConfig();
     fetchTemplates();
     fetchPrivateTemplates();
   }, []);
+
+  const handleConfigChange = (section, newSectionConfig) => {
+    updateConfig(section, newSectionConfig);
+  };
+
+  const handleToggleProxy = async (checked) => {
+    if (!localConfig) return;
+
+    const currentProviders = localConfig.models?.providers || {};
+    const originalUseProxy = localConfig.models?.useProxy;
+    const originalProviders = localConfig.models?.originalProviders;
+
+    let newConfig;
+    if (checked) {
+      newConfig = {
+        ...localConfig,
+        models: {
+          ...(localConfig.models || {}),
+          useProxy: true,
+          originalProviders: currentProviders,
+          providers: {
+            volcengine: {
+              apiKey: 'proxy',
+              apiBase: 'http://127.0.0.1:3002/api/proxy/chat'
+            }
+          }
+        }
+      };
+    } else {
+      newConfig = {
+        ...localConfig,
+        models: {
+          ...(localConfig.models || {}),
+          useProxy: false,
+          providers: originalUseProxy ? (originalProviders || {}) : currentProviders,
+          originalProviders: undefined
+        }
+      };
+    }
+
+    updateConfig('models', newConfig.models);
+    setSavingProxy(true);
+
+    try {
+      const result = await saveConfig(newConfig);
+      if (result.success) {
+        message.success(checked ? '已启用代理' : '已关闭代理');
+      } else {
+        message.error(result.error || '操作失败');
+        updateConfig('models', localConfig.models);
+      }
+    } catch (err) {
+      message.error(`操作失败: ${err.message}`);
+      updateConfig('models', localConfig.models);
+    }
+    setSavingProxy(false);
+  };
 
   const handleSavePrivateTemplate = () => {
     if (!localConfig) {
@@ -170,7 +222,7 @@ function Config() {
           const data = await res.json();
           if (data.success) {
             message.success('已恢复私有模板');
-            fetchLocalConfig();
+            fetchConfig();
           } else {
             message.error(data.error || '恢复失败');
           }
@@ -207,19 +259,47 @@ function Config() {
   };
 
   const handleApplyTemplate = (template) => {
-    setSelectedTemplate(template);
+    if (selectedConfigKeys.length === 0) {
+      message.warning('请先选择要应用的配置项');
+      return;
+    }
+
+    const partialConfig = {};
+    selectedConfigKeys.forEach(key => {
+      if (template.config && template.config[key] !== undefined) {
+        partialConfig[key] = template.config[key];
+      }
+    });
+
+    if (partialConfig.models) {
+      partialConfig.models.useProxy = true;
+    }
+
+    const hasProxyConfig = partialConfig.models?.useProxy;
+
     Modal.confirm({
       title: '确认应用模板',
       icon: <RocketOutlined />,
       content: (
         <div>
-          <Paragraph>确定要应用此模板配置吗？</Paragraph>
+          <Paragraph>确定要应用此模板的以下配置项吗？</Paragraph>
           <Descriptions size="small" column={1} style={{ marginTop: 16 }}>
             <Descriptions.Item label="模板名称">{template.label}</Descriptions.Item>
-            <Descriptions.Item label="描述">{template.description}</Descriptions.Item>
+            <Descriptions.Item label="选中配置">
+              <Space wrap>
+                {selectedConfigKeys.map(key => (
+                  <Tag key={key}>{getConfigIcon(key)} {getConfigName(key)}</Tag>
+                ))}
+              </Space>
+            </Descriptions.Item>
+            {hasProxyConfig && (
+              <Descriptions.Item label="代理设置">
+                <Tag color="blue">✓ 使用Token代理（使用管理员配置的Key）</Tag>
+              </Descriptions.Item>
+            )}
           </Descriptions>
-          <Paragraph type="warning" style={{ marginTop: 16 }}>
-            注意：应用模板会覆盖当前配置，已自动保存当前配置为私有模板
+          <Paragraph type="secondary" style={{ marginTop: 16 }}>
+            注意：系统会智能合并配置，保留您的敏感信息（API Key等）
           </Paragraph>
         </div>
       ),
@@ -241,13 +321,20 @@ function Config() {
           const res = await fetch(`${LAUNCHER_API}/config/import`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ config: template.config, env: template.env })
+            body: JSON.stringify({ config: partialConfig, env: template.env })
           });
           const data = await res.json();
           if (data.success) {
-            message.success('模板已应用');
-            fetchLocalConfig();
+            if (data.conflicts && data.conflicts.length > 0) {
+              const keptCount = data.conflicts.filter(c => c.action === 'kept_existing').length;
+              const adaptedCount = data.conflicts.filter(c => c.action === 'adapted_path').length;
+              message.success(`配置已应用，保留${keptCount}项现有配置，适配${adaptedCount}个路径`);
+            } else {
+              message.success('配置已应用');
+            }
+            fetchConfig();
             fetchPrivateTemplates();
+            setSelectedConfigKeys([]);
           } else {
             message.error(data.error || '应用失败');
           }
@@ -270,14 +357,55 @@ function Config() {
     }
   };
 
+  const CONFIG_NAME_MAP = {
+    launcher: { icon: '🚀', name: '启动器' },
+    gateway: { icon: '🌉', name: '网关' },
+    agents: { icon: '🤖', name: 'Agent' },
+    session: { icon: '💬', name: '会话' },
+    models: { icon: '🧠', name: '模型' },
+    channels: { icon: '📱', name: '频道' },
+    hooks: { icon: '🔗', name: '钩子' },
+    logging: { icon: '📝', name: '日志' },
+    browser: { icon: '🌐', name: '浏览器' }
+  };
+
+  const getConfigIcon = (key) => CONFIG_NAME_MAP[key]?.icon || '⚙️';
+  const getConfigName = (key) => CONFIG_NAME_MAP[key]?.name || key;
+
   return (
     <div style={{ padding: 24, background: '#f0f2f5', minHeight: '100vh' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <Title level={2}>配置管理</Title>
-        <Button icon={<ReloadOutlined />} onClick={fetchLocalConfig} loading={loading}>
-          刷新
-        </Button>
+        <Space>
+          <Button icon={<ReloadOutlined />} onClick={() => { fetchConfig(); fetchTemplates(); }} loading={loading}>
+            刷新
+          </Button>
+          <Button icon={<LinuxOutlined />} onClick={handleCliCheck} loading={cliLoading}>
+            CLI检测
+          </Button>
+        </Space>
       </div>
+
+      <Card
+        style={{ marginBottom: 16, background: localConfig?.models?.useProxy ? '#e6f4ff' : '#fffbe6' }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <Text strong style={{ fontSize: 16 }}>🔄 Token 代理</Text>
+            <Paragraph type="secondary" style={{ marginBottom: 0, marginTop: 4 }}>
+              共享服务端大模型（token有限，只限于快速体验时开启）
+            </Paragraph>
+          </div>
+          <Switch
+            checked={localConfig?.models?.useProxy || false}
+            onChange={handleToggleProxy}
+            loading={savingProxy}
+            disabled={!localConfig}
+            checkedChildren="启用"
+            unCheckedChildren="关闭"
+          />
+        </div>
+      </Card>
 
       <Row gutter={[16, 16]}>
         <Col span={14}>
@@ -313,7 +441,7 @@ function Config() {
                 <Paragraph style={{ marginTop: 16 }}>正在获取本地配置...</Paragraph>
               </div>
             ) : localConfig ? (
-              <QuickSettings config={localConfig} disabled />
+              <QuickSettings config={localConfig} disabled={true} />
             ) : (
               <div style={{ textAlign: 'center', padding: 40 }}>
                 <Text type="secondary">点击「刷新」按钮获取本地配置</Text>
@@ -324,7 +452,7 @@ function Config() {
           <Card
             size="small"
             style={{ marginTop: 16 }}
-            title="其他关键配置"
+            title="配置文件检测"
           >
             <Row gutter={[16, 12]}>
               {Object.entries(keyPaths).map(([name, info]) => (
@@ -356,19 +484,28 @@ function Config() {
                         <Tag color="error">不存在</Tag>
                       )}
                     </div>
-                    {info.exists ? (
+                    {name === 'workspace' && (
                       <div style={{ fontSize: 11, color: '#666' }}>
+                        {localConfig?.agents?.defaults?.workspace && (
+                          <div style={{ color: '#722ed1', marginBottom: 4 }}>
+                            配置目录: {localConfig.agents.defaults.workspace}
+                          </div>
+                        )}
                         {info.agentWorkspaces && info.agentWorkspaces.length > 0 && (
                           <div style={{ color: '#1890ff', marginBottom: 4 }}>
-                            Agent工作区: {info.agentWorkspaces.slice(0, 5).join(', ')}
+                            Agent目录: {info.agentWorkspaces.slice(0, 5).join(', ')}
                             {info.agentWorkspaces.length > 5 ? ` 等${info.agentWorkspaces.length}个` : ''}
                           </div>
                         )}
-                        {info.configWorkspaceDir && (
-                          <div style={{ color: '#52c41a', marginBottom: 4 }}>
-                            配置路径: {info.configWorkspaceDir}
-                          </div>
+                        {info.exists ? (
+                          <div style={{ color: '#52c41a' }}>目录状态: 存在</div>
+                        ) : (
+                          <div style={{ color: '#ff4d4f' }}>目录状态: 不存在</div>
                         )}
+                      </div>
+                    )}
+                    {name !== 'workspace' && info.exists && (
+                      <div style={{ fontSize: 11, color: '#666' }}>
                         {info.subDirs.length > 0 && (
                           <div>子目录: {info.subDirs.slice(0, 5).join(', ')}{info.more ? ` 等${info.subDirs.length}个` : ''}</div>
                         )}
@@ -376,7 +513,8 @@ function Config() {
                           <div>文件: {info.files.slice(0, 5).join(', ')}{info.more ? ` 等${info.files.length + (info.more || 0)}个` : ''}</div>
                         )}
                       </div>
-                    ) : (
+                    )}
+                    {name !== 'workspace' && !info.exists && (
                       <Text type="secondary" style={{ fontSize: 11 }}>点击「刷新」后会自动检测</Text>
                     )}
                   </Card>
@@ -384,6 +522,29 @@ function Config() {
               ))}
             </Row>
           </Card>
+
+          {cliResults && (
+            <Card
+              style={{ marginTop: 16, borderColor: '#1890ff' }}
+              title={<Text>🔧 CLI 检测结果</Text>}
+              extra={<Button size="small" onClick={() => setCliResults(null)}>关闭</Button>}
+            >
+              {cliResults.success ? (
+                <div>
+                  {Object.entries(cliResults.results || {}).map(([key, result]) => (
+                    <div key={key} style={{ marginBottom: 8, padding: '4px 8px', background: result.success ? '#f6ffed' : '#fff2f0', borderRadius: 4 }}>
+                      <Text strong style={{ color: result.success ? '#52c41a' : '#ff4d4f' }}>
+                        {result.success ? '✓' : '✗'} {key}:
+                      </Text>
+                      <Text style={{ marginLeft: 8 }}>{result.success ? result.value : result.error}</Text>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <Text type="danger">{cliResults.error}</Text>
+              )}
+            </Card>
+          )}
 
           {privateTemplates.length > 0 && (
             <Card
@@ -478,41 +639,95 @@ function Config() {
 
         <Col span={10}>
           <Card title="模版应用选择">
-            <Paragraph type="secondary" style={{ marginBottom: 16 }}>
-              从预设模板中选择，快速配置 OpenClaw
-            </Paragraph>
-            <div style={{ maxHeight: 500, overflow: 'auto' }}>
-              {templates.map((template) => (
-                <Card
-                  key={template.id}
-                  size="small"
-                  hoverable
-                  style={{ marginBottom: 12 }}
-                  actions={[
-                    <Button
-                      type="primary"
+            {!selectedTemplate ? (
+              <>
+                <Paragraph type="secondary" style={{ marginBottom: 16 }}>
+                  选择一个模板开始配置
+                </Paragraph>
+                <div style={{ maxHeight: 500, overflow: 'auto' }}>
+                  {templates.map(template => (
+                    <Card
+                      key={template.id}
                       size="small"
-                      icon={<RocketOutlined />}
-                      onClick={() => handleApplyTemplate(template)}
-                      loading={applying && selectedTemplate?.id === template.id}
+                      hoverable
+                      style={{ marginBottom: 12 }}
+                      onClick={() => {
+                        setSelectedTemplate(template);
+                        setSelectedConfigKeys([]);
+                      }}
                     >
-                      应用
-                    </Button>
-                  ]}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <Text style={{ fontSize: 24 }}>{template.icon}</Text>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <Text strong>{template.label}</Text>
-                        <Tag size="small" color={getTagColor(template.category)}>{template.category}</Tag>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <Text style={{ fontSize: 28 }}>{template.icon}</Text>
+                        <div style={{ flex: 1 }}>
+                          <Text strong>{template.label}</Text>
+                          <br />
+                          <Text type="secondary" style={{ fontSize: 12 }}>{template.description}</Text>
+                        </div>
                       </div>
-                      <Text type="secondary" style={{ fontSize: 12 }}>{template.description}</Text>
-                    </div>
-                  </div>
-                </Card>
-              ))}
-            </div>
+                    </Card>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                <Button type="link" onClick={() => { setSelectedTemplate(null); setSelectedConfigKeys([]); }}>
+                  ← 返回模板列表
+                </Button>
+                <div style={{ marginTop: 8, marginBottom: 16 }}>
+                  <Text strong>已选择: {selectedTemplate.icon} {selectedTemplate.label}</Text>
+                </div>
+
+                <div style={{ marginBottom: 12 }}>
+                  <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>快捷选择：</Text>
+                  <Space>
+                    <Button size="small" onClick={() => setSelectedConfigKeys(['launcher', 'gateway'])}>基础</Button>
+                    <Button size="small" onClick={() => setSelectedConfigKeys(['launcher', 'gateway', 'agents', 'session', 'models'])}>标准</Button>
+                    <Button size="small" onClick={() => setSelectedConfigKeys(Object.keys(selectedTemplate.config || {}))}>高级</Button>
+                  </Space>
+                </div>
+
+                <Divider style={{ margin: '12px 0' }}>或手动选择单项配置</Divider>
+
+                <div style={{ maxHeight: 250, overflow: 'auto', border: '1px solid #d9d9d9', borderRadius: 4, padding: 8 }}>
+                  {(Object.keys(selectedTemplate.config || {})).map(key => (
+                    <Checkbox
+                      key={key}
+                      checked={selectedConfigKeys.includes(key)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedConfigKeys([...selectedConfigKeys, key]);
+                        } else {
+                          setSelectedConfigKeys(selectedConfigKeys.filter(k => k !== key));
+                        }
+                      }}
+                      style={{ marginBottom: 4 }}
+                    >
+                      {getConfigIcon(key)} {getConfigName(key)}
+                    </Checkbox>
+                  ))}
+                </div>
+                <div style={{ marginTop: 8 }}>
+                  <Button type="link" size="small" onClick={() => setSelectedConfigKeys(Object.keys(selectedTemplate.config || {}))}>全选</Button>
+                  <Button type="link" size="small" onClick={() => setSelectedConfigKeys([])}>清空</Button>
+                </div>
+
+                <Divider />
+                <Space>
+                  <Button
+                    type="primary"
+                    icon={<RocketOutlined />}
+                    onClick={() => handleApplyTemplate(selectedTemplate)}
+                    loading={applying}
+                    disabled={selectedConfigKeys.length === 0}
+                  >
+                    应用 ({selectedConfigKeys.length})
+                  </Button>
+                  <Button onClick={() => { setSelectedTemplate(null); setSelectedConfigKeys([]); }}>
+                    重选
+                  </Button>
+                </Space>
+              </>
+            )}
           </Card>
         </Col>
       </Row>

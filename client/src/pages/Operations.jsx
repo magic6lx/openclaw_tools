@@ -157,6 +157,22 @@ function Operations() {
     return <Tag color="red">已停止</Tag>;
   };
 
+  const getOpenClawConsoleButton = () => {
+    if (gatewayStatus === 'running') {
+      return (
+        <Button
+          type="link"
+          icon={<ExclamationCircleOutlined />}
+          onClick={() => window.open('http://127.0.0.1:18789', '_blank')}
+          style={{ color: '#1890ff' }}
+        >
+          打开控制台
+        </Button>
+      );
+    }
+    return null;
+  };
+
   const canOperateGateway = launcherStatus === 'online' && (openclawStatus === 'running' || openclawStatus === 'installed');
 
   const getLogLevelColor = (level) => {
@@ -202,6 +218,7 @@ function Operations() {
                 <Space>
                   {getGatewayTag()}
                   <Text type="secondary">端口 18789</Text>
+                  {getOpenClawConsoleButton()}
                 </Space>
               </div>
               <Space>

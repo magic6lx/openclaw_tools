@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Card, Row, Col, Typography, Switch, Select, InputNumber, Input, Space, Collapse, Tag, Alert, Tooltip } from 'antd';
+import { Card, Row, Col, Typography, Switch, Select, InputNumber, Input, Space, Collapse, Tag, Alert, Tooltip, Button } from 'antd';
 import { InfoCircleOutlined, WarningOutlined, LockOutlined } from '@ant-design/icons';
 import { CONFIG_SCHEMA, SECTION_META, validateConfigValue } from '../config/schema';
 
@@ -81,6 +81,88 @@ function SchemaField({ path, schema, value, onChange, disabled, level = 0 }) {
           />
         );
       case 'array':
+        if (schema.items?.type === 'object' && schema.items.properties) {
+          const arr = Array.isArray(localValue) ? localValue : [];
+          return (
+            <div style={{ width: '100%', maxWidth: 400 }}>
+              {arr.map((item, idx) => (
+                <Card
+                  key={idx}
+                  size="small"
+                  style={{ marginBottom: 8, background: '#fafafa' }}
+                  title={<Text strong>{item.name || item.id || `项 ${idx + 1}`}</Text>}
+                  extra={
+                    <Button
+                      size="small"
+                      danger
+                      onClick={() => {
+                        const newArr = arr.filter((_, i) => i !== idx);
+                        handleChange(newArr);
+                      }}
+                    >
+                      删除
+                    </Button>
+                  }
+                >
+                  {Object.entries(schema.items.properties).map(([field, fieldSchema]) => (
+                    <div key={field} style={{ marginBottom: 8 }}>
+                      <Text type="secondary" style={{ fontSize: 12 }}>{fieldSchema.title || field}: </Text>
+                      {fieldSchema.enum ? (
+                        <Select
+                          size="small"
+                          value={item[field]}
+                          style={{ width: 120 }}
+                          onChange={(val) => {
+                            const newArr = [...arr];
+                            newArr[idx] = { ...newArr[idx], [field]: val };
+                            handleChange(newArr);
+                          }}
+                        >
+                          {fieldSchema.enum.map(v => (
+                            <Select.Option key={v} value={v}>{v}</Select.Option>
+                          ))}
+                        </Select>
+                      ) : fieldSchema.type === 'boolean' ? (
+                        <Switch
+                          size="small"
+                          checked={item[field]}
+                          onChange={(val) => {
+                            const newArr = [...arr];
+                            newArr[idx] = { ...newArr[idx], [field]: val };
+                            handleChange(newArr);
+                          }}
+                        />
+                      ) : (
+                        <Input
+                          size="small"
+                          value={item[field] ?? ''}
+                          onChange={(e) => {
+                            const newArr = [...arr];
+                            newArr[idx] = { ...newArr[idx], [field]: e.target.value };
+                            handleChange(newArr);
+                          }}
+                          style={{ width: 120 }}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </Card>
+              ))}
+              <Button
+                size="small"
+                onClick={() => {
+                  const newItem = {};
+                  Object.entries(schema.items.properties).forEach(([field, fieldSchema]) => {
+                    newItem[field] = fieldSchema.default ?? (fieldSchema.type === 'boolean' ? false : '');
+                  });
+                  handleChange([...arr, newItem]);
+                }}
+              >
+                + 添加
+              </Button>
+            </div>
+          );
+        }
         return (
           <Input
             value={Array.isArray(localValue) ? localValue.join(', ') : ''}
@@ -117,8 +199,17 @@ function SchemaField({ path, schema, value, onChange, disabled, level = 0 }) {
 
 function NestedObject({ path, schema, value, onChange, disabled, level = 0 }) {
   const properties = schema.properties || {};
-  
+
   if (Object.keys(properties).length === 0) {
+    if (value && typeof value === 'object' && Object.keys(value).length > 0) {
+      return (
+        <Card size="small" style={{ marginBottom: 12, background: '#fffbe6' }}>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            当前值: <pre style={{ margin: '4px 0', fontSize: 11 }}>{JSON.stringify(value, null, 2)}</pre>
+          </Text>
+        </Card>
+      );
+    }
     return null;
   }
 

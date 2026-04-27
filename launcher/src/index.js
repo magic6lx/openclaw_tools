@@ -587,9 +587,85 @@ app.get('/config/export', (req, res) => {
   }
 });
 
+const SENSITIVE_FIELDS = ['apiKey', 'api_key', 'token', 'secret', 'password', 'privateKey'];
+const PATH_FIELDS = ['workspace', 'agentDir', 'path', 'dir'];
+const KEEP_EXISTING_FIELDS = ['models', 'agents'];
+
+function isSensitiveField(key) {
+  return SENSITIVE_FIELDS.some(f => key.toLowerCase().includes(f.toLowerCase()));
+}
+
+function adaptPath(templatePath, existingPath) {
+  if (!templatePath || !existingPath) return templatePath;
+  const templateParts = templatePath.replace(/\\/g, '/').split('/');
+  const existingParts = existingPath.replace(/\\/g, '/').split('/');
+  if (templateParts.length > 0 && existingParts.length > 0) {
+    templateParts[templateParts.length - 1] = existingParts[existingParts.length - 1];
+  }
+  return templateParts.join('/');
+}
+
+function mergeConfigRecursive(existing, template, conflicts = [], path = '') {
+  if (!template || typeof template !== 'object') {
+    return template;
+  }
+
+  const result = Array.isArray(template) ? [...template] : { ...existing };
+
+  for (const [key, templateValue] of Object.entries(template)) {
+    const currentPath = path ? `${path}.${key}` : key;
+    const existingValue = existing?.[key];
+
+    if (existingValue === undefined || existingValue === null) {
+      result[key] = templateValue;
+      continue;
+    }
+
+    if (isSensitiveField(key)) {
+      if (existingValue && existingValue !== templateValue) {
+        conflicts.push({ field: currentPath, action: 'kept_existing', reason: 'sensitive_data' });
+        result[key] = existingValue;
+      } else {
+        result[key] = templateValue;
+      }
+      continue;
+    }
+
+    if (PATH_FIELDS.includes(key) && typeof templateValue === 'string') {
+      if (existingValue && existingValue !== templateValue) {
+        const adaptedPath = adaptPath(templateValue, existingValue);
+        conflicts.push({ field: currentPath, action: 'adapted_path', from: templateValue, to: adaptedPath, reason: 'path_compatibility' });
+        result[key] = adaptedPath;
+      } else {
+        result[key] = templateValue;
+      }
+      continue;
+    }
+
+    if (KEEP_EXISTING_FIELDS.includes(key)) {
+      conflicts.push({ field: currentPath, action: 'kept_existing', reason: 'user_maintained_config' });
+      result[key] = existingValue;
+      continue;
+    }
+
+    if (typeof templateValue === 'object' && templateValue !== null && !Array.isArray(templateValue)) {
+      result[key] = mergeConfigRecursive(existingValue, templateValue, conflicts, currentPath);
+    } else if (Array.isArray(templateValue)) {
+      result[key] = templateValue;
+    } else {
+      if (existingValue !== templateValue && existingValue) {
+        conflicts.push({ field: currentPath, action: 'overwritten', from: existingValue, to: templateValue });
+      }
+      result[key] = templateValue;
+    }
+  }
+
+  return result;
+}
+
 app.post('/config/import', (req, res) => {
   try {
-    const { config, env } = req.body;
+    const { config, env, mergeStrategy } = req.body;
     if (!config) {
       return res.json({ success: false, error: '配置文件为空' });
     }
@@ -598,12 +674,30 @@ app.post('/config/import', (req, res) => {
       mkdirSync(OPENCLAW_CONFIG_DIR, { recursive: true });
     }
 
-    writeFileSync(OPENCLAW_CONFIG_FILE, JSON.stringify(config, null, 2), 'utf-8');
+    let finalConfig = config;
+    let conflicts = [];
+
+    if (existsSync(OPENCLAW_CONFIG_FILE)) {
+      try {
+        const existingConfig = JSON.parse(readFileSync(OPENCLAW_CONFIG_FILE, 'utf-8'));
+        
+        if (mergeStrategy === 'force') {
+          finalConfig = config;
+          conflicts.push({ field: 'root', action: 'force_replaced', reason: 'force_mode' });
+        } else {
+          finalConfig = mergeConfigRecursive(existingConfig, config, conflicts);
+        }
+      } catch (e) {
+        conflicts.push({ field: 'root', action: 'parse_error', error: e.message });
+      }
+    }
+
+    writeFileSync(OPENCLAW_CONFIG_FILE, JSON.stringify(finalConfig, null, 2), 'utf-8');
     if (env) {
       writeFileSync(OPENCLAW_ENV_FILE, env, 'utf-8');
     }
-    addLog('INFO', '配置已应用到 OpenClaw');
-    res.json({ success: true });
+    addLog('INFO', `配置已应用，合并了 ${conflicts.length} 个冲突`);
+    res.json({ success: true, conflicts, merged: finalConfig });
   } catch (err) {
     res.json({ success: false, error: err.message });
   }

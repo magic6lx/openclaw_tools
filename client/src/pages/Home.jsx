@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Typography, Row, Col, Button, Space, Tag, Spin, message, Alert, Divider } from 'antd';
-import { DownloadOutlined, SettingOutlined, PlayCircleOutlined, CheckCircleOutlined, CloseCircleOutlined, InfoCircleOutlined, RocketOutlined, BugOutlined } from '@ant-design/icons';
+import { DownloadOutlined, SettingOutlined, PlayCircleOutlined, CheckCircleOutlined, CloseCircleOutlined, InfoCircleOutlined, RocketOutlined, BugOutlined, GatewayOutlined } from '@ant-design/icons';
 import { Link, useNavigate } from 'react-router-dom';
 
 const { Title, Text, Paragraph } = Typography;
@@ -11,6 +11,7 @@ const LAUNCHER_INSTALL_PATH = 'C:\\Program Files\\OpenClaw\\launcher.exe';
 function Home() {
   const [launcherStatus, setLauncherStatus] = useState('checking');
   const [openclawStatus, setOpenclawStatus] = useState('unknown');
+  const [gatewayStatus, setGatewayStatus] = useState('checking');
   const [serverStatus, setServerStatus] = useState('checking');
   const [launcherInstalled, setLauncherInstalled] = useState(null);
 
@@ -27,6 +28,7 @@ function Home() {
         const data = await res.json();
         setLauncherStatus('online');
         setOpenclawStatus(data.openClawStatus || 'unknown');
+        setGatewayStatus(data.gatewayRunning ? 'running' : 'stopped');
       } else {
         setLauncherStatus('offline');
       }
@@ -140,6 +142,14 @@ function Home() {
     return <Tag color="default">未检测</Tag>;
   };
 
+  const getGatewayTag = () => {
+    if (gatewayStatus === 'checking') return <Tag icon={<Spin size="small" />} color="default">检测中</Tag>;
+    if (gatewayStatus === 'running') return <Tag icon={<CheckCircleOutlined />} color="success"><a href="http://127.0.0.1:18789" target="_blank" rel="noopener noreferrer">运行中</a></Tag>;
+    if (gatewayStatus === 'stopped') return <Tag icon={<CloseCircleOutlined />} color="error">已停止</Tag>;
+    if (gatewayStatus === 'not_configured') return <Tag icon={<CloseCircleOutlined />} color="warning">未配置</Tag>;
+    return <Tag color="default">未检测</Tag>;
+  };
+
   const getServerTag = () => {
     if (serverStatus === 'checking') return <Tag icon={<Spin size="small" />} color="default">检测中</Tag>;
     if (serverStatus === 'connected') return <Tag icon={<CheckCircleOutlined />} color="success">已连接</Tag>;
@@ -210,14 +220,23 @@ function Home() {
         </Paragraph>
         <Divider style={{ margin: '16px 0' }} />
         <Row gutter={16}>
-          <Col span={8}>
+          <Col span={6}>
             <Space direction="vertical" size={4}>
               <Text type="secondary">Launcher状态</Text>
               <div>{launcherDisplay.tag}</div>
               <Text type="secondary" style={{ fontSize: 12 }}>{launcherDisplay.desc}</Text>
             </Space>
           </Col>
-          <Col span={8}>
+          <Col span={6}>
+            <Space direction="vertical" size={4}>
+              <Text type="secondary">Gateway状态</Text>
+              <div>{getGatewayTag()}</div>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {gatewayStatus === 'running' ? 'Gateway服务运行中' : gatewayStatus === 'stopped' ? 'Gateway已停止' : gatewayStatus === 'not_configured' ? '请配置Gateway' : '请启动Launcher后检测'}
+              </Text>
+            </Space>
+          </Col>
+          <Col span={6}>
             <Space direction="vertical" size={4}>
               <Text type="secondary">OpenClaw状态</Text>
               <div>{getOpenclawTag()}</div>
@@ -226,7 +245,7 @@ function Home() {
               </Text>
             </Space>
           </Col>
-          <Col span={8}>
+          <Col span={6}>
             <Space direction="vertical" size={4}>
               <Text type="secondary">服务端连接</Text>
               <div>{getServerTag()}</div>

@@ -79,47 +79,147 @@ router.get('/devices', authMiddleware, adminMiddleware, async (req, res) => {
 });
 
 router.get('/launcher/version', (req, res) => {
-  res.json({ version: '1.0.0', downloadUrl: '/launcher/download' });
+  const { execSync } = require('child_process');
+  try {
+    const npmVersion = execSync('npm view openclaw version', { encoding: 'utf8' }).trim();
+    const localVersion = execSync('npm list openclaw --depth=0 2>/dev/null', { encoding: 'utf8' }).trim();
+    const currentVersion = localVersion.match(/openclaw@(\d+\.\d+\.\d+)/)?.[1] || 'unknown';
+    const isLatest = currentVersion === npmVersion;
+
+    res.json({
+      installed: true,
+      currentVersion,
+      latestVersion: npmVersion,
+      isLatest,
+      npmPath: execSync('npm root -g', { encoding: 'utf8' }).trim()
+    });
+  } catch (err) {
+    res.json({
+      installed: false,
+      message: '未检测到 OpenClaw 安装'
+    });
+  }
+});
+
+router.get('/version', (req, res) => {
+  const { execSync } = require('child_process');
+  try {
+    const npmVersion = execSync('npm view openclaw version', { encoding: 'utf8' }).trim();
+    const localVersion = execSync('npm list openclaw --depth=0 2>/dev/null', { encoding: 'utf8' }).trim();
+    const currentVersion = localVersion.match(/openclaw@(\d+\.\d+\.\d+)/)?.[1] || 'unknown';
+    const isLatest = currentVersion === npmVersion;
+
+    res.json({
+      installed: true,
+      currentVersion,
+      latestVersion: npmVersion,
+      isLatest,
+      npmPath: execSync('npm root -g', { encoding: 'utf8' }).trim()
+    });
+  } catch (err) {
+    res.json({
+      installed: false,
+      message: '未检测到 OpenClaw 安装'
+    });
+  }
 });
 
 router.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
+const MODEL_PROVIDER_MAP = {
+  'gpt-4': 'openai',
+  'gpt-4-turbo': 'openai',
+  'gpt-4o': 'openai',
+  'gpt-3.5-turbo': 'openai',
+  'claude-3-opus': 'anthropic',
+  'claude-3-sonnet': 'anthropic',
+  'claude-3-haiku': 'anthropic',
+  'claude-2': 'anthropic',
+  'gemini-pro': 'google',
+  'gemini-1.5-pro': 'google',
+  'doubao': 'volcengine',
+  'doubao-seed': 'volcengine',
+};
+
+const PROVIDER_API_BASE = {
+  'openai': 'https://api.openai.com/v1',
+  'anthropic': 'https://api.anthropic.com/v1',
+  'google': 'https://generativelanguage.googleapis.com/v1beta',
+  'volcengine': 'https://ark.cn-beijing.volces.com/api/v3'
+};
+
 router.post('/proxy/chat', authMiddleware, async (req, res) => {
   try {
     const { model, messages, temperature, max_tokens } = req.body;
     const tokenProxy = req.user.tokenProxy;
 
-    if (!tokenProxy || !tokenProxy.enabled || !tokenProxy.apiKey) {
-      return res.status(403).json({ error: 'Token代理未启用或未配置' });
+    if (!tokenProxy || !tokenProxy.enabled) {
+      return res.status(403).json({ error: 'Token代理未启用' });
     }
 
-    if (tokenProxy.quota && tokenProxy.quota.used >= tokenProxy.quota.total) {
+    const providers = tokenProxy.providers || {};
+    let providerName = 'openai';
+    if (model?.startsWith('volcengine/') || model?.includes('doubao')) {
+      providerName = 'volcengine';
+    } else if (MODEL_PROVIDER_MAP[model]) {
+      providerName = MODEL_PROVIDER_MAP[model];
+    }
+    const providerConfig = providers[providerName];
+
+    if (!providerConfig || !providerConfig.apiKey) {
+      return res.status(403).json({ error: `代理未配置${providerName}的API Key` });
+    }
+
+    const quota = tokenProxy.quota || { total: 100000, used: 0 };
+    if (quota.used >= quota.total) {
       return res.status(403).json({ error: 'Token配额已用完' });
     }
 
-    const response = await fetch(`${tokenProxy.apiBase || 'https://api.openai.com/v1'}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${tokenProxy.apiKey}`
-      },
-      body: JSON.stringify({
-        model: model || 'gpt-4',
+    const apiBase = PROVIDER_API_BASE[providerName] || providerConfig.apiBase || 'https://api.openai.com/v1';
+
+    let requestBody = {
+      model,
+      messages,
+      temperature: temperature || 0.7,
+      max_tokens: max_tokens || 2000
+    };
+
+    let headers = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${providerConfig.apiKey}`
+    };
+
+    if (providerName === 'anthropic') {
+      headers['x-api-key'] = providerConfig.apiKey;
+      delete headers['Authorization'];
+      requestBody = {
+        model,
         messages,
         temperature: temperature || 0.7,
         max_tokens: max_tokens || 2000
-      })
+      };
+    }
+
+    const response = await fetch(`${apiBase}/chat/completions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(requestBody)
     });
 
     const data = await response.json();
 
     if (data.usage) {
       const db = require('../db');
+      const tokensUsed = (data.usage.prompt_tokens || 0) + (data.usage.completion_tokens || 0);
       await db.query(
         'INSERT INTO token_usage (device_id, invitation_id, model, input_tokens, output_tokens) VALUES (?, ?, ?, ?, ?)',
-        [req.user.deviceId || '', req.user.invitationId || null, model || 'gpt-4', data.usage.prompt_tokens || 0, data.usage.completion_tokens || 0]
+        [req.user.deviceId || '', req.user.invitationId || null, model, data.usage.prompt_tokens || 0, data.usage.completion_tokens || 0]
+      );
+      await db.query(
+        'UPDATE invitations SET token_proxy = JSON_SET(IFNULL(token_proxy, \'{}\'), \'$.quota.used\', ?) WHERE id = ?',
+        [quota.used + tokensUsed, req.user.invitationId]
       );
     }
 
@@ -180,6 +280,26 @@ router.get('/templates', authMiddleware, async (req, res) => {
   }
 });
 
+router.get('/templates/approved', async (req, res) => {
+  try {
+    const db = require('../db');
+    const templates = await db.query('SELECT * FROM templates WHERE status = ? ORDER BY created_at DESC', ['approved']);
+    const parsedTemplates = templates.map(t => ({
+      id: t.id,
+      name: t.name,
+      label: t.name,
+      description: t.description,
+      icon: '📋',
+      config: t.config ? (typeof t.config === 'string' ? JSON.parse(t.config) : t.config) : {},
+      env: t.env || null
+    }));
+    res.json({ success: true, data: parsedTemplates });
+  } catch (err) {
+    console.error('Get approved templates error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/templates/:id', authMiddleware, async (req, res) => {
   try {
     const db = require('../db');
@@ -202,12 +322,12 @@ router.get('/templates/:id', authMiddleware, async (req, res) => {
 router.post('/templates', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const db = require('../db');
-    const { name, description, category, config, env } = req.body;
-    const configJson = config ? JSON.stringify(config) : '{}';
-    const envJson = env || null;
+    const { name, description, config, env } = req.body;
+    const configJson = (config && typeof config === 'object') ? JSON.stringify(config) : (config || '{}');
+    const envJson = (env && typeof env === 'object') ? JSON.stringify(env) : (env || null);
     const result = await db.query(
-      'INSERT INTO templates (name, description, category, config, env, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [name, description || '', category || 'imported', configJson, envJson, 'pending', req.user.invitationId]
+      'INSERT INTO templates (name, description, config, env, status, created_by) VALUES (?, ?, ?, ?, ?, ?)',
+      [name, description || '', configJson, envJson, 'pending', req.user?.invitationId || null]
     );
     res.json({ success: true, data: { id: result.insertId } });
   } catch (err) {
@@ -219,12 +339,12 @@ router.post('/templates', authMiddleware, adminMiddleware, async (req, res) => {
 router.put('/templates/:id', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const db = require('../db');
-    const { name, description, category, config, env, status } = req.body;
-    const configJson = config ? JSON.stringify(config) : null;
-    const envJson = env || null;
+    const { name, description, config, env, status } = req.body;
+    const configJson = (config && typeof config === 'object') ? JSON.stringify(config) : (config || null);
+    const envJson = (env && typeof env === 'object') ? JSON.stringify(env) : (env || null);
     await db.query(
-      'UPDATE templates SET name = ?, description = ?, category = ?, config = ?, env = ?, status = ? WHERE id = ?',
-      [name, description || '', category, configJson, envJson, status || 'pending', req.params.id]
+      'UPDATE templates SET name = ?, description = ?, config = ?, env = ?, status = ? WHERE id = ?',
+      [name, description || '', configJson, envJson, status || 'pending', req.params.id]
     );
     res.json({ success: true });
   } catch (err) {
@@ -255,7 +375,7 @@ router.post('/templates/:id/approve', authMiddleware, adminMiddleware, async (re
   }
 });
 
-router.get('/config/presets', authMiddleware, (req, res) => {
+router.get('/config/presets', (req, res) => {
   const presets = [
     {
       id: 'minimal',
@@ -407,7 +527,7 @@ router.get('/config/server', authMiddleware, adminMiddleware, async (req, res) =
   }
 });
 
-router.post('/config/save', authMiddleware, adminMiddleware, async (req, res) => {
+router.post('/config/save', authMiddleware, async (req, res) => {
   const fs = require('fs');
   const path = require('path');
   
@@ -415,7 +535,7 @@ router.post('/config/save', authMiddleware, adminMiddleware, async (req, res) =>
     path.join(require('os').homedir(), '.openclaw', 'openclaw.json');
   
   try {
-    const config = req.body;
+    const config = req.body.config || req.body;
     
     if (!config || typeof config !== 'object') {
       return res.status(400).json({ 
@@ -454,7 +574,7 @@ router.post('/templates/:id/distribute', authMiddleware, adminMiddleware, async 
     if (!template) {
       return res.status(404).json({ error: '模板不存在' });
     }
-    await db.query('UPDATE templates SET used_count = used_count + 1 WHERE id = ?', [req.params.id]);
+    await db.query('UPDATE templates SET status = ? WHERE id = ?', ['approved', req.params.id]);
     res.json({ success: true, message: '模板已发放' });
   } catch (err) {
     console.error('Distribute template error:', err);
@@ -472,24 +592,61 @@ router.get('/config/launcher', authMiddleware, async (req, res) => {
   }
 });
 
-router.get('/templates/approved', async (req, res) => {
+router.post('/config/cli', authMiddleware, async (req, res) => {
   try {
-    const db = require('../db');
-    const templates = await db.query('SELECT * FROM templates WHERE status = ? ORDER BY created_at DESC', ['approved']);
-    const parsedTemplates = templates.map(t => ({
-      id: t.id,
-      name: t.name,
-      label: t.name,
-      description: t.description,
-      icon: '📋',
-      category: t.category || '已发布',
-      config: t.config ? (typeof t.config === 'string' ? JSON.parse(t.config) : t.config) : {},
-      env: t.env || null
-    }));
-    res.json({ success: true, data: parsedTemplates });
+    const { execSync } = require('child_process');
+    const { path } = req.body;
+
+    if (!path) {
+      return res.status(400).json({ success: false, error: '缺少配置路径参数' });
+    }
+
+    const result = execSync(`openclaw config get ${path}`, {
+      encoding: 'utf8',
+      timeout: 10000,
+      windowsHide: true
+    });
+
+    res.json({ success: true, result: result.trim() });
   } catch (err) {
-    console.error('Get approved templates error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({
+      success: false,
+      error: err.message,
+      stderr: err.stderr?.toString() || ''
+    });
+  }
+});
+
+router.post('/config/cli/all', authMiddleware, async (req, res) => {
+  try {
+    const { execSync } = require('child_process');
+    const paths = [
+      'agents.defaults.workspace',
+      'agents.defaults.model.primary',
+      'agents.list',
+      'models.useProxy',
+      'models.providers',
+      'gateway.enabled',
+      'logging.level'
+    ];
+
+    const results = {};
+    for (const p of paths) {
+      try {
+        const result = execSync(`openclaw config get ${p}`, {
+          encoding: 'utf8',
+          timeout: 5000,
+          windowsHide: true
+        });
+        results[p] = { success: true, value: result.trim() };
+      } catch (e) {
+        results[p] = { success: false, error: e.message };
+      }
+    }
+
+    res.json({ success: true, results });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

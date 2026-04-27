@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Row, Col, Statistic, Typography, Table, Select, Space, Progress, Spin } from 'antd';
-import { UserOutlined, FileTextOutlined, RiseOutlined } from '@ant-design/icons';
+import { UserOutlined, FileTextOutlined, RiseOutlined, DollarOutlined } from '@ant-design/icons';
 import { Area, Column, Pie } from '@ant-design/charts';
 
 const { Title, Text } = Typography;
@@ -13,6 +13,7 @@ function Statistics() {
   const [categoryData, setCategoryData] = useState([]);
   const [recentUsers, setRecentUsers] = useState([]);
   const [stats, setStats] = useState({ totalUsers: 0, activeToday: 0, totalLogs: 0, todayLogs: 0 });
+  const [tokenStats, setTokenStats] = useState({ total: 0, used: 0, remaining: 0, requestCount: 0 });
 
   useEffect(() => {
     const fetchData = async () => {
@@ -21,10 +22,20 @@ function Statistics() {
         const token = localStorage.getItem('token');
         const headers = { Authorization: `Bearer ${token}` };
 
-        const [logsRes, devicesRes] = await Promise.all([
+        const [logsRes, devicesRes, tokenRes] = await Promise.all([
           fetch(`${API_BASE}/api/logs?limit=5000`, { headers }).then(r => r.json()),
-          fetch(`${API_BASE}/api/devices`, { headers }).then(r => r.json())
+          fetch(`${API_BASE}/api/devices`, { headers }).then(r => r.json()),
+          fetch(`${API_BASE}/api/proxy/usage`, { headers }).then(r => r.json()).catch(() => ({ success: false }))
         ]);
+
+        if (tokenRes.success) {
+          setTokenStats({
+            total: tokenRes.data.total || 0,
+            used: tokenRes.data.used || 0,
+            remaining: tokenRes.data.remaining || 0,
+            requestCount: tokenRes.data.requestCount || 0
+          });
+        }
 
         let totalLogs = 0;
         let todayLogs = 0;
@@ -151,6 +162,35 @@ function Statistics() {
         </Col>
         <Col span={6}>
           <Card><Statistic title="今日新增日志" value={stats.todayLogs} prefix={<RiseOutlined />} valueStyle={{ color: '#1890ff' }} /></Card>
+        </Col>
+      </Row>
+
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        <Col span={6}>
+          <Card>
+            <Statistic title="Token配额" value={tokenStats.total} prefix={<DollarOutlined />} />
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card>
+            <Statistic title="已使用" value={tokenStats.used} valueStyle={{ color: tokenStats.used / tokenStats.total > 0.9 ? '#ff4d4f' : '#faad14' }} />
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card>
+            <Statistic title="剩余配额" value={tokenStats.remaining} valueStyle={{ color: '#52c41a' }} />
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card>
+            <Text type="secondary">Token使用进度</Text>
+            <Progress
+              percent={tokenStats.total > 0 ? Math.round((tokenStats.used / tokenStats.total) * 100) : 0}
+              status={tokenStats.used / tokenStats.total > 0.9 ? 'exception' : 'active'}
+              format={p => `${tokenStats.used} / ${tokenStats.total}`}
+              style={{ marginTop: 8 }}
+            />
+          </Card>
         </Col>
       </Row>
 

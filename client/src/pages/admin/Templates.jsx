@@ -3,7 +3,7 @@ import { Card, Table, Typography, Button, Space, Tag, Modal, Form, Input, Select
 import { PlusOutlined, EditOutlined, DeleteOutlined, SendOutlined, ReloadOutlined, CloudDownloadOutlined } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import QuickSettings from '../../components/QuickSettings';
-import { getDefaultConfig } from '../../config/presets';
+import { useConfig, mergeWithDefaults } from '../../hooks/useConfig';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -17,12 +17,14 @@ function Templates() {
   const [editing, setEditing] = useState(null);
   const [loading, setLoading] = useState(false);
   const [form] = Form.useForm();
-  const [currentConfig, setCurrentConfig] = useState({});
   const [currentEnv, setCurrentEnv] = useState(null);
   const [pasteModalVisible, setPasteModalVisible] = useState(false);
   const [pasteContent, setPasteContent] = useState('');
   const [serverConfigLoading, setServerConfigLoading] = useState(false);
   const [launcherConfigLoading, setLauncherConfigLoading] = useState(false);
+  const [editConfig, setEditConfig] = useState({});
+
+  const { config: launcherConfig, loading: launcherLoading, fetchConfig: refetchLauncherConfig } = useConfig();
 
   const fetchTemplates = async () => {
     setLoading(true);
@@ -54,16 +56,32 @@ function Templates() {
 
   const handleAdd = () => {
     setEditing(null);
-    setCurrentConfig(getDefaultConfig());
+    if (launcherConfig) {
+      setEditConfig({ ...launcherConfig });
+    } else {
+      setEditConfig(mergeWithDefaults({}));
+    }
     form.resetFields();
     setModalVisible(true);
   };
+
+  useEffect(() => {
+    if (!launcherConfig && !launcherLoading) {
+      refetchLauncherConfig();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (launcherConfig && Object.keys(editConfig).length === 0) {
+      setEditConfig({ ...launcherConfig });
+    }
+  }, [launcherConfig]);
 
   const handleEdit = (t) => {
     setEditing(t);
     try {
       const config = t.config || (typeof t.config_content === 'string' ? JSON.parse(t.config_content) : (t.config_content || {}));
-      setCurrentConfig(config);
+      setEditConfig(mergeWithDefaults(config));
       setCurrentEnv(t.env || null);
       form.setFieldsValue({
         name: t.name,
@@ -71,7 +89,7 @@ function Templates() {
         description: t.description
       });
     } catch (e) {
-      setCurrentConfig({});
+      setEditConfig(mergeWithDefaults({}));
       setCurrentEnv(null);
     }
     setModalVisible(true);
@@ -134,36 +152,12 @@ function Templates() {
     }
   };
 
-  const extractOpenClawConfig = (rawConfig) => {
-    const extracted = {
-      launcher: {},
-      gateway: {}
-    };
-    
-    if (rawConfig.launcher) {
-      extracted.launcher = {
-        autoStart: rawConfig.launcher.autoStart ?? false,
-        checkUpdate: rawConfig.launcher.checkUpdate ?? true,
-        logLevel: rawConfig.launcher.logLevel ?? 'info'
-      };
-    }
-    
-    if (rawConfig.gateway) {
-      extracted.gateway = {
-        enabled: rawConfig.gateway.enabled ?? true,
-        port: rawConfig.gateway.port ?? 19000
-      };
-    }
-    
-    return extracted;
-  };
-
   const handleImport = async (file) => {
     try {
       const text = await file.text();
       const rawConfig = JSON.parse(text);
-      const config = extractOpenClawConfig(rawConfig);
-      setCurrentConfig(config);
+      const config = mergeWithDefaults(rawConfig);
+      setEditConfig(config);
       message.success('配置文件已加载');
     } catch (err) {
       message.error(`解析配置文件失败: ${err.message}`);
@@ -174,8 +168,8 @@ function Templates() {
   const handlePasteConfig = () => {
     try {
       const rawConfig = JSON.parse(pasteContent);
-      const config = extractOpenClawConfig(rawConfig);
-      setCurrentConfig(config);
+      const config = mergeWithDefaults(rawConfig);
+      setEditConfig(config);
       setPasteModalVisible(false);
       setPasteContent('');
       message.success('配置已解析并加载');
@@ -193,8 +187,8 @@ function Templates() {
       });
       const data = await res.json();
       if (data.success && data.data) {
-        const config = extractOpenClawConfig(data.data);
-        setCurrentConfig(config);
+        const config = mergeWithDefaults(data.data);
+        setEditConfig(config);
         setCurrentEnv(null);
         message.success('服务器配置已加载');
       } else {
@@ -213,7 +207,8 @@ function Templates() {
       const res = await fetch(`${LAUNCHER_API}/config/export`);
       const data = await res.json();
       if (data.success && data.config) {
-        setCurrentConfig(data.config);
+        const config = mergeWithDefaults(data.config);
+        setEditConfig(config);
         setCurrentEnv(data.env || null);
         message.success('本地配置已加载（包含config和env）');
       } else {
@@ -226,13 +221,10 @@ function Templates() {
     }
   };
 
-  const handleConfigChange = (section, field, value) => {
-    setCurrentConfig(prev => ({
+  const handleConfigChange = (section, newSectionConfig) => {
+    setEditConfig(prev => ({
       ...prev,
-      [section]: {
-        ...prev[section],
-        [field]: value
-      }
+      [section]: newSectionConfig
     }));
   };
 
@@ -244,17 +236,43 @@ function Templates() {
       const method = editing ? 'PUT' : 'POST';
       const url = editing ? `${API_BASE}/api/templates/${editing.id}` : `${API_BASE}/api/templates`;
 
+      const cleanObj = (obj) => {
+        if (obj === undefined) return null;
+        if (obj === null) return null;
+        if (Array.isArray(obj)) {
+          return obj.map(item => cleanObj(item)).filter(item => item !== undefined);
+        }
+        if (typeof obj === 'object') {
+          const result = {};
+          for (const [key, val] of Object.entries(obj)) {
+            if (val !== undefined) {
+              result[key] = cleanObj(val);
+            } else {
+              result[key] = null;
+            }
+          }
+          return result;
+        }
+        if (typeof obj === 'number' && isNaN(obj)) return null;
+        if (obj === Infinity) return null;
+        if (typeof obj === 'function' || typeof obj === 'symbol') return null;
+        return obj;
+      };
+
+      const payload = {
+        name: values.name,
+        description: values.description || '',
+        config: JSON.stringify(cleanObj(editConfig)),
+        env: currentEnv ? JSON.stringify(cleanObj(currentEnv)) : null
+      };
+
       const res = await fetch(url, {
         method,
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({
-          ...values,
-          config: currentConfig,
-          env: currentEnv
-        })
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
 
@@ -271,7 +289,7 @@ function Templates() {
   };
 
   const handleExport = () => {
-    const blob = new Blob([JSON.stringify(currentConfig, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify(editConfig, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -282,7 +300,7 @@ function Templates() {
   };
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(JSON.stringify(currentConfig, null, 2));
+    navigator.clipboard.writeText(JSON.stringify(editConfig, null, 2));
     message.success('配置已复制到剪贴板');
   };
 
@@ -295,17 +313,13 @@ function Templates() {
     { 
       title: '名称', 
       dataIndex: 'name',
-      render: (name, record) => (
-        <Space>
-          {name}
-          {record.category && <Tag>{record.category}</Tag>}
-        </Space>
-      )
+      ellipsis: true
     },
     { 
-      title: '分类', 
-      dataIndex: 'category', 
-      width: 100 
+      title: '描述', 
+      dataIndex: 'description', 
+      ellipsis: true,
+      render: (v) => v || '-'
     },
     { 
       title: '状态', 
@@ -418,25 +432,14 @@ function Templates() {
       >
         <Form form={form} layout="vertical">
           <Row gutter={16}>
-            <Col span={8}>
+            <Col span={12}>
               <Form.Item label="模板名称" name="name" rules={[{ required: true, message: '请输入模板名称' }]}>
                 <Input placeholder="请输入模板名称" />
               </Form.Item>
             </Col>
-            <Col span={8}>
-              <Form.Item label="分类" name="category" rules={[{ required: true, message: '请选择分类' }]}>
-                <Select>
-                  <Select.Option value="基础">基础</Select.Option>
-                  <Select.Option value="标准">标准</Select.Option>
-                  <Select.Option value="高级">高级</Select.Option>
-                  <Select.Option value="测试">测试</Select.Option>
-                  <Select.Option value="导入">导入</Select.Option>
-                </Select>
-              </Form.Item>
-            </Col>
-            <Col span={8}>
+            <Col span={12}>
               <Form.Item label="描述" name="description">
-                <Input placeholder="模板描述" />
+                <Input placeholder="模板描述（可选）" />
               </Form.Item>
             </Col>
           </Row>
@@ -456,7 +459,7 @@ function Templates() {
         </div>
 
         <QuickSettings
-          config={currentConfig}
+          config={editConfig}
           onConfigChange={handleConfigChange}
         />
       </Modal>
@@ -473,7 +476,7 @@ function Templates() {
       >
         <div style={{ marginBottom: 8 }}>
           <Text type="secondary">
-            粘贴 OpenClaw 配置内容（JSON 格式），系统会自动提取 launcher 和 gateway 配置
+            粘贴 OpenClaw 配置内容（JSON 格式），系统会自动补全缺失的默认字段
           </Text>
         </div>
         <TextArea
