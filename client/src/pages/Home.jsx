@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Typography, Row, Col, Button, Space, Tag, Spin, message, Alert, Divider } from 'antd';
-import { DownloadOutlined, SettingOutlined, PlayCircleOutlined, CheckCircleOutlined, CloseCircleOutlined, InfoCircleOutlined, RocketOutlined, BugOutlined, GatewayOutlined } from '@ant-design/icons';
+import { DownloadOutlined, SettingOutlined, PlayCircleOutlined, CheckCircleOutlined, CloseCircleOutlined, InfoCircleOutlined, RocketOutlined, BugOutlined, GatewayOutlined, MessageOutlined } from '@ant-design/icons';
 import { Link, useNavigate } from 'react-router-dom';
 
 const { Title, Text, Paragraph } = Typography;
@@ -259,11 +259,11 @@ function Home() {
 
       <Title level={4}>快捷入口</Title>
       <Row gutter={[16, 16]}>
-        <Col span={8}>
+        <Col span={6}>
           <Card
             hoverable
             style={{ textAlign: 'center', padding: 24 }}
-            cover={<SettingOutlined style={{ fontSize: 48, color: '#1890ff', marginTop: 20 }} />}
+            cover={<DownloadOutlined style={{ fontSize: 48, color: '#1890ff', marginTop: 20 }} />}
           >
             <Title level={5}>安装及配置</Title>
             <Paragraph type="secondary">一键安装OpenClaw，选择配置模板</Paragraph>
@@ -275,7 +275,37 @@ function Home() {
           </Card>
         </Col>
 
-        <Col span={8}>
+        <Col span={6}>
+          <Card
+            hoverable
+            style={{ textAlign: 'center', padding: 24 }}
+            cover={<SettingOutlined style={{ fontSize: 48, color: '#722ed1', marginTop: 20 }} />}
+          >
+            <Title level={5}>配置管理</Title>
+            <Paragraph type="secondary">查看和管理当前配置</Paragraph>
+            <Link to="/config">
+              <Button disabled={launcherStatus !== 'online'}>查看配置</Button>
+            </Link>
+          </Card>
+        </Col>
+
+        <Col span={6}>
+          <Card
+            hoverable
+            style={{ textAlign: 'center', padding: 24 }}
+            cover={<MessageOutlined style={{ fontSize: 48, color: '#3370ff', marginTop: 20 }} />}
+          >
+            <Title level={5}>飞书消息通道</Title>
+            <Paragraph type="secondary">配置飞书机器人，扫码快速接入</Paragraph>
+            <Link to="/feishu">
+              <Button type="primary" icon={<MessageOutlined />} style={{ background: '#3370ff', borderColor: '#3370ff' }}>
+                配置飞书
+              </Button>
+            </Link>
+          </Card>
+        </Col>
+
+        <Col span={6}>
           <Card
             hoverable
             style={{ textAlign: 'center', padding: 24 }}
@@ -287,20 +317,6 @@ function Home() {
               <Button type="primary" icon={<PlayCircleOutlined />} disabled={launcherStatus !== 'online'}>
                 开始运营
               </Button>
-            </Link>
-          </Card>
-        </Col>
-
-        <Col span={8}>
-          <Card
-            hoverable
-            style={{ textAlign: 'center', padding: 24 }}
-            cover={<SettingOutlined style={{ fontSize: 48, color: '#722ed1', marginTop: 20 }} />}
-          >
-            <Title level={5}>配置管理</Title>
-            <Paragraph type="secondary">查看和管理当前配置</Paragraph>
-            <Link to="/config">
-              <Button disabled={launcherStatus !== 'online'}>查看配置</Button>
             </Link>
           </Card>
         </Col>
