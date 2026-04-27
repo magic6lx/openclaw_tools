@@ -198,12 +198,12 @@ function Operations() {
                 <Title level={4}>Launcher 服务</Title>
                 <Space>
                   {getLauncherTag()}
-                  <Text type="secondary">v1.0.0</Text>
+                  <Text type="secondary">v1.0.2</Text>
                 </Space>
               </div>
               {launcherStatus === 'offline' && (
-                <Button type="link" onClick={() => window.open('/download', '_blank')}>
-                  下载 Launcher
+                <Button type="link" onClick={() => window.open('/downloads/OpenClawLauncher-win-x64-v1.0.2.zip', '_blank')}>
+                  下载 Launcher v1.0.2
                 </Button>
               )}
             </div>
