@@ -5,7 +5,7 @@ import { CheckCircleOutlined, RightOutlined, LinkOutlined, CopyOutlined, QrcodeO
 const { Title, Text, Paragraph } = Typography;
 const { Option } = Select;
 const LAUNCHER_API = 'http://127.0.0.1:3003';
-const SERVER_API = 'http://127.0.0.1:3002';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
 const FEISHU_DOCS_URL = 'https://docs.openclaw.ai/zh-CN/channels/feishu';
 const FEISHU_OPEN_PLATFORM = 'https://open.feishu.cn/app';
@@ -100,12 +100,26 @@ function FeishuSetup({ currentConfig, onConfigSaved }) {
       const headers = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const res = await fetch(`${SERVER_API}/api/cli/exec`, {
+      const res = await fetch(`${API_BASE}/api/cli/exec`, {
         method: 'POST',
         headers,
         body: JSON.stringify({ command: 'openclaw channels login --channel feishu' })
       });
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        const text = await res.text();
+        setCliResult({ success: false, output: `服务端返回非JSON响应 (HTTP ${res.status})，请确认服务端已部署最新代码并包含 /api/cli/exec 接口。\n\n响应内容: ${text.substring(0, 200)}` });
+        return;
+      }
       const data = await res.json();
+      if (res.status === 401) {
+        setCliResult({ success: false, output: '认证失败，请重新登录后重试' });
+        return;
+      }
+      if (res.status === 404) {
+        setCliResult({ success: false, output: '服务端未找到 /api/cli/exec 接口，请确认服务端代码已更新到最新版本' });
+        return;
+      }
       if (data.success) {
         setCliResult({ success: true, output: data.output || data.data?.output || '' });
         message.success('飞书登录命令已执行，请在终端中完成扫码');
