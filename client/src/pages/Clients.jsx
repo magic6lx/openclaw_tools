@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Table, Typography, Button, Tag, Space, Modal, Descriptions, Badge, Empty, Input, Select, message } from 'antd';
+import { Card, Table, Typography, Button, Tag, Space, Modal, Descriptions, Badge, Empty, Input, Select, message, Popconfirm } from 'antd';
 import { ReloadOutlined, UserOutlined, EyeOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -66,6 +66,26 @@ function Clients() {
     setClientLogs(logs.filter(l => l.device_id === client.deviceId).reverse());
   };
 
+  const handleDeleteDevice = async (client) => {
+    try {
+      const token = localStorage.getItem('token');
+      const deviceId = encodeURIComponent(client.deviceId || '');
+      const res = await fetch(`${API_BASE}/api/devices/${deviceId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        message.success(data.message || '删除成功');
+        fetchClients();
+      } else {
+        message.error(data.error || '删除失败');
+      }
+    } catch (err) {
+      message.error('删除失败: ' + err.message);
+    }
+  };
+
   const getStatusBadge = (lastSeen) => {
     const diff = Date.now() - new Date(lastSeen).getTime();
     const isOnline = diff < 5 * 60 * 1000;
@@ -113,11 +133,29 @@ function Clients() {
     {
       title: '操作',
       key: 'action',
-      width: 100,
+      width: 160,
       render: (_, r) => (
-        <Button type="link" icon={<EyeOutlined />} onClick={() => handleViewLogs(r)}>
-          查看日志
-        </Button>
+        <Space>
+          <Button type="link" icon={<EyeOutlined />} onClick={() => handleViewLogs(r)}>
+            日志
+          </Button>
+          <Popconfirm
+            title="确认删除"
+            description={
+              r.deviceId
+                ? `确定删除设备 ${r.deviceId.substring(0, 16)}... 及其 ${r.logCount} 条日志？`
+                : `确定删除此无效设备（设备ID为空）及其 ${r.logCount} 条日志？`
+            }
+            onConfirm={() => handleDeleteDevice(r)}
+            okText="删除"
+            cancelText="取消"
+            okButtonProps={{ danger: true }}
+          >
+            <Button type="link" danger icon={<DeleteOutlined />}>
+              删除
+            </Button>
+          </Popconfirm>
+        </Space>
       )
     }
   ];

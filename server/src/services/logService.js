@@ -6,20 +6,26 @@ async function saveLogs(logs) {
   }
 
   try {
+    let savedCount = 0;
     for (const log of logs) {
+      const deviceId = log.deviceId || '';
+      if (!deviceId) {
+        continue;
+      }
       await query(
         `INSERT INTO logs (device_id, level, source, message, client_timestamp)
          VALUES (?, ?, ?, ?, ?)`,
         [
-          log.deviceId || '',
+          deviceId,
           log.level || 'info',
           log.source || '',
           log.message || '',
           log.timestamp ? new Date(log.timestamp) : null
         ]
       );
+      savedCount++;
     }
-    return { success: true, count: logs.length };
+    return { success: true, count: savedCount };
   } catch (err) {
     console.error('Save logs error:', err);
     throw err;
@@ -89,9 +95,21 @@ async function getAllDevices() {
   }
 }
 
+async function deleteDeviceLogs(deviceId) {
+  try {
+    await query('DELETE FROM logs WHERE device_id = ?', [deviceId]);
+    await query('DELETE FROM devices WHERE device_id = ?', [deviceId]);
+    return { success: true };
+  } catch (err) {
+    console.error('Delete device logs error:', err);
+    throw err;
+  }
+}
+
 module.exports = {
   saveLogs,
   getLogs,
   getLogsByDevice,
-  getAllDevices
+  getAllDevices,
+  deleteDeviceLogs
 };
