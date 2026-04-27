@@ -650,4 +650,70 @@ router.post('/config/cli/all', authMiddleware, async (req, res) => {
   }
 });
 
+const ALLOWED_CLI_COMMANDS = [
+  'openclaw channels login',
+  'openclaw channels status',
+  'openclaw channels list',
+  'openclaw gateway restart',
+  'openclaw pairing approve',
+  'openclaw devices list',
+  'openclaw devices approve'
+];
+
+router.post('/cli/exec', authMiddleware, async (req, res) => {
+  try {
+    const { spawn } = require('child_process');
+    const { command } = req.body;
+
+    if (!command) {
+      return res.status(400).json({ success: false, error: '缺少命令参数' });
+    }
+
+    const isAllowed = ALLOWED_CLI_COMMANDS.some(allowed => command.startsWith(allowed));
+    if (!isAllowed) {
+      return res.status(403).json({ success: false, error: `不允许执行的命令: ${command}` });
+    }
+
+    const args = command.split(' ');
+    const cmd = args[0];
+    const cmdArgs = args.slice(1);
+
+    const child = spawn(cmd, cmdArgs, {
+      encoding: 'utf8',
+      timeout: 60000,
+      windowsHide: true,
+      shell: true
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+
+    child.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
+
+    child.on('close', (code) => {
+      res.json({
+        success: code === 0,
+        exitCode: code,
+        output: stdout,
+        error: stderr
+      });
+    });
+
+    child.on('error', (err) => {
+      res.status(500).json({
+        success: false,
+        error: err.message
+      });
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;
