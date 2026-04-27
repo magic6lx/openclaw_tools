@@ -395,6 +395,48 @@ export const CONFIG_SCHEMA = {
             botToken: { type: 'string', title: 'Bot Token', sensitive: true },
             appToken: { type: 'string', title: 'App Token', sensitive: true }
           }
+        },
+        feishu: {
+          type: 'object',
+          title: '飞书',
+          properties: {
+            enabled: { type: 'boolean', title: '启用', default: false },
+            appId: { type: 'string', title: 'App ID', default: '' },
+            appSecret: { type: 'string', title: 'App Secret', sensitive: true, default: '' },
+            dmPolicy: {
+              type: 'string',
+              title: '私信策略',
+              enum: ['pairing', 'allowlist', 'open', 'disabled'],
+              enumLabels: {
+                pairing: '配对模式（需审批）',
+                allowlist: '白名单模式',
+                open: '开放模式',
+                disabled: '禁用私信'
+              },
+              default: 'allowlist'
+            },
+            groupPolicy: {
+              type: 'string',
+              title: '群聊策略',
+              enum: ['open', 'allowlist', 'disabled'],
+              enumLabels: {
+                open: '开放（响应所有群消息）',
+                allowlist: '白名单（仅响应指定群）',
+                disabled: '禁用群聊'
+              },
+              default: 'allowlist'
+            },
+            requireMention: {
+              type: 'boolean',
+              title: '需要@提及才响应',
+              default: true
+            },
+            streaming: {
+              type: 'boolean',
+              title: '启用流式回复',
+              default: true
+            }
+          }
         }
       }
     },

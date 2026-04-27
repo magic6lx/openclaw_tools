@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, Typography, Row, Col, Button, Tag, Space, Modal, message, Spin, Descriptions, Divider, Popconfirm, Select, Checkbox, Switch } from 'antd';
 import { CheckCircleOutlined, ReloadOutlined, RocketOutlined, SaveOutlined, DeleteOutlined, LinuxOutlined } from '@ant-design/icons';
 import QuickSettings from '../components/QuickSettings';
+import FeishuSetup from '../components/FeishuSetup';
 import { useConfig } from '../hooks/useConfig';
 
 const { Title, Text, Paragraph } = Typography;
@@ -406,6 +407,11 @@ function Config() {
           />
         </div>
       </Card>
+
+      <FeishuSetup
+        currentConfig={localConfig}
+        onConfigSaved={() => fetchConfig()}
+      />
 
       <Row gutter={[16, 16]}>
         <Col span={14}>
