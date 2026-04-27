@@ -409,16 +409,24 @@ app.get('/version', (req, res) => {
 
     let currentVersion = 'unknown';
     try {
-      const showResult = execSync('npm show openclaw version', { encoding: 'utf8', timeout: 10000, windowsHide: true });
-      currentVersion = showResult.trim();
+      const verResult = execSync('openclaw --version', { encoding: 'utf8', timeout: 10000, windowsHide: true });
+      currentVersion = verResult.trim();
     } catch (e) {
       try {
-        const pkgPath = join(npmGlobalPath, 'node_modules', 'openclaw', 'package.json');
-        if (existsSync(pkgPath)) {
-          const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
-          currentVersion = pkg.version || 'unknown';
+        const showResult = execSync('npm list openclaw -g --depth=0', { encoding: 'utf8', timeout: 10000, windowsHide: true });
+        const match = showResult.match(/openclaw@(\S+)/);
+        if (match) {
+          currentVersion = match[1];
         }
       } catch (e2) {
+        try {
+          const pkgPath = join(npmGlobalPath, 'node_modules', 'openclaw', 'package.json');
+          if (existsSync(pkgPath)) {
+            const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+            currentVersion = pkg.version || 'unknown';
+          }
+        } catch (e3) {
+        }
       }
     }
 
