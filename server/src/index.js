@@ -4,7 +4,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const apiRouter = require('./routes/api');
-const { testConnection } = require('./db');
+const { testConnection, initSchema } = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3002;
@@ -22,6 +22,7 @@ app.get('*', (req, res) => {
 
 async function start() {
   await testConnection();
+  await initSchema();
   app.listen(PORT, () => {
     console.log(`OpenClaw Server running on port ${PORT}`);
   });
