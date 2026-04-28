@@ -81,11 +81,12 @@ export const CONFIG_SCHEMA = {
       type: 'object',
       title: '模型配置',
       properties: {
-        useProxy: {
-          type: 'boolean',
-          title: '使用代理',
-          default: false,
-          description: '使用邀请码管理员配置的API Key'
+        mode: {
+          type: 'string',
+          title: '提供商目录模式',
+          enum: ['merge', 'replace'],
+          default: 'merge',
+          description: 'merge=合并内置目录, replace=完全替换'
         },
         providers: {
           type: 'object',
@@ -227,36 +228,15 @@ export const CONFIG_SCHEMA = {
         }
       }
     },
-    launcher: {
-      type: 'object',
-      title: '启动器配置',
-      properties: {
-        autoStart: {
-          type: 'boolean',
-          title: '开机自启',
-          default: false
-        },
-        checkUpdate: {
-          type: 'boolean',
-          title: '自动检查更新',
-          default: true
-        },
-        logLevel: {
-          type: 'string',
-          title: '日志级别',
-          enum: ['debug', 'info', 'warn', 'error'],
-          default: 'info'
-        }
-      }
-    },
     gateway: {
       type: 'object',
       title: '网关配置',
       properties: {
-        enabled: {
-          type: 'boolean',
-          title: '启用网关',
-          default: true
+        mode: {
+          type: 'string',
+          title: '网关模式',
+          enum: ['local', 'remote'],
+          default: 'local'
         },
         port: {
           type: 'integer',
@@ -264,6 +244,12 @@ export const CONFIG_SCHEMA = {
           default: 18789,
           minimum: 1024,
           maximum: 65535
+        },
+        bind: {
+          type: 'string',
+          title: '绑定模式',
+          enum: ['auto', 'loopback', 'lan', 'tailnet', 'custom'],
+          default: 'loopback'
         },
         controlUi: {
           type: 'object',
@@ -444,15 +430,21 @@ export const CONFIG_SCHEMA = {
       type: 'object',
       title: '钩子配置',
       properties: {
-        preTask: {
-          type: 'array',
-          title: '任务前钩子',
-          items: { type: 'string' }
+        enabled: {
+          type: 'boolean',
+          title: '启用钩子',
+          default: false
         },
-        postTask: {
-          type: 'array',
-          title: '任务后钩子',
-          items: { type: 'string' }
+        token: {
+          type: 'string',
+          title: '共享密钥',
+          sensitive: true,
+          default: ''
+        },
+        path: {
+          type: 'string',
+          title: '钩子路径',
+          default: '/hooks'
         }
       }
     }
@@ -460,17 +452,16 @@ export const CONFIG_SCHEMA = {
 };
 
 export const SECTION_META = {
-  launcher: { icon: '�', order: 1, category: '基础服务' },
-  gateway: { icon: '🌉', order: 2, category: '基础服务' },
-  agents: { icon: '🤖', order: 3, category: '核心配置' },
-  session: { icon: '💬', order: 4, category: '核心配置' },
-  models: { icon: '🧠', order: 5, category: '模型' },
-  channels: { icon: '�', order: 6, category: '集成' },
-  hooks: { icon: '🔗', order: 7, category: '集成' },
-  logging: { icon: '�', order: 8, category: '调试' },
-  browser: { icon: '🌐', order: 9, category: '调试' },
-  meta: { icon: '�', order: 10, category: '元信息' },
-  wizard: { icon: '🧙', order: 11, category: '元信息' }
+  gateway: { icon: '🌉', order: 1, category: '基础服务' },
+  agents: { icon: '🤖', order: 2, category: '核心配置' },
+  session: { icon: '💬', order: 3, category: '核心配置' },
+  models: { icon: '🧠', order: 4, category: '模型' },
+  channels: { icon: '📱', order: 5, category: '集成' },
+  hooks: { icon: '🔗', order: 6, category: '集成' },
+  logging: { icon: '📝', order: 7, category: '调试' },
+  browser: { icon: '🌐', order: 8, category: '调试' },
+  meta: { icon: '📋', order: 9, category: '元信息' },
+  wizard: { icon: '🧙', order: 10, category: '元信息' }
 };
 
 export function getSchemaSection(section) {

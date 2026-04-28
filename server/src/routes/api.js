@@ -639,9 +639,8 @@ router.post('/config/cli/all', authMiddleware, async (req, res) => {
       'agents.defaults.workspace',
       'agents.defaults.model.primary',
       'agents.list',
-      'models.useProxy',
       'models.providers',
-      'gateway.enabled',
+      'gateway.port',
       'logging.level'
     ];
 

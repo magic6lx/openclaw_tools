@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Typography, Row, Col, Button, Tag, Space, Modal, message, Spin, Descriptions, Divider, Popconfirm, Select, Checkbox, Switch } from 'antd';
-import { CheckCircleOutlined, ReloadOutlined, RocketOutlined, SaveOutlined, DeleteOutlined, LinuxOutlined } from '@ant-design/icons';
+import { CheckCircleOutlined, ReloadOutlined, RocketOutlined, SaveOutlined, DeleteOutlined, LinuxOutlined, ClearOutlined } from '@ant-design/icons';
 import QuickSettings from '../components/QuickSettings';
 import { useConfig } from '../hooks/useConfig';
 
@@ -33,6 +33,28 @@ function Config() {
   const [savingProxy, setSavingProxy] = useState(false);
   const [cliLoading, setCliLoading] = useState(false);
   const [cliResults, setCliResults] = useState(null);
+  const [sanitizing, setSanitizing] = useState(false);
+
+  const handleSanitizeConfig = async () => {
+    setSanitizing(true);
+    try {
+      const res = await fetch(`${LAUNCHER_API}/config/sanitize`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        if (data.cleaned) {
+          message.success(`已清理 ${data.removedKeys.length} 个无效字段: ${data.removedKeys.join(', ')}`);
+          fetchConfig();
+        } else {
+          message.info('配置文件中没有发现无效字段');
+        }
+      } else {
+        message.error(data.error || '清理失败');
+      }
+    } catch (err) {
+      message.error(`清理失败: ${err.message}`);
+    }
+    setSanitizing(false);
+  };
 
   const handleCliCheck = async () => {
     setCliLoading(true);
@@ -98,33 +120,49 @@ function Config() {
     if (!localConfig) return;
 
     const currentProviders = localConfig.models?.providers || {};
-    const originalUseProxy = localConfig.models?.useProxy;
-    const originalProviders = localConfig.models?.originalProviders;
+    const savedProviders = localStorage.getItem('openclaw_original_providers');
 
     let newConfig;
     if (checked) {
+      try {
+        localStorage.setItem('openclaw_original_providers', JSON.stringify(currentProviders));
+      } catch (e) { /* ignore */ }
       newConfig = {
         ...localConfig,
         models: {
           ...(localConfig.models || {}),
-          useProxy: true,
-          originalProviders: currentProviders,
           providers: {
             volcengine: {
+              api: 'openai-completions',
+              baseUrl: 'http://127.0.0.1:3002/api/proxy/chat',
               apiKey: 'proxy',
-              apiBase: 'http://127.0.0.1:3002/api/proxy/chat'
+              models: [
+                {
+                  id: 'doubao-1.5-pro-32k',
+                  name: 'Doubao 1.5 Pro 32K',
+                  reasoning: false,
+                  input: ['text'],
+                  contextWindow: 32000,
+                  maxTokens: 4096
+                }
+              ]
             }
           }
         }
       };
     } else {
+      let restoredProviders = {};
+      if (savedProviders) {
+        try {
+          restoredProviders = JSON.parse(savedProviders);
+          localStorage.removeItem('openclaw_original_providers');
+        } catch (e) { /* ignore */ }
+      }
       newConfig = {
         ...localConfig,
         models: {
           ...(localConfig.models || {}),
-          useProxy: false,
-          providers: originalUseProxy ? (originalProviders || {}) : currentProviders,
-          originalProviders: undefined
+          providers: Object.keys(restoredProviders).length > 0 ? restoredProviders : currentProviders
         }
       };
     }
@@ -271,11 +309,7 @@ function Config() {
       }
     });
 
-    if (partialConfig.models) {
-      partialConfig.models.useProxy = true;
-    }
-
-    const hasProxyConfig = partialConfig.models?.useProxy;
+    const hasProxyConfig = partialConfig.models?.providers?.volcengine?.baseUrl?.includes('127.0.0.1:3002');
 
     Modal.confirm({
       title: '确认应用模板',
@@ -358,7 +392,6 @@ function Config() {
   };
 
   const CONFIG_NAME_MAP = {
-    launcher: { icon: '🚀', name: '启动器' },
     gateway: { icon: '🌉', name: '网关' },
     agents: { icon: '🤖', name: 'Agent' },
     session: { icon: '💬', name: '会话' },
@@ -380,6 +413,9 @@ function Config() {
           <Button icon={<ReloadOutlined />} onClick={() => { fetchConfig(); fetchTemplates(); }} loading={loading}>
             刷新
           </Button>
+          <Button icon={<ClearOutlined />} onClick={handleSanitizeConfig} loading={sanitizing}>
+            清理无效配置
+          </Button>
           <Button icon={<LinuxOutlined />} onClick={handleCliCheck} loading={cliLoading}>
             CLI检测
           </Button>
@@ -387,7 +423,7 @@ function Config() {
       </div>
 
       <Card
-        style={{ marginBottom: 16, background: localConfig?.models?.useProxy ? '#e6f4ff' : '#fffbe6' }}
+        style={{ marginBottom: 16, background: (localConfig?.models?.providers?.volcengine?.baseUrl?.includes('127.0.0.1:3002')) ? '#e6f4ff' : '#fffbe6' }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
@@ -397,7 +433,7 @@ function Config() {
             </Paragraph>
           </div>
           <Switch
-            checked={localConfig?.models?.useProxy || false}
+            checked={localConfig?.models?.providers?.volcengine?.baseUrl?.includes('127.0.0.1:3002') || false}
             onChange={handleToggleProxy}
             loading={savingProxy}
             disabled={!localConfig}
@@ -680,8 +716,8 @@ function Config() {
                 <div style={{ marginBottom: 12 }}>
                   <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>快捷选择：</Text>
                   <Space>
-                    <Button size="small" onClick={() => setSelectedConfigKeys(['launcher', 'gateway'])}>基础</Button>
-                    <Button size="small" onClick={() => setSelectedConfigKeys(['launcher', 'gateway', 'agents', 'session', 'models'])}>标准</Button>
+                    <Button size="small" onClick={() => setSelectedConfigKeys(['gateway', 'logging'])}>基础</Button>
+                    <Button size="small" onClick={() => setSelectedConfigKeys(['gateway', 'agents', 'session', 'models', 'logging'])}>标准</Button>
                     <Button size="small" onClick={() => setSelectedConfigKeys(Object.keys(selectedTemplate.config || {}))}>高级</Button>
                   </Space>
                 </div>

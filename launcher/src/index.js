@@ -671,6 +671,60 @@ function mergeConfigRecursive(existing, template, conflicts = [], path = '') {
   return result;
 }
 
+const INVALID_ROOT_KEYS = ['launcher'];
+const INVALID_MODELS_KEYS = ['useProxy', 'originalProviders'];
+const INVALID_GATEWAY_KEYS = ['enabled'];
+const INVALID_HOOKS_KEYS = ['preTask', 'postTask'];
+const INVALID_PROVIDER_KEYS = ['apiBase'];
+
+function sanitizeConfig(config) {
+  if (!config || typeof config !== 'object') return config;
+  const cleaned = { ...config };
+
+  for (const key of INVALID_ROOT_KEYS) {
+    if (key in cleaned) {
+      delete cleaned[key];
+    }
+  }
+
+  if (cleaned.models && typeof cleaned.models === 'object') {
+    for (const key of INVALID_MODELS_KEYS) {
+      if (key in cleaned.models) {
+        delete cleaned.models[key];
+      }
+    }
+    if (cleaned.models.providers && typeof cleaned.models.providers === 'object') {
+      for (const [providerId, provider] of Object.entries(cleaned.models.providers)) {
+        if (provider && typeof provider === 'object') {
+          for (const key of INVALID_PROVIDER_KEYS) {
+            if (key in provider) {
+              delete provider[key];
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (cleaned.gateway && typeof cleaned.gateway === 'object') {
+    for (const key of INVALID_GATEWAY_KEYS) {
+      if (key in cleaned.gateway) {
+        delete cleaned.gateway[key];
+      }
+    }
+  }
+
+  if (cleaned.hooks && typeof cleaned.hooks === 'object') {
+    for (const key of INVALID_HOOKS_KEYS) {
+      if (key in cleaned.hooks) {
+        delete cleaned.hooks[key];
+      }
+    }
+  }
+
+  return cleaned;
+}
+
 app.post('/config/import', (req, res) => {
   try {
     const { config, env, mergeStrategy } = req.body;
@@ -678,11 +732,13 @@ app.post('/config/import', (req, res) => {
       return res.json({ success: false, error: '配置文件为空' });
     }
 
+    const sanitizedConfig = sanitizeConfig(config);
+
     if (!existsSync(OPENCLAW_CONFIG_DIR)) {
       mkdirSync(OPENCLAW_CONFIG_DIR, { recursive: true });
     }
 
-    let finalConfig = config;
+    let finalConfig = sanitizedConfig;
     let conflicts = [];
 
     if (existsSync(OPENCLAW_CONFIG_FILE)) {
@@ -690,10 +746,10 @@ app.post('/config/import', (req, res) => {
         const existingConfig = JSON.parse(readFileSync(OPENCLAW_CONFIG_FILE, 'utf-8'));
         
         if (mergeStrategy === 'force') {
-          finalConfig = config;
+          finalConfig = sanitizedConfig;
           conflicts.push({ field: 'root', action: 'force_replaced', reason: 'force_mode' });
         } else {
-          finalConfig = mergeConfigRecursive(existingConfig, config, conflicts);
+          finalConfig = mergeConfigRecursive(existingConfig, sanitizedConfig, conflicts);
         }
       } catch (e) {
         conflicts.push({ field: 'root', action: 'parse_error', error: e.message });
@@ -706,6 +762,37 @@ app.post('/config/import', (req, res) => {
     }
     addLog('INFO', `配置已应用，合并了 ${conflicts.length} 个冲突`);
     res.json({ success: true, conflicts, merged: finalConfig });
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+app.post('/config/sanitize', (req, res) => {
+  try {
+    if (!existsSync(OPENCLAW_CONFIG_FILE)) {
+      return res.json({ success: false, error: '配置文件不存在' });
+    }
+    const rawConfig = JSON.parse(readFileSync(OPENCLAW_CONFIG_FILE, 'utf-8'));
+    const cleaned = sanitizeConfig(rawConfig);
+    const removedKeys = [];
+
+    function findRemoved(orig, clean, prefix = '') {
+      for (const key of Object.keys(orig)) {
+        if (!(key in clean)) {
+          removedKeys.push(prefix ? `${prefix}.${key}` : key);
+        } else if (typeof orig[key] === 'object' && orig[key] !== null && typeof clean[key] === 'object' && clean[key] !== null && !Array.isArray(orig[key])) {
+          findRemoved(orig[key], clean[key], prefix ? `${prefix}.${key}` : key);
+        }
+      }
+    }
+    findRemoved(rawConfig, cleaned);
+
+    if (removedKeys.length > 0) {
+      writeFileSync(OPENCLAW_CONFIG_FILE, JSON.stringify(cleaned, null, 2), 'utf-8');
+      addLog('INFO', `配置已清理，移除了 ${removedKeys.length} 个无效字段: ${removedKeys.join(', ')}`);
+    }
+
+    res.json({ success: true, removedKeys, cleaned: removedKeys.length > 0 });
   } catch (err) {
     res.json({ success: false, error: err.message });
   }
