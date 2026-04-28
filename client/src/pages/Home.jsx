@@ -56,10 +56,13 @@ function Home() {
   };
 
   const handleDownload = () => {
-    window.open('/launcher/download', '_blank');
-    localStorage.setItem('launcherInstalled', 'true');
-    setLauncherInstalled(true);
-    message.success('如果下载未开始，请检查浏览器弹窗设置');
+    const link = document.createElement('a');
+    link.href = '/launcher/download';
+    link.download = '';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    message.success('Launcher 下载已开始，请保存文件后解压运行');
   };
 
   const handleLaunchLauncher = () => {
@@ -104,30 +107,42 @@ function Home() {
     }
 
     return (
-      <Space>
-        {launcherInstalled ? (
+      <Space direction="vertical" size="small" style={{ width: '100%' }}>
+        <Space>
+          {launcherInstalled ? (
+            <Button
+              type="primary"
+              icon={<PlayCircleOutlined />}
+              onClick={handleLaunchLauncher}
+            >
+              启动Launcher
+            </Button>
+          ) : (
+            <Button
+              type="primary"
+              icon={<DownloadOutlined />}
+              onClick={handleDownload}
+            >
+              下载Launcher
+            </Button>
+          )}
           <Button
-            type="primary"
-            icon={<PlayCircleOutlined />}
-            onClick={handleLaunchLauncher}
+            icon={<BugOutlined />}
+            onClick={() => window.location.href = '/diagnostics'}
           >
-            启动Launcher
+            诊断工具
           </Button>
-        ) : (
+        </Space>
+        {launcherInstalled && (
           <Button
-            type="primary"
+            type="link"
             icon={<DownloadOutlined />}
             onClick={handleDownload}
+            style={{ padding: '0', height: 'auto' }}
           >
-            下载Launcher
+            重新下载
           </Button>
         )}
-        <Button
-          icon={<BugOutlined />}
-          onClick={() => window.location.href = '/diagnostics'}
-        >
-          诊断工具
-        </Button>
       </Space>
     );
   };
