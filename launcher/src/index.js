@@ -694,6 +694,7 @@ function sanitizeConfig(config) {
       }
     }
     if (cleaned.models.providers && typeof cleaned.models.providers === 'object') {
+      const providersToRemove = [];
       for (const [providerId, provider] of Object.entries(cleaned.models.providers)) {
         if (provider && typeof provider === 'object') {
           for (const key of INVALID_PROVIDER_KEYS) {
@@ -701,7 +702,13 @@ function sanitizeConfig(config) {
               delete provider[key];
             }
           }
+          if (provider.baseUrl === undefined || provider.models === undefined) {
+            providersToRemove.push(providerId);
+          }
         }
+      }
+      for (const id of providersToRemove) {
+        delete cleaned.models.providers[id];
       }
     }
   }
