@@ -100,7 +100,7 @@ function FeishuSetup({ currentConfig, onConfigSaved }) {
       const headers = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const res = await fetch(`${API_BASE}/api/cli/exec`, {
+      const res = await fetch(`${LAUNCHER_API}/api/cli/exec`, {
         method: 'POST',
         headers,
         body: JSON.stringify({ command: 'openclaw channels login --channel feishu' })
@@ -108,7 +108,7 @@ function FeishuSetup({ currentConfig, onConfigSaved }) {
       const contentType = res.headers.get('content-type') || '';
       if (!contentType.includes('application/json')) {
         const text = await res.text();
-        setCliResult({ success: false, output: `服务端返回非JSON响应 (HTTP ${res.status})，请确认服务端已部署最新代码并包含 /api/cli/exec 接口。\n\n响应内容: ${text.substring(0, 200)}` });
+        setCliResult({ success: false, output: `Launcher 返回非JSON响应 (HTTP ${res.status})，请确认本地 Launcher 已启动且包含 /api/cli/exec 接口。\n\n响应内容: ${text.substring(0, 200)}` });
         return;
       }
       const data = await res.json();
@@ -117,7 +117,7 @@ function FeishuSetup({ currentConfig, onConfigSaved }) {
         return;
       }
       if (res.status === 404) {
-        setCliResult({ success: false, output: '服务端未找到 /api/cli/exec 接口，请确认服务端代码已更新到最新版本' });
+        setCliResult({ success: false, output: 'Launcher 未找到 /api/cli/exec 接口，请确认本地 Launcher 版本支持此功能' });
         return;
       }
       if (data.success) {

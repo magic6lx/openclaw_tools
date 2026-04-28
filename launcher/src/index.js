@@ -878,6 +878,77 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
+const ALLOWED_CLI_COMMANDS = [
+  'openclaw channels login --channel feishu',
+  'openclaw devices approve'
+];
+
+app.post('/api/cli/exec', (req, res) => {
+  try {
+    const { spawn } = require('child_process');
+    const { command } = req.body;
+
+    if (!command) {
+      return res.status(400).json({ success: false, error: '缺少命令参数' });
+    }
+
+    const isAllowed = ALLOWED_CLI_COMMANDS.some(allowed => command.startsWith(allowed));
+    if (!isAllowed) {
+      return res.status(403).json({ success: false, error: `不允许执行的命令: ${command}` });
+    }
+
+    const args = command.split(' ');
+    const cmd = args[0];
+    const cmdArgs = args.slice(1);
+
+    addLog('INFO', `执行命令: ${command}`);
+
+    const child = spawn(cmd, cmdArgs, {
+      encoding: 'utf8',
+      timeout: 120000,
+      windowsHide: false,
+      shell: true,
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.on('data', (data) => {
+      const text = data.toString();
+      stdout += text;
+      addLog('INFO', `[cli stdout] ${text.replace(/\n/g, ' ').trim()}`);
+    });
+
+    child.stderr.on('data', (data) => {
+      const text = data.toString();
+      stderr += text;
+      addLog('WARN', `[cli stderr] ${text.replace(/\n/g, ' ').trim()}`);
+    });
+
+    child.on('close', (code) => {
+      addLog('INFO', `命令完成，退出码: ${code}`);
+      res.json({
+        success: code === 0,
+        exitCode: code,
+        output: stdout,
+        error: stderr
+      });
+    });
+
+    child.on('error', (err) => {
+      addLog('ERROR', `命令执行失败: ${err.message}`);
+      res.status(500).json({
+        success: false,
+        error: err.message
+      });
+    });
+  } catch (err) {
+    addLog('ERROR', `命令执行异常: ${err.message}`);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`OpenClaw Launcher running on port ${PORT}`);
 });
