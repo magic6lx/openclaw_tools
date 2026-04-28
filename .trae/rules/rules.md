@@ -8,4 +8,5 @@ alwaysApply: true
 4.1 所有的操作指令，都必须基于openclaw的官方档。
 4.2 所有的配置，都必须基于openclaw的官方档。
 5. 禁止mock任何数据，包括数据库、文件、网络等。
+6. 禁止把令牌信息和密钥信息提交到github。
 

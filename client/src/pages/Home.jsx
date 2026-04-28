@@ -281,7 +281,7 @@ function Home() {
             style={{ textAlign: 'center', padding: 24 }}
             cover={<SettingOutlined style={{ fontSize: 48, color: '#722ed1', marginTop: 20 }} />}
           >
-            <Title level={5}>配置管理</Title>
+            <Title level={5}>openclaw关键配置</Title>
             <Paragraph type="secondary">查看和管理当前配置</Paragraph>
             <Link to="/config">
               <Button disabled={launcherStatus !== 'online'}>查看配置</Button>

@@ -31,9 +31,57 @@ function Config() {
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [selectedConfigKeys, setSelectedConfigKeys] = useState([]);
   const [savingProxy, setSavingProxy] = useState(false);
+  const [proxyEnabled, setProxyEnabled] = useState(false);
   const [cliLoading, setCliLoading] = useState(false);
   const [cliResults, setCliResults] = useState(null);
   const [sanitizing, setSanitizing] = useState(false);
+
+  const fetchProxyState = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${SERVER_API}/api/proxy/state`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setProxyEnabled(data.enabled);
+      }
+    } catch (err) {
+      console.error('获取代理状态失败:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchConfig();
+    fetchTemplates();
+    fetchPrivateTemplates();
+    fetchProxyState();
+  }, []);
+
+  const handleToggleProxy = async (checked) => {
+    setSavingProxy(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${SERVER_API}/api/proxy/state`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ enabled: checked })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setProxyEnabled(data.enabled);
+        message.success(checked ? '已启用代理' : '已关闭代理');
+      } else {
+        message.error(data.error || '操作失败');
+      }
+    } catch (err) {
+      message.error(`操作失败: ${err.message}`);
+    }
+    setSavingProxy(false);
+  };
 
   const handleSanitizeConfig = async () => {
     setSanitizing(true);
@@ -111,79 +159,6 @@ function Config() {
     fetchTemplates();
     fetchPrivateTemplates();
   }, []);
-
-  const handleConfigChange = (section, newSectionConfig) => {
-    updateConfig(section, newSectionConfig);
-  };
-
-  const handleToggleProxy = async (checked) => {
-    if (!localConfig) return;
-
-    const currentProviders = localConfig.models?.providers || {};
-    const savedProviders = localStorage.getItem('openclaw_original_providers');
-
-    let newConfig;
-    if (checked) {
-      try {
-        localStorage.setItem('openclaw_original_providers', JSON.stringify(currentProviders));
-      } catch (e) { /* ignore */ }
-      newConfig = {
-        ...localConfig,
-        models: {
-          ...(localConfig.models || {}),
-          providers: {
-            volcengine: {
-              api: 'openai-completions',
-              baseUrl: 'http://127.0.0.1:3002/api/proxy/chat',
-              apiKey: 'proxy',
-              models: [
-                {
-                  id: 'doubao-1.5-pro-32k',
-                  name: 'Doubao 1.5 Pro 32K',
-                  reasoning: false,
-                  input: ['text'],
-                  contextWindow: 32000,
-                  maxTokens: 4096
-                }
-              ]
-            }
-          }
-        }
-      };
-    } else {
-      let restoredProviders = {};
-      if (savedProviders) {
-        try {
-          restoredProviders = JSON.parse(savedProviders);
-          localStorage.removeItem('openclaw_original_providers');
-        } catch (e) { /* ignore */ }
-      }
-      newConfig = {
-        ...localConfig,
-        models: {
-          ...(localConfig.models || {}),
-          providers: Object.keys(restoredProviders).length > 0 ? restoredProviders : currentProviders
-        }
-      };
-    }
-
-    updateConfig('models', newConfig.models);
-    setSavingProxy(true);
-
-    try {
-      const result = await saveConfig(newConfig);
-      if (result.success) {
-        message.success(checked ? '已启用代理' : '已关闭代理');
-      } else {
-        message.error(result.error || '操作失败');
-        updateConfig('models', localConfig.models);
-      }
-    } catch (err) {
-      message.error(`操作失败: ${err.message}`);
-      updateConfig('models', localConfig.models);
-    }
-    setSavingProxy(false);
-  };
 
   const handleSavePrivateTemplate = () => {
     if (!localConfig) {
@@ -423,7 +398,7 @@ function Config() {
       </div>
 
       <Card
-        style={{ marginBottom: 16, background: (localConfig?.models?.providers?.volcengine?.baseUrl?.includes('127.0.0.1:3002')) ? '#e6f4ff' : '#fffbe6' }}
+        style={{ marginBottom: 16, background: proxyEnabled ? '#e6f4ff' : '#fffbe6' }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
@@ -433,7 +408,7 @@ function Config() {
             </Paragraph>
           </div>
           <Switch
-            checked={localConfig?.models?.providers?.volcengine?.baseUrl?.includes('127.0.0.1:3002') || false}
+            checked={proxyEnabled}
             onChange={handleToggleProxy}
             loading={savingProxy}
             disabled={!localConfig}

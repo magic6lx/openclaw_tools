@@ -162,10 +162,49 @@ const PROVIDER_API_BASE = {
   'volcengine': 'https://ark.cn-beijing.volces.com/api/v3'
 };
 
+router.get('/proxy/state', authMiddleware, async (req, res) => {
+  try {
+    const [invitations] = await require('../db').query(
+      'SELECT token_proxy FROM invitations WHERE id = ?',
+      [req.user.id]
+    );
+    const tokenProxy = invitations?.[0]?.token_proxy;
+    const enabled = tokenProxy?.enabled || false;
+    res.json({ success: true, enabled });
+  } catch (err) {
+    console.error('获取代理状态失败:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.put('/proxy/state', authMiddleware, async (req, res) => {
+  try {
+    const { enabled } = req.body;
+    const [invitations] = await require('../db').query(
+      'SELECT token_proxy FROM invitations WHERE id = ?',
+      [req.user.id]
+    );
+    const currentProxy = invitations?.[0]?.token_proxy || {};
+    const updatedProxy = { ...currentProxy, enabled: !!enabled };
+    await require('../db').query(
+      'UPDATE invitations SET token_proxy = ? WHERE id = ?',
+      [JSON.stringify(updatedProxy), req.user.id]
+    );
+    res.json({ success: true, enabled: !!enabled });
+  } catch (err) {
+    console.error('设置代理状态失败:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 router.post('/proxy/chat', authMiddleware, async (req, res) => {
   try {
     const { model, messages, temperature, max_tokens } = req.body;
-    const tokenProxy = req.user.tokenProxy;
+    const [invitations] = await require('../db').query(
+      'SELECT token_proxy FROM invitations WHERE id = ?',
+      [req.user.id]
+    );
+    const tokenProxy = invitations?.[0]?.token_proxy;
 
     if (!tokenProxy || !tokenProxy.enabled) {
       return res.status(403).json({ error: 'Token代理未启用' });
