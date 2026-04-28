@@ -696,20 +696,20 @@ function sanitizeConfig(config) {
     if (cleaned.models.providers && typeof cleaned.models.providers === 'object') {
       const providersToRemove = [];
       for (const [providerId, provider] of Object.entries(cleaned.models.providers)) {
-        addLog('INFO', `[sanitize] 检查 provider ${providerId}: ${JSON.stringify(provider)}`);
+        console.log(`[sanitize] 检查 provider ${providerId}: ${JSON.stringify(provider)}`);
         if (provider && typeof provider === 'object') {
           for (const key of INVALID_PROVIDER_KEYS) {
             if (key in provider) {
               delete provider[key];
-              addLog('INFO', `[sanitize] 删除 ${providerId}.${key}`);
+              console.log(`[sanitize] 删除 ${providerId}.${key}`);
             }
           }
-          addLog('INFO', `[sanitize] ${providerId} 删除invalid后: ${JSON.stringify(provider)}`);
+          console.log(`[sanitize] ${providerId} 删除invalid后: ${JSON.stringify(provider)}`);
           const validKeys = Object.keys(provider).filter(k => provider[k] !== undefined && provider[k] !== null && provider[k] !== '');
-          addLog('INFO', `[sanitize] ${providerId} validKeys: ${JSON.stringify(validKeys)}`);
+          console.log(`[sanitize] ${providerId} validKeys: ${JSON.stringify(validKeys)}`);
           if (validKeys.length === 0) {
             providersToRemove.push(providerId);
-            addLog('INFO', `[sanitize] 标记删除 provider ${providerId}`);
+            console.log(`[sanitize] 标记删除 provider ${providerId}`);
           }
         }
       }
@@ -790,14 +790,14 @@ app.post('/config/sanitize', (req, res) => {
     const removedKeys = [];
 
     addLog('INFO', `[sanitize] 原始配置 keys: ${Object.keys(rawConfig).join(', ')}`);
-    if (rawConfig.models?.providers) {
-      addLog('INFO', `[sanitize] 原始 providers: ${JSON.stringify(Object.keys(rawConfig.models.providers))}`);
-    }
-    if (cleaned.models?.providers) {
-      addLog('INFO', `[sanitize] 清理后 providers: ${JSON.stringify(Object.keys(cleaned.models.providers))}`);
-    } else {
-      addLog('INFO', `[sanitize] 清理后 providers: ${cleaned.models?.providers}`);
-    }
+     if (rawConfig.models?.providers) {
+       console.log(`[sanitize] 原始 providers: ${JSON.stringify(Object.keys(rawConfig.models.providers))}`);
+     }
+     if (cleaned.models?.providers) {
+       console.log(`[sanitize] 清理后 providers: ${JSON.stringify(Object.keys(cleaned.models.providers))}`);
+     } else {
+       console.log(`[sanitize] 清理后 providers: ${cleaned.models?.providers}`);
+     }
 
     function findRemoved(orig, clean, prefix = '') {
       for (const key of Object.keys(orig)) {
@@ -814,10 +814,10 @@ app.post('/config/sanitize', (req, res) => {
       writeFileSync(OPENCLAW_CONFIG_FILE, JSON.stringify(cleaned, null, 2), 'utf-8');
       addLog('INFO', `配置已清理，移除了 ${removedKeys.length} 个无效字段: ${removedKeys.join(', ')}`);
     } else {
-      addLog('INFO', `[sanitize] 未发现需要清理的字段`);
+      console.log('[sanitize] 未发现需要清理的字段');
     }
 
-    addLog('INFO', `[sanitize] removedKeys: ${JSON.stringify(removedKeys)}`);
+    console.log(`[sanitize] removedKeys: ${JSON.stringify(removedKeys)}`);
     res.json({ success: true, removedKeys, cleaned: removedKeys.length > 0 });
   } catch (err) {
     res.json({ success: false, error: err.message });
