@@ -37,17 +37,18 @@ async function testConnection() {
 
 async function initSchema() {
   try {
-    await pool.execute(`
-      ALTER TABLE invitations
-      ADD COLUMN IF NOT EXISTS token_proxy JSON DEFAULT NULL
+    const [columns] = await pool.execute(`
+      SELECT COLUMN_NAME FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'invitations' AND COLUMN_NAME = 'token_proxy'
     `);
-    console.log('✅ Schema initialized: token_proxy column added');
-  } catch (err) {
-    if (err.message.includes('Duplicate column')) {
-      console.log('ℹ️ Schema already up to date');
+    if (columns.length > 0) {
+      console.log('ℹ️ Schema already up to date: token_proxy column exists');
     } else {
-      console.error('❌ Schema init failed:', err.message);
+      await pool.execute(`ALTER TABLE invitations ADD COLUMN token_proxy JSON DEFAULT NULL`);
+      console.log('✅ Schema initialized: token_proxy column added');
     }
+  } catch (err) {
+    console.error('❌ Schema init failed:', err.message);
   }
 }
 
