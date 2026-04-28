@@ -902,16 +902,28 @@ app.post('/api/cli/exec', (req, res) => {
 
     addLog('INFO', `执行命令: ${command}`);
 
-    const child = spawn(cmd, cmdArgs, {
+    const isWindows = process.platform === 'win32';
+    const spawnOptions = {
       encoding: 'utf8',
       timeout: 120000,
       windowsHide: false,
       shell: true,
       stdio: ['ignore', 'pipe', 'pipe']
-    });
+    };
+
+    if (isWindows) {
+      spawnOptions.detached = true;
+      spawnOptions.windowsHide = false;
+    }
+
+    const child = spawn(cmd, cmdArgs, spawnOptions);
 
     let stdout = '';
     let stderr = '';
+
+    if (isWindows) {
+      child.unref();
+    }
 
     child.stdout.on('data', (data) => {
       const text = data.toString();
