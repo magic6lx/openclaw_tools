@@ -896,27 +896,28 @@ app.post('/api/cli/exec', (req, res) => {
       return res.status(403).json({ success: false, error: `不允许执行的命令: ${command}` });
     }
 
+    addLog('INFO', `执行命令: ${command}`);
+
+    const isWindows = process.platform === 'win32';
+
+    if (isWindows) {
+      spawn('cmd', ['/c', 'start', 'cmd', '/k', command], {
+        windowsHide: false,
+        detached: true,
+        stdio: 'ignore'
+      }).unref();
+      return res.json({ success: true, output: '已在新窗口启动命令，请查看弹出的终端窗口' });
+    }
+
     const args = command.split(' ');
     const cmd = args[0];
     const cmdArgs = args.slice(1);
 
-    addLog('INFO', `执行命令: ${command}`);
-
-    const isWindows = process.platform === 'win32';
-    const spawnOptions = {
+    const child = spawn(cmd, cmdArgs, {
       encoding: 'utf8',
       timeout: 120000,
-      windowsHide: false,
-      shell: true,
       stdio: ['ignore', 'pipe', 'pipe']
-    };
-
-    if (isWindows) {
-      spawnOptions.detached = true;
-      spawnOptions.windowsHide = false;
-    }
-
-    const child = spawn(cmd, cmdArgs, spawnOptions);
+    });
 
     let stdout = '';
     let stderr = '';
