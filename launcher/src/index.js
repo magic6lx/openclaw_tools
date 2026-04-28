@@ -679,7 +679,7 @@ const INVALID_PROVIDER_KEYS = ['apiBase'];
 
 function sanitizeConfig(config) {
   if (!config || typeof config !== 'object') return config;
-  const cleaned = { ...config };
+  const cleaned = JSON.parse(JSON.stringify(config));
 
   for (const key of INVALID_ROOT_KEYS) {
     if (key in cleaned) {
@@ -702,7 +702,8 @@ function sanitizeConfig(config) {
               delete provider[key];
             }
           }
-          if (provider.baseUrl === undefined || provider.models === undefined) {
+          const validKeys = Object.keys(provider).filter(k => provider[k] !== undefined && provider[k] !== null && provider[k] !== '');
+          if (validKeys.length === 0) {
             providersToRemove.push(providerId);
           }
         }
