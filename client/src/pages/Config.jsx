@@ -86,22 +86,23 @@ function Config() {
   const handleSanitizeConfig = async () => {
     setSanitizing(true);
     try {
-      const res = await fetch(`${LAUNCHER_API}/config/sanitize`, { method: 'POST' });
+      const res = await fetch(`${LAUNCHER_API}/api/cli/exec`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: 'openclaw doctor --fix --non-interactive' })
+      });
       const data = await res.json();
       if (data.success) {
-        if (data.cleaned) {
-          message.success(`已清理 ${data.removedKeys.length} 个无效字段: ${data.removedKeys.join(', ')}`);
-          fetchConfig();
-        } else {
-          message.info('配置文件中没有发现无效字段');
-        }
+        message.success('配置已清理完成');
+        fetchConfig();
       } else {
         message.error(data.error || '清理失败');
       }
     } catch (err) {
       message.error(`清理失败: ${err.message}`);
+    } finally {
+      setSanitizing(false);
     }
-    setSanitizing(false);
   };
 
   const handleCliCheck = async () => {

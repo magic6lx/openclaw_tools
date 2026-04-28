@@ -906,7 +906,8 @@ app.get('/api/health', (req, res) => {
 
 const ALLOWED_CLI_COMMANDS = [
   'openclaw channels login --channel feishu',
-  'openclaw devices approve'
+  'openclaw devices approve',
+  'openclaw doctor'
 ];
 
 app.post('/api/cli/exec', (req, res) => {
