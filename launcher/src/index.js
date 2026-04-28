@@ -675,7 +675,7 @@ const INVALID_ROOT_KEYS = ['launcher'];
 const INVALID_MODELS_KEYS = ['useProxy', 'originalProviders'];
 const INVALID_GATEWAY_KEYS = ['enabled'];
 const INVALID_HOOKS_KEYS = ['preTask', 'postTask'];
-const INVALID_PROVIDER_KEYS = ['apiBase'];
+const INVALID_PROVIDER_KEYS = ['apiBase', 'apiKey'];
 
 function sanitizeConfig(config) {
   if (!config || typeof config !== 'object') return config;
