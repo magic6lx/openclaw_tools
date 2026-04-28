@@ -885,7 +885,6 @@ const ALLOWED_CLI_COMMANDS = [
 
 app.post('/api/cli/exec', (req, res) => {
   try {
-    const { spawn } = require('child_process');
     const { command } = req.body;
 
     if (!command) {
