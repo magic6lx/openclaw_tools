@@ -69,11 +69,18 @@ function Clients() {
   const handleDeleteDevice = async (client) => {
     try {
       const token = localStorage.getItem('token');
-      const deviceId = encodeURIComponent(client.deviceId || '');
-      const res = await fetch(`${API_BASE}/api/devices/${deviceId}`, {
+      const rawDeviceId = client.deviceId || '';
+      const deviceIdParam = rawDeviceId === '' ? '__empty__' : encodeURIComponent(rawDeviceId);
+      const res = await fetch(`${API_BASE}/api/devices/${deviceIdParam}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
       });
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        const text = await res.text();
+        message.error(`服务端返回非JSON响应 (HTTP ${res.status})，请确认服务端已部署最新代码`);
+        return;
+      }
       const data = await res.json();
       if (data.success) {
         message.success(data.message || '删除成功');

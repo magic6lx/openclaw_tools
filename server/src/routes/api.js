@@ -81,10 +81,7 @@ router.get('/devices', authMiddleware, adminMiddleware, async (req, res) => {
 router.delete('/devices/:deviceId', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const { deviceId } = req.params;
-    if (!deviceId && deviceId !== '') {
-      return res.status(400).json({ success: false, error: '缺少设备ID' });
-    }
-    const decodedDeviceId = decodeURIComponent(deviceId);
+    const decodedDeviceId = deviceId === '__empty__' ? '' : decodeURIComponent(deviceId);
     await logService.deleteDeviceLogs(decodedDeviceId);
     res.json({ success: true, message: `已删除设备 ${decodedDeviceId || '(空)'} 及其关联日志` });
   } catch (err) {
