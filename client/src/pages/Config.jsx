@@ -6,7 +6,7 @@ import { useConfig } from '../hooks/useConfig';
 
 const { Title, Text, Paragraph } = Typography;
 const LAUNCHER_API = 'http://127.0.0.1:3003';
-const SERVER_API = 'http://127.0.0.1:3002';
+const SERVER_API = import.meta.env.VITE_API_BASE_URL || '';
 
 function Config() {
   const {
@@ -231,7 +231,7 @@ function Config() {
           const res = await fetch(`${LAUNCHER_API}/config/import`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ config: selectedPrivateTemplate.config, env: selectedPrivateTemplate.env })
+            body: JSON.stringify({ config: selectedPrivateTemplate.config, env: selectedPrivateTemplate.env, fileContents: selectedPrivateTemplate.filePayload })
           });
           const data = await res.json();
           if (data.success) {
@@ -331,7 +331,7 @@ function Config() {
           const res = await fetch(`${LAUNCHER_API}/config/import`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ config: partialConfig, env: template.env })
+            body: JSON.stringify({ config: partialConfig, env: template.env, fileContents: template.filePayload })
           });
           const data = await res.json();
           if (data.success) {

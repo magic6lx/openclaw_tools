@@ -229,52 +229,62 @@ function Templates() {
   };
 
   const handleSave = async () => {
-    try {
-      const values = await form.validateFields();
-      const token = localStorage.getItem('token');
-
-      const method = editing ? 'PUT' : 'POST';
-      const url = editing ? `${API_BASE}/api/templates/${editing.id}` : `${API_BASE}/api/templates`;
-
-      const cleanObj = (obj) => {
-        if (obj === undefined) return null;
-        if (obj === null) return null;
-        if (Array.isArray(obj)) {
-          return obj.map(item => cleanObj(item)).filter(item => item !== undefined);
+      try {
+        const values = await form.validateFields();
+        const token = localStorage.getItem('token');
+  
+        // Step 1: Get complete config from launcher, including fileContents
+        const launcherExportRes = await fetch(`${LAUNCHER_API}/config/export`);
+        const launcherExportData = await launcherExportRes.json();
+  
+        if (!launcherExportData.success) {
+          message.error(launcherExportData.error || '无法获取本地配置进行保存');
+          return;
         }
-        if (typeof obj === 'object') {
-          const result = {};
-          for (const [key, val] of Object.entries(obj)) {
-            if (val !== undefined) {
-              result[key] = cleanObj(val);
-            } else {
-              result[key] = null;
-            }
+
+        const cleanObj = (obj) => {
+          if (obj === undefined) return null;
+          if (obj === null) return null;
+          if (Array.isArray(obj)) {
+            return obj.map(item => cleanObj(item)).filter(item => item !== undefined);
           }
-          return result;
-        }
-        if (typeof obj === 'number' && isNaN(obj)) return null;
-        if (obj === Infinity) return null;
-        if (typeof obj === 'function' || typeof obj === 'symbol') return null;
-        return obj;
-      };
-
-      const payload = {
-        name: values.name,
-        description: values.description || '',
-        config: JSON.stringify(cleanObj(editConfig)),
-        env: currentEnv ? JSON.stringify(cleanObj(currentEnv)) : null
-      };
-
-      const res = await fetch(url, {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify(payload)
-      });
-      const data = await res.json();
+          if (typeof obj === 'object') {
+            const result = {};
+            for (const [key, val] of Object.entries(obj)) {
+              if (val !== undefined) {
+                result[key] = cleanObj(val);
+              } else {
+                result[key] = null;
+              }
+            }
+            return result;
+          }
+          if (typeof obj === 'number' && isNaN(obj)) return null;
+          if (obj === Infinity) return null;
+          if (typeof obj === 'function' || typeof obj === 'symbol') return null;
+          return obj;
+        };
+  
+        const payload = {
+          name: values.name,
+          description: values.description || '',
+          config: JSON.stringify(cleanObj(editConfig)),
+          env: currentEnv ? JSON.stringify(cleanObj(currentEnv)) : null,
+          filePayload: launcherExportData.fileContents ? JSON.stringify(launcherExportData.fileContents) : null // Include fileContents
+        };
+  
+        const method = editing ? 'PUT' : 'POST';
+        const url = editing ? `${API_BASE}/api/templates/${editing.id}` : `${API_BASE}/api/templates`;
+  
+        const res = await fetch(url, {
+          method,
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
 
       if (data.success) {
         message.success(editing ? '更新成功' : '创建成功');

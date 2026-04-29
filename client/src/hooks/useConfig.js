@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { CONFIG_SCHEMA } from '../config/schema';
 
 const LAUNCHER_API = 'http://127.0.0.1:3003';
-const SERVER_API = 'http://127.0.0.1:3002';
+const SERVER_API = import.meta.env.VITE_API_BASE_URL || '';
 
 export function getDefaultConfig() {
   const defaults = {};
