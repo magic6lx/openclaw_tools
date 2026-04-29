@@ -36,31 +36,31 @@ async function getLogs(options = {}) {
   try {
     const { deviceId, level, source, startTime, endTime, limit = 100, offset = 0 } = options;
 
-    let sql = 'SELECT * FROM logs WHERE 1=1';
+    let sql = 'SELECT l.*, i.code as invitation_code FROM logs l LEFT JOIN devices d ON l.device_id = d.device_id LEFT JOIN invitations i ON d.invitation_id = i.id WHERE 1=1';
     const params = [];
 
     if (deviceId) {
-      sql += ' AND device_id = ?';
+      sql += ' AND l.device_id = ?';
       params.push(deviceId);
     }
     if (level) {
-      sql += ' AND level = ?';
+      sql += ' AND l.level = ?';
       params.push(level);
     }
     if (source) {
-      sql += ' AND source LIKE ?';
+      sql += ' AND l.source LIKE ?';
       params.push(`%${source}%`);
     }
     if (startTime) {
-      sql += ' AND server_timestamp >= ?';
+      sql += ' AND l.server_timestamp >= ?';
       params.push(new Date(startTime));
     }
     if (endTime) {
-      sql += ' AND server_timestamp <= ?';
+      sql += ' AND l.server_timestamp <= ?';
       params.push(new Date(endTime));
     }
 
-    sql += ' ORDER BY server_timestamp DESC LIMIT ' + parseInt(limit) + ' OFFSET ' + parseInt(offset);
+    sql += ' ORDER BY l.server_timestamp DESC LIMIT ' + parseInt(limit) + ' OFFSET ' + parseInt(offset);
 
     const logs = await query(sql, params);
     return logs;

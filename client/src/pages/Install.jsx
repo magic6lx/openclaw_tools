@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Typography, Button, Space, Tag, message, Steps, Spin, Descriptions, Divider } from 'antd';
+import { Card, Typography, Button, Space, Tag, message, Steps, Spin, Descriptions, Divider, Progress } from 'antd';
 import { SyncOutlined, CheckCircleOutlined, LoadingOutlined, RocketOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 
 const { Title, Text, Paragraph } = Typography;

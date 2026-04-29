@@ -46,6 +46,7 @@ function AdminLogs() {
   const columns = [
     { title: '时间', dataIndex: 'server_timestamp', width: 180, render: t => t ? new Date(t).toLocaleString() : '-' },
     { title: '设备ID', dataIndex: 'device_id', width: 150, ellipsis: true },
+    { title: '邀请码', dataIndex: 'invitation_code', width: 120, render: code => code ? <Text copyable={{ text: code }}>{code}</Text> : <Text type="secondary">无</Text> },
     { title: '级别', dataIndex: 'level', width: 80, render: getLevelTag },
     { title: '来源', dataIndex: 'source', width: 100 },
     { title: '内容', dataIndex: 'message', ellipsis: true }

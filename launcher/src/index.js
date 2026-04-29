@@ -184,8 +184,17 @@ app.post('/gateway/start', (req, res) => {
   addLog('INFO', '执行命令: openclaw gateway run');
   addLog('INFO', '目标端口: 18789');
 
+  // 先执行 openclaw setup --accept-defaults
   try {
-    const gatewayProcess = spawn('openclaw', ['gateway', 'run'], {
+    addLog('INFO', '执行 openclaw setup --accept-defaults...');
+    execSync('openclaw setup --accept-defaults', { encoding: 'utf8', timeout: 30000, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    addLog('INFO', 'openclaw setup 完成。');
+  } catch (setupErr) {
+    addLog('WARN', `openclaw setup 失败或超时 (可能已配置): ${setupErr.message}`);
+  }
+
+  try {
+    const gatewayProcess = spawn('openclaw', ['gateway', 'run', '--allow-unconfigured'], { // 添加 --allow-unconfigured 参数
       detached: false,
       stdio: ['ignore', 'pipe', 'pipe'],
       shell: true,
@@ -391,7 +400,7 @@ app.get('/version', (req, res) => {
   });
 });
 
-app.post('/install/start', (req, res) => {
+app.post('/install/start', async (req, res) => {
   if (installState.running) {
     return res.json({ success: false, message: '安装已在进行中' });
   }
@@ -399,13 +408,49 @@ app.post('/install/start', (req, res) => {
   installState.running = true;
   installState.logs = [];
   addLog('INFO', '开始安装 OpenClaw...');
-  addLog('INFO', '正在连接安装源...');
-  addLog('INFO', '下载组件中...');
-  addLog('INFO', '安装配置中...');
-  addLog('INFO', '安装完成！');
-  installState.running = false;
-
   res.json({ success: true });
+
+  try {
+    addLog('INFO', '执行 npm install -g openclaw...');
+    const installProcess = spawn('npm', ['install', '-g', 'openclaw'], {
+      detached: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: true,
+      windowsHide: true
+    });
+
+    installState.process = installProcess;
+
+    installProcess.stdout.on('data', (data) => {
+      addLog('INFO', `[npm install stdout] ${data.toString().trim()}`);
+    });
+
+    installProcess.stderr.on('data', (data) => {
+      addLog('WARN', `[npm install stderr] ${data.toString().trim()}`);
+    });
+
+    installProcess.on('close', (code) => {
+      if (code === 0) {
+        addLog('INFO', 'OpenClaw 安装完成！');
+        cachedInstallStatus = null; // 清除缓存，强制重新检测
+      } else {
+        addLog('ERROR', `OpenClaw 安装失败，退出码: ${code}`);
+      }
+      installState.running = false;
+      installState.process = null;
+    });
+
+    installProcess.on('error', (err) => {
+      addLog('ERROR', `npm install 进程启动失败: ${err.message}`);
+      installState.running = false;
+      installState.process = null;
+    });
+
+  } catch (err) {
+    addLog('ERROR', `启动安装失败: ${err.message}`);
+    installState.running = false;
+    installState.process = null;
+  }
 });
 
 app.get('/install/status', (req, res) => {
