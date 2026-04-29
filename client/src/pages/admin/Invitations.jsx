@@ -1,22 +1,49 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, Table, Typography, Button, Space, Tag, Modal, Form, Input, InputNumber, Switch, Row, Col, Divider, message, Popconfirm, Progress } from 'antd';
 import { PlusOutlined, DeleteOutlined, StopOutlined, PlayCircleOutlined, LinkOutlined, ApiOutlined } from '@ant-design/icons';
 
 const { Title, Text } = Typography;
-
-const INVITATIONS = [
-  { id: 1, code: 'ABC12345678', maxDevices: 3, usedDevices: 1, status: 'active', createdAt: '2026-04-01', user: 'user1@example.com' },
-  { id: 2, code: 'DEF98765432', maxDevices: 5, usedDevices: 3, status: 'active', createdAt: '2026-04-05', user: 'user2@example.com' },
-  { id: 3, code: 'GHI45678901', maxDevices: 3, usedDevices: 3, status: 'disabled', createdAt: '2026-04-10', user: 'user3@example.com' },
-  { id: 4, code: 'JKL01234567', maxDevices: 1, usedDevices: 0, status: 'active', createdAt: '2026-04-15', user: null },
-];
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
 function Invitations() {
-  const [invitations, setInvitations] = useState(INVITATIONS);
+  const [invitations, setInvitations] = useState([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [proxyModalVisible, setProxyModalVisible] = useState(false);
   const [selectedInvitation, setSelectedInvitation] = useState(null);
   const [proxyForm] = Form.useForm();
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    fetchInvitations();
+  }, []);
+
+  const fetchInvitations = async () => {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_BASE}/api/invitations`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setInvitations(data.data.map(inv => ({
+          id: inv.id,
+          code: inv.code,
+          maxDevices: inv.max_devices,
+          usedDevices: inv.used_devices,
+          status: inv.status,
+          createdAt: inv.created_at ? inv.created_at.split('T')[0] : '',
+          user: inv.user_email || null,
+          role: inv.role,
+          tokenProxy: inv.token_proxy
+        })));
+      }
+    } catch (err) {
+      message.error('获取邀请码失败');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const getStatusTag = (status) => (
     <Tag color={status === 'active' ? 'green' : 'red'}>
@@ -33,30 +60,73 @@ function Invitations() {
     return code;
   };
 
-  const handleCreate = (values) => {
-    const newInvitation = {
-      id: invitations.length + 1,
-      code: generateCode(),
-      maxDevices: values.maxDevices,
-      usedDevices: 0,
-      status: 'active',
-      createdAt: new Date().toISOString().split('T')[0],
-      user: null
-    };
-    setInvitations([newInvitation, ...invitations]);
-    setModalVisible(false);
-    message.success('邀请码创建成功');
+  const handleCreate = async (values) => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_BASE}/api/invitations`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          maxDevices: values.maxDevices,
+          tokenLimit: values.tokenLimit || 100000,
+          role: values.role || 'user'
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        message.success('邀请码创建成功');
+        setModalVisible(false);
+        fetchInvitations();
+      } else {
+        message.error(data.error || '创建失败');
+      }
+    } catch (err) {
+      message.error('创建失败');
+    }
   };
 
-  const handleToggleStatus = (inv) => {
+  const handleDelete = async (id) => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_BASE}/api/invitations/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        message.success('删除成功');
+        setInvitations(invitations.filter(i => i.id !== id));
+      } else {
+        message.error(data.error || '删除失败');
+      }
+    } catch (err) {
+      message.error('删除失败');
+    }
+  };
+
+  const handleToggleStatus = async (inv) => {
     const newStatus = inv.status === 'active' ? 'disabled' : 'active';
-    setInvitations(invitations.map(i => i.id === inv.id ? { ...i, status: newStatus } : i));
-    message.success(`已${newStatus === 'active' ? '启用' : '禁用'}`);
-  };
-
-  const handleDelete = (id) => {
-    setInvitations(invitations.filter(i => i.id !== id));
-    message.success('删除成功');
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_BASE}/api/invitations/${inv.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ status: newStatus })
+      });
+      const data = await res.json();
+      if (data.success) {
+        message.success(`已${newStatus === 'active' ? '启用' : '禁用'}`);
+        setInvitations(invitations.map(i => i.id === inv.id ? { ...i, status: newStatus } : i));
+      }
+    } catch (err) {
+      message.error('操作失败');
+    }
   };
 
   const columns = [
@@ -69,8 +139,9 @@ function Invitations() {
       const used = r.tokenProxy?.quota?.used || 0;
       const total = r.tokenProxy?.quota?.total || 100000;
       const percent = Math.min(100, Math.round((used / total) * 100));
+
       const status = percent >= 90 ? 'exception' : percent >= 70 ? 'active' : 'success';
-      return <Progress size="small" percent={percent} size="small" status={status} format={() => `${used}/${total}`} />;
+      return <Progress size="small" percent={percent} status={status} format={() => `${used}/${total}`} />;
     }},
     { title: '创建时间', dataIndex: 'createdAt', width: 120 },
     {
@@ -83,17 +154,18 @@ function Invitations() {
             proxyForm.setFieldsValue({
               enabled: r.tokenProxy?.enabled || false,
               openaiKey: r.tokenProxy?.providers?.openai?.apiKey || '',
-              openaiBase: r.tokenProxy?.providers?.openai?.apiBase || 'https://api.openai.com/v1',
+              openaiBase: r.tokenProxy?.providers?.openai?.apiBase || '',
               anthropicKey: r.tokenProxy?.providers?.anthropic?.apiKey || '',
-              anthropicBase: r.tokenProxy?.providers?.anthropic?.apiBase || 'https://api.anthropic.com/v1',
+              anthropicBase: r.tokenProxy?.providers?.anthropic?.apiBase || '',
               googleKey: r.tokenProxy?.providers?.google?.apiKey || '',
-              googleBase: r.tokenProxy?.providers?.google?.apiBase || 'https://generativelanguage.googleapis.com/v1beta',
+              googleBase: r.tokenProxy?.providers?.google?.apiBase || '',
               volcengineKey: r.tokenProxy?.providers?.volcengine?.apiKey || '',
-              volcengineBase: r.tokenProxy?.providers?.volcengine?.apiBase || 'https://ark.cn-beijing.volces.com/api/v3',
-              quota: r.tokenProxy?.quota?.total || 100000
+              volcengineBase: r.tokenProxy?.providers?.volcengine?.apiBase || ''
             });
             setProxyModalVisible(true);
-          }}>代理</Button>
+          }}>
+            Token代理
+          </Button>
           <Button size="small" icon={r.status === 'active' ? <StopOutlined /> : <PlayCircleOutlined />} onClick={() => handleToggleStatus(r)}>
             {r.status === 'active' ? '禁用' : '启用'}
           </Button>
@@ -106,14 +178,14 @@ function Invitations() {
   ];
 
   return (
-    <div style={{ padding: 24, background: '#f0f2f5', minHeight: '100vh' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 24 }}>
-        <Title level={2}>邀请码管理</Title>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setModalVisible(true)}>生成邀请码</Button>
-      </div>
-
-      <Card>
-        <Table dataSource={invitations} columns={columns} rowKey="id" pagination={{ pageSize: 10 }} />
+    <div>
+      <Card
+        title="邀请码管理"
+        extra={
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setModalVisible(true)}>生成邀请码</Button>
+        }
+      >
+        <Table dataSource={invitations} columns={columns} rowKey="id" pagination={{ pageSize: 10 }} loading={loading} />
       </Card>
 
       <Modal
@@ -128,6 +200,9 @@ function Invitations() {
           </Form.Item>
           <Form.Item label="Token限制" name="tokenLimit" initialValue={100000} rules={[{ required: true }]}>
             <InputNumber min={1000} step={1000} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item label="角色" name="role" initialValue="user">
+            <Input placeholder="user 或 admin" />
           </Form.Item>
           <Form.Item>
             <Space>
@@ -162,87 +237,90 @@ function Invitations() {
             if (values.volcengineKey) {
               providers.volcengine = { apiKey: values.volcengineKey, apiBase: values.volcengineBase || 'https://ark.cn-beijing.volces.com/api/v3' };
             }
-            const tokenProxy = {
-              enabled: values.enabled,
-              providers,
-              quota: { total: values.quota || 100000, used: selectedInvitation?.tokenProxy?.quota?.used || 0 }
-            };
-            setInvitations(invitations.map(i => i.id === selectedInvitation.id ? { ...i, tokenProxy } : i));
-            setProxyModalVisible(false);
-            message.success('Token代理配置已保存');
+            try {
+              const token = localStorage.getItem('token');
+              const res = await fetch(`${API_BASE}/api/invitations/${selectedInvitation.id}/token-proxy`, {
+                method: 'PUT',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                  enabled: values.enabled,
+                  providers,
+                  quota: selectedInvitation.tokenProxy?.quota || { used: 0, total: values.tokenLimit || 100000 }
+                })
+              });
+              const data = await res.json();
+              if (data.success) {
+                message.success('配置保存成功');
+                setProxyModalVisible(false);
+                fetchInvitations();
+              } else {
+                message.error(data.error || '保存失败');
+              }
+            } catch (err) {
+              message.error('保存失败');
+            }
           }}
         >
-          <Form.Item label="启用代理" name="enabled" valuePropName="checked">
+          <Form.Item name="enabled" valuePropName="checked" label="启用Token代理">
             <Switch />
           </Form.Item>
-
           <Divider>OpenAI</Divider>
           <Row gutter={16}>
-            <Col span={16}>
-              <Form.Item label="API Key" name="openaiKey">
-                <Input.Password placeholder="sk-..." />
+            <Col span={12}>
+              <Form.Item name="openaiKey" label="API Key">
+                <Input.Password />
               </Form.Item>
             </Col>
-            <Col span={8}>
-              <Form.Item label="API Base" name="openaiBase" initialValue="https://api.openai.com/v1">
+            <Col span={12}>
+              <Form.Item name="openaiBase" label="API Base URL" initialValue="https://api.openai.com/v1">
                 <Input />
               </Form.Item>
             </Col>
           </Row>
-
           <Divider>Anthropic</Divider>
           <Row gutter={16}>
-            <Col span={16}>
-              <Form.Item label="API Key" name="anthropicKey">
-                <Input.Password placeholder="sk-ant-..." />
+            <Col span={12}>
+              <Form.Item name="anthropicKey" label="API Key">
+                <Input.Password />
               </Form.Item>
             </Col>
-            <Col span={8}>
-              <Form.Item label="API Base" name="anthropicBase" initialValue="https://api.anthropic.com/v1">
+            <Col span={12}>
+              <Form.Item name="anthropicBase" label="API Base URL" initialValue="https://api.anthropic.com/v1">
                 <Input />
               </Form.Item>
             </Col>
           </Row>
-
           <Divider>Google</Divider>
           <Row gutter={16}>
-            <Col span={16}>
-              <Form.Item label="API Key" name="googleKey">
-                <Input.Password placeholder="AI..." />
+            <Col span={12}>
+              <Form.Item name="googleKey" label="API Key">
+                <Input.Password />
               </Form.Item>
             </Col>
-            <Col span={8}>
-              <Form.Item label="API Base" name="googleBase" initialValue="https://generativelanguage.googleapis.com/v1beta">
+            <Col span={12}>
+              <Form.Item name="googleBase" label="API Base URL" initialValue="https://generativelanguage.googleapis.com/v1beta">
                 <Input />
               </Form.Item>
             </Col>
           </Row>
-
-          <Divider>火山引擎（Volcengine）</Divider>
+          <Divider>Volcengine</Divider>
           <Row gutter={16}>
-            <Col span={16}>
-              <Form.Item label="API Key" name="volcengineKey">
-                <Input.Password placeholder="dd095ff1-..." />
+            <Col span={12}>
+              <Form.Item name="volcengineKey" label="API Key">
+                <Input.Password />
               </Form.Item>
             </Col>
-            <Col span={8}>
-              <Form.Item label="API Base" name="volcengineBase" initialValue="https://ark.cn-beijing.volces.com/api/v3">
+            <Col span={12}>
+              <Form.Item name="volcengineBase" label="API Base URL" initialValue="https://ark.cn-beijing.volces.com/api/v3">
                 <Input />
               </Form.Item>
             </Col>
           </Row>
-
-          <Divider>配额管理</Divider>
-          <Form.Item label="总配额（Token数）" name="quota" initialValue={100000}>
-            <InputNumber min={1000} step={1000} style={{ width: '100%' }} />
-          </Form.Item>
-          <Text type="secondary">已使用: {selectedInvitation?.tokenProxy?.quota?.used || 0}</Text>
-
-          <Form.Item style={{ marginTop: 16 }}>
-            <Space>
-              <Button type="primary" htmlType="submit">保存</Button>
-              <Button onClick={() => setProxyModalVisible(false)}>取消</Button>
-            </Space>
+          <Form.Item>
+            <Button type="primary" htmlType="submit">保存</Button>
           </Form.Item>
         </Form>
       </Modal>

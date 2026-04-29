@@ -22,8 +22,16 @@ if (Test-Path $outputDir) {
 }
 New-Item -ItemType Directory -Path $outputDir | Out-Null
 
-Write-Host "[2/3] 复制文件到输出目录..."
+Write-Host "[2/3] 复制文件到输出目录..." -ForegroundColor Cyan
 Copy-Item -Path "$distPath\*" -Destination $outputDir -Recurse
+
+Write-Host "[2.5/3] 复制 config 目录..." -ForegroundColor Cyan
+$configSrc = Join-Path $projectRoot "launcher\config"
+$configDest = Join-Path $outputDir "config"
+if (Test-Path $configSrc) {
+    Copy-Item -Path $configSrc -Destination $outputDir -Recurse -Force
+    Write-Host "  复制: config" -ForegroundColor Gray
+}
 
 Write-Host "[3/3] 创建压缩包..."
 if (Test-Path $outputZip) {

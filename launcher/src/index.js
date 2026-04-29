@@ -27,7 +27,8 @@ let gatewayState = {
 
 const DEFAULT_GATEWAY_PORT = 18789;
 
-const CONFIG_DIR = join(__dirname, '../../config');
+const LAUNCHER_ROOT = join(__dirname, '..');
+const CONFIG_DIR = join(LAUNCHER_ROOT, 'config');
 const CONFIG_FILE = join(CONFIG_DIR, 'openclaw_config.json');
 const homedir = os.homedir();
 const OPENCLAW_CONFIG_DIR = join(homedir, '.openclaw');
@@ -38,6 +39,21 @@ const OPENCLAW_ENV_FILE = join(OPENCLAW_CONFIG_DIR, '.env');
 let cachedInstallStatus = null;
 let lastInstallCheckTime = 0;
 const INSTALL_CHECK_CACHE_MS = 30000;
+
+let LAUNCHER_CONFIG = { serverUrl: null };
+try {
+  if (!existsSync(CONFIG_DIR)) {
+    mkdirSync(CONFIG_DIR, { recursive: true });
+  }
+  if (existsSync(CONFIG_FILE)) {
+    LAUNCHER_CONFIG = JSON.parse(readFileSync(CONFIG_FILE, 'utf-8'));
+  }
+} catch (e) {
+}
+
+function getServerUrl() {
+  return LAUNCHER_CONFIG.serverUrl || process.env.OPENCLAW_SERVER_URL || 'http://134.175.18.139:3001';
+}
 
 function addLog(level, message) {
   const cleanMessage = message.replace(/\x1b\[[0-9;]*m/g, '').trim();
@@ -50,7 +66,8 @@ function addLog(level, message) {
   };
   installState.logs.push(logEntry);
 
-  fetch('http://127.0.0.1:3002/api/launcher-logs/upload', {
+  const serverUrl = getServerUrl();
+  fetch(`${serverUrl}/api/launcher-logs/upload`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -66,93 +83,13 @@ function isOpenClawInstalled() {
     return cachedInstallStatus;
   }
 
-  const npmGlobalPath = join(process.env['APPDATA'] || '', 'npm');
-  const npmPaths = [
-    join(npmGlobalPath, 'openclaw.ps1'),
-    join(npmGlobalPath, 'openclaw'),
-    join(npmGlobalPath, 'openclaw.cmd'),
-    join(npmGlobalPath, 'openclaw.exe'),
-    join(process.env['UserProfile'] || '', '.npm-global', 'openclaw.ps1'),
-    join(process.env['UserProfile'] || '', '.npm-global', 'bin', 'openclaw.ps1'),
-  ];
-
-  for (const openclawPath of npmPaths) {
-    if (existsSync(openclawPath)) {
-      if (cachedInstallStatus !== true) {
-        addLog('INFO', `检测到 OpenClaw 已安装: ${openclawPath}`);
-      }
-      cachedInstallStatus = true;
-      lastInstallCheckTime = now;
-      return true;
-    }
-  }
-
-  const windowsPaths = [
-    join(process.env['ProgramFiles'] || 'C:\\Program Files', 'OpenClaw', 'bin', 'openclaw.exe'),
-    join(process.env['ProgramFiles'] || 'C:\\Program Files', 'OpenClaw', 'openclaw.exe'),
-    join(process.env['LOCALAPPDATA'] || '', 'OpenClaw', 'bin', 'openclaw.exe'),
-    join(process.env['LOCALAPPDATA'] || '', 'OpenClaw', 'openclaw.exe'),
-    join(process.env['APPDATA'] || '', 'OpenClaw', 'bin', 'openclaw.exe'),
-    join(process.env['APPDATA'] || '', 'OpenClaw', 'openclaw.exe'),
-    join(process.env['UserProfile'] || '', '.openclaw', 'bin', 'openclaw.exe'),
-    join(process.env['UserProfile'] || '', '.openclaw', 'openclaw.exe'),
-    'C:\\Program Files\\OpenClaw\\bin\\openclaw.exe',
-    'C:\\Program Files\\OpenClaw\\openclaw.exe',
-    'C:\\Program Files (x86)\\OpenClaw\\bin\\openclaw.exe',
-    'C:\\Program Files (x86)\\OpenClaw\\openclaw.exe',
-  ];
-
-  for (const openclawPath of windowsPaths) {
-    if (existsSync(openclawPath)) {
-      if (cachedInstallStatus !== true) {
-        addLog('INFO', `检测到 OpenClaw 已安装: ${openclawPath}`);
-      }
-      cachedInstallStatus = true;
-      lastInstallCheckTime = now;
-      return true;
-    }
-  }
-
-  const windowsRegistryPaths = [
-    'HKLM\\SOFTWARE\\OpenClaw',
-    'HKLM\\SOFTWARE\\WOW6432Node\\OpenClaw',
-    'HKCU\\SOFTWARE\\OpenClaw',
-    'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\OpenClaw',
-  ];
-
-  for (const regPath of windowsRegistryPaths) {
-    try {
-      const result = execSync(`reg query "${regPath}" /ve`, { encoding: 'gbk', timeout: 3000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
-      if (result && !result.includes('ERROR')) {
-        if (cachedInstallStatus !== true) {
-          addLog('INFO', `检测到 OpenClaw 已安装 (注册表)`);
-        }
-        cachedInstallStatus = true;
-        lastInstallCheckTime = now;
-        return true;
-      }
-    } catch (e) {
-    }
-  }
+  let foundPath = null;
 
   try {
-    const result = execSync('tasklist /FI "IMAGENAME eq openclaw.exe" /NH', { encoding: 'gbk', timeout: 3000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
-    if (result && result.toLowerCase().includes('openclaw')) {
+    const result = execSync('openclaw --version 2>&1', { encoding: 'utf8', timeout: 8000, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    if (result && !result.includes('not recognized') && !result.includes('not found') && !result.includes('command not found')) {
       if (cachedInstallStatus !== true) {
-        addLog('INFO', '检测到 OpenClaw 进程正在运行');
-      }
-      cachedInstallStatus = true;
-      lastInstallCheckTime = now;
-      return true;
-    }
-  } catch (e) {
-  }
-
-  try {
-    const result = execSync('openclaw doctor --json 2>&1', { encoding: 'utf8', timeout: 8000, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
-    if (result && !result.includes('command not found') && !result.includes('not recognized') && !result.includes('not found')) {
-      if (cachedInstallStatus !== true) {
-        addLog('INFO', '检测到 OpenClaw CLI 可用');
+        addLog('INFO', `OpenClaw CLI 可用，版本: ${result.trim()}`);
       }
       cachedInstallStatus = true;
       lastInstallCheckTime = now;
@@ -163,9 +100,25 @@ function isOpenClawInstalled() {
 
   try {
     const result = execSync('npm list -g openclaw --depth=0 2>&1', { encoding: 'utf8', timeout: 5000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    if (result && result.toLowerCase().includes('openclaw@')) {
+      const match = result.match(/openclaw@(\S+)/);
+      if (match) {
+        if (cachedInstallStatus !== true) {
+          addLog('INFO', `OpenClaw npm 包已安装，版本: ${match[1]}`);
+        }
+        cachedInstallStatus = true;
+        lastInstallCheckTime = now;
+        return true;
+      }
+    }
+  } catch (e) {
+  }
+
+  try {
+    const result = execSync('tasklist /FI "IMAGENAME eq openclaw.exe" /NH', { encoding: 'gbk', timeout: 3000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
     if (result && result.toLowerCase().includes('openclaw')) {
       if (cachedInstallStatus !== true) {
-        addLog('INFO', '检测到 OpenClaw 已通过 npm 全局安装');
+        addLog('INFO', '检测到 OpenClaw 进程正在运行');
       }
       cachedInstallStatus = true;
       lastInstallCheckTime = now;
@@ -383,72 +336,59 @@ app.post('/gateway/stop', (req, res) => {
 });
 
 app.get('/version', (req, res) => {
-  const npmGlobalPath = join(process.env['APPDATA'] || '', 'npm');
-  const openclawPaths = [
-    join(npmGlobalPath, 'openclaw.ps1'),
-    join(npmGlobalPath, 'openclaw'),
-    join(npmGlobalPath, 'openclaw.cmd'),
-    join(process.env['UserProfile'] || '', '.npm-global', 'bin', 'openclaw.ps1'),
-  ];
-
+  let currentVersion = 'unknown';
+  let latestVersion = 'unknown';
   let npmPath = null;
-  for (const p of openclawPaths) {
-    if (existsSync(p)) {
-      npmPath = p;
-      break;
+  let installed = false;
+
+  try {
+    const verResult = execSync('openclaw --version', { encoding: 'utf8', timeout: 10000, windowsHide: true });
+    const ver = verResult.trim();
+    if (ver && !ver.includes('not recognized') && !ver.includes('not found')) {
+      currentVersion = ver;
+      installed = true;
+    }
+  } catch (e) {
+    try {
+      const showResult = execSync('npm list openclaw -g --depth=0', { encoding: 'utf8', timeout: 10000, windowsHide: true });
+      const match = showResult.match(/openclaw@(\S+)/);
+      if (match) {
+        currentVersion = match[1];
+        installed = true;
+      }
+    } catch (e2) {
+      const npmGlobalPath = join(process.env['APPDATA'] || '', 'npm');
+      try {
+        const pkgPath = join(npmGlobalPath, 'node_modules', 'openclaw', 'package.json');
+        if (existsSync(pkgPath)) {
+          const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+          currentVersion = pkg.version || 'unknown';
+          installed = true;
+        }
+      } catch (e3) {
+      }
     }
   }
 
-  if (!npmPath) {
+  if (!installed) {
     return res.json({ installed: false, message: '未检测到 OpenClaw 安装' });
   }
 
   try {
     const result = execSync('npm view openclaw version', { encoding: 'utf8', timeout: 10000, windowsHide: true });
-    const latestVersion = result.trim();
-
-    let currentVersion = 'unknown';
-    try {
-      const verResult = execSync('openclaw --version', { encoding: 'utf8', timeout: 10000, windowsHide: true });
-      currentVersion = verResult.trim();
-    } catch (e) {
-      try {
-        const showResult = execSync('npm list openclaw -g --depth=0', { encoding: 'utf8', timeout: 10000, windowsHide: true });
-        const match = showResult.match(/openclaw@(\S+)/);
-        if (match) {
-          currentVersion = match[1];
-        }
-      } catch (e2) {
-        try {
-          const pkgPath = join(npmGlobalPath, 'node_modules', 'openclaw', 'package.json');
-          if (existsSync(pkgPath)) {
-            const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
-            currentVersion = pkg.version || 'unknown';
-          }
-        } catch (e3) {
-        }
-      }
-    }
-
-    const isLatest = currentVersion === latestVersion;
-
-    return res.json({
-      installed: true,
-      npmPath,
-      currentVersion,
-      latestVersion,
-      isLatest
-    });
-  } catch (err) {
-    return res.json({
-      installed: true,
-      npmPath,
-      currentVersion: 'unknown',
-      latestVersion: 'unknown',
-      isLatest: false,
-      error: err.message
-    });
+    latestVersion = result.trim();
+  } catch (e) {
   }
+
+  const isLatest = currentVersion !== 'unknown' && currentVersion === latestVersion;
+
+  return res.json({
+    installed: true,
+    npmPath,
+    currentVersion,
+    latestVersion,
+    isLatest
+  });
 });
 
 app.post('/install/start', (req, res) => {
