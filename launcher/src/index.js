@@ -32,9 +32,21 @@ const CONFIG_DIR = join(LAUNCHER_ROOT, 'config');
 const CONFIG_FILE = join(CONFIG_DIR, 'openclaw_config.json');
 const homedir = os.homedir();
 const OPENCLAW_CONFIG_DIR = join(homedir, '.openclaw');
-const OPENCLAW_CONFIG_FILE = join(OPENCLAW_CONFIG_DIR, 'openclaw.json');
+  const OPENCLAW_CONFIG_FILE = join(OPENCLAW_CONFIG_DIR, 'openclaw.json');
 const PRIVATE_TEMPLATE_DIR = join(OPENCLAW_CONFIG_DIR, 'private_templates');
 const OPENCLAW_ENV_FILE = join(OPENCLAW_CONFIG_DIR, '.env');
+
+function getOpenClawConfig() {
+  if (existsSync(OPENCLAW_CONFIG_FILE)) {
+    try {
+      return JSON.parse(readFileSync(OPENCLAW_CONFIG_FILE, 'utf-8'));
+    } catch (e) {
+      addLog('ERROR', `读取 OpenClaw 配置文件失败: ${e.message}`);
+      return null;
+    }
+  }
+  return null;
+}
 
 let cachedInstallStatus = null;
 let lastInstallCheckTime = 0;
@@ -55,11 +67,12 @@ function getServerUrl() {
   return LAUNCHER_CONFIG.serverUrl || process.env.OPENCLAW_SERVER_URL || 'http://134.175.18.139:3001';
 }
 
-function addLog(level, message) {
+function addLog(level, message, invitationId = null) {
   const cleanMessage = message.replace(/\x1b\[[0-9;]*m/g, '').trim();
   const logEntry = {
     timestamp: new Date().toISOString(),
     deviceId: 'launcher-local',
+    invitationId: invitationId, // Add invitationId here
     level,
     source: 'launcher',
     message: cleanMessage
@@ -194,11 +207,25 @@ app.post('/gateway/start', (req, res) => {
   }
 
   try {
+    const openClawConfig = getOpenClawConfig();
+    const gatewayToken = openClawConfig?.gateway?.auth?.token || '';
+
+    const env = {
+      ...process.env,
+      HOME: homedir, // Ensure HOME is set for cross-platform compatibility
+      USERPROFILE: homedir // Ensure USERPROFILE is set for Windows
+    };
+    if (gatewayToken) {
+      env.OPENCLAW_GATEWAY_TOKEN = gatewayToken;
+      addLog('INFO', '已从配置文件读取 Gateway Token，并设置环境变量。');
+    }
+
     const gatewayProcess = spawn('openclaw', ['gateway', 'run', '--allow-unconfigured'], { // 添加 --allow-unconfigured 参数
       detached: false,
       stdio: ['ignore', 'pipe', 'pipe'],
       shell: true,
-      windowsHide: true
+      windowsHide: true,
+      env: env // 传递环境变量
     });
 
     gatewayState.process = gatewayProcess;
@@ -478,7 +505,8 @@ app.get('/config/export', (req, res) => {
       source: 'default',
       configPath: OPENCLAW_CONFIG_FILE,
       envPath: OPENCLAW_ENV_FILE,
-      keyPaths: {}
+      keyPaths: {},
+      fileContents: {}
     };
 
     if (existsSync(OPENCLAW_CONFIG_FILE)) {
@@ -540,6 +568,36 @@ app.get('/config/export', (req, res) => {
     }
     result.keyPaths['workspace'] = workspaceItem;
 
+    // Read file contents for workspace and skills
+    const filesToBundle = {};
+
+    function readAndEncodeFiles(baseDir, relativePath = '') {
+      if (!existsSync(baseDir)) return;
+      const entries = readdirSync(baseDir, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = join(baseDir, entry.name);
+        const currentRelativePath = join(relativePath, entry.name);
+        if (entry.isFile()) {
+          try {
+            const content = readFileSync(fullPath);
+            filesToBundle[currentRelativePath] = content.toString('base64');
+          } catch (e) {
+            addLog('WARN', `无法读取或编码文件 ${fullPath}: ${e.message}`);
+          }
+        } else if (entry.isDirectory()) {
+          readAndEncodeFiles(fullPath, currentRelativePath);
+        }
+      }
+    }
+
+    const workspacePath = join(openclawDir, 'workspace');
+    const skillsPath = join(openclawDir, 'skills');
+
+    readAndEncodeFiles(workspacePath, 'workspace');
+    readAndEncodeFiles(skillsPath, 'skills');
+
+    result.fileContents = filesToBundle; // fileContents is a top-level field
+
     for (const dir of keyDirs) {
       const dirPath = join(openclawDir, dir);
       const item = {
@@ -581,21 +639,55 @@ app.get('/config/export', (req, res) => {
 });
 
 const SENSITIVE_FIELDS = ['apiKey', 'api_key', 'token', 'secret', 'password', 'privateKey'];
-const PATH_FIELDS = ['workspace', 'agentDir', 'path', 'dir'];
+const PATH_FIELDS = ['workspace', 'agentDir', 'path', 'dir', 'logging.path']; // Add logging.path
 const KEEP_EXISTING_FIELDS = ['models', 'agents'];
 
 function isSensitiveField(key) {
   return SENSITIVE_FIELDS.some(f => key.toLowerCase().includes(f.toLowerCase()));
 }
 
-function adaptPath(templatePath, existingPath) {
-  if (!templatePath || !existingPath) return templatePath;
-  const templateParts = templatePath.replace(/\\/g, '/').split('/');
-  const existingParts = existingPath.replace(/\\/g, '/').split('/');
-  if (templateParts.length > 0 && existingParts.length > 0) {
-    templateParts[templateParts.length - 1] = existingParts[existingParts.length - 1];
+function isAbsolutePathWithDriveLetter(path) {
+  return /^[a-zA-Z]:\\/.test(path) || /^[a-zA-Z]:\//.test(path);
+}
+
+function adaptPath(templatePath, existingPath, key) {
+  if (!templatePath) return templatePath;
+
+  const openclawConfigDir = OPENCLAW_CONFIG_DIR; // Use the dynamically resolved .openclaw directory
+
+  // Handle absolute paths with drive letters, or invalid absolute paths
+  if (isAbsolutePathWithDriveLetter(templatePath) || (templatePath.startsWith('/') && process.platform === 'win32')) {
+    // For workspace and logging paths, force them to be relative to OPENCLAW_CONFIG_DIR
+    if (key === 'workspace') {
+      // If an existing workspace path is set, prioritize it.
+      // Otherwise, default to ~/.openclaw/workspace
+      return existingPath && existingPath !== templatePath ? existingPath : join(openclawConfigDir, 'workspace');
+    } else if (key === 'logging.path') {
+      // For logging path, default to ~/.openclaw/logs
+      return existingPath && existingPath !== templatePath ? existingPath : join(openclawConfigDir, 'logs');
+    } else {
+      // For other absolute paths, if an existing path is present and different, use it.
+      // Otherwise, if the template path is absolute with drive letter, try to make it relative to openclawConfigDir.
+      // If it's a Linux-style absolute path on Windows, also make it relative.
+      if (existingPath && existingPath !== templatePath) {
+        return existingPath;
+      } else {
+        // Attempt to make it relative to the .openclaw directory
+        // This is a best-effort. If the path is entirely outside .openclaw, it might still be problematic.
+        const relativeToOpenClaw = templatePath.replace(/^[a-zA-Z]:(\\|\/)/, '').replace(/^\//, ''); // Remove drive letter or leading slash
+        return join(openclawConfigDir, relativeToOpenClaw);
+      }
+    }
   }
-  return templateParts.join('/');
+
+  // If it's not an absolute path with a drive letter, or it's a relative path
+  // And an existing path is present and different, we keep the existing path for PATH_FIELDS
+  if (PATH_FIELDS.includes(key) && existingPath && existingPath !== templatePath) {
+    return existingPath; // Preserve user's existing config for paths
+  }
+
+  // Default behavior if no special adaptation is needed
+  return templatePath;
 }
 
 function mergeConfigRecursive(existing, template, conflicts = [], path = '') {
@@ -610,7 +702,15 @@ function mergeConfigRecursive(existing, template, conflicts = [], path = '') {
     const existingValue = existing?.[key];
 
     if (existingValue === undefined || existingValue === null) {
-      result[key] = templateValue;
+      if (PATH_FIELDS.includes(key) && typeof templateValue === 'string') {
+        const adaptedPath = adaptPath(templateValue, null, key);
+        if (adaptedPath !== templateValue) {
+          conflicts.push({ field: currentPath, action: 'adapted_path', from: templateValue, to: adaptedPath, reason: 'platform_adaptation' });
+        }
+        result[key] = adaptedPath;
+      } else {
+        result[key] = templateValue;
+      }
       continue;
     }
 
@@ -625,10 +725,26 @@ function mergeConfigRecursive(existing, template, conflicts = [], path = '') {
     }
 
     if (PATH_FIELDS.includes(key) && typeof templateValue === 'string') {
-      if (existingValue && existingValue !== templateValue) {
-        const adaptedPath = adaptPath(templateValue, existingValue);
-        conflicts.push({ field: currentPath, action: 'adapted_path', from: templateValue, to: adaptedPath, reason: 'path_compatibility' });
-        result[key] = adaptedPath;
+      // Only adapt if the existing path is also problematic, or if the template path is specifically problematic.
+      // Otherwise, we primarily keep the existing path if it's valid.
+      const shouldAdapt = isAbsolutePathWithDriveLetter(templateValue) || (templateValue.startsWith('/') && process.platform === 'win32');
+      if (shouldAdapt || (existingValue && existingValue !== templateValue && PATH_FIELDS.includes(key))) {
+        const adaptedPath = adaptPath(templateValue, existingValue, key);
+        if (adaptedPath !== templateValue) {
+          conflicts.push({ field: currentPath, action: 'adapted_path', from: templateValue, to: adaptedPath, reason: 'path_compatibility' });
+          result[key] = adaptedPath;
+        } else if (existingValue && existingValue !== templateValue) {
+          // If templateValue is also a path field and different from existingValue, and no adaptation happened, keep existing
+          conflicts.push({ field: currentPath, action: 'kept_existing', reason: 'user_maintained_config' });
+          result[key] = existingValue;
+        } else {
+          result[key] = templateValue;
+        }
+      } else {
+        result[key] = templateValue;
+      }
+      continue;
+    }        result[key] = adaptedPath;
       } else {
         result[key] = templateValue;
       }
@@ -725,15 +841,19 @@ function sanitizeConfig(config) {
 
 app.post('/config/import', (req, res) => {
   try {
-    const { config, env, mergeStrategy } = req.body;
+    addLog('INFO', '========== 开始应用模板配置 ==========');
+    const { config, env, mergeStrategy, fileContents } = req.body;
     if (!config) {
+      addLog('ERROR', '配置应用失败：配置文件为空');
       return res.json({ success: false, error: '配置文件为空' });
     }
 
+    addLog('INFO', `接收到配置项个数: ${Object.keys(config).length}`);
     const sanitizedConfig = sanitizeConfig(config);
 
     if (!existsSync(OPENCLAW_CONFIG_DIR)) {
       mkdirSync(OPENCLAW_CONFIG_DIR, { recursive: true });
+      addLog('INFO', `创建OpenClaw配置目录: ${OPENCLAW_CONFIG_DIR}`);
     }
 
     let finalConfig = sanitizedConfig;
@@ -741,26 +861,70 @@ app.post('/config/import', (req, res) => {
 
     if (existsSync(OPENCLAW_CONFIG_FILE)) {
       try {
+        addLog('INFO', '发现现有配置文件，正在合并...');
         const existingConfig = JSON.parse(readFileSync(OPENCLAW_CONFIG_FILE, 'utf-8'));
         
         if (mergeStrategy === 'force') {
           finalConfig = sanitizedConfig;
           conflicts.push({ field: 'root', action: 'force_replaced', reason: 'force_mode' });
+          addLog('WARN', '采用强制覆盖模式 (force merge)');
         } else {
           finalConfig = mergeConfigRecursive(existingConfig, sanitizedConfig, conflicts);
+          addLog('INFO', `合并完成，检测到 ${conflicts.length} 处冲突/调整`);
         }
       } catch (e) {
         conflicts.push({ field: 'root', action: 'parse_error', error: e.message });
+        addLog('ERROR', `合并配置时发生错误: ${e.message}`);
       }
+    } else {
+      addLog('INFO', '未发现现有配置，直接写入新配置');
     }
 
     writeFileSync(OPENCLAW_CONFIG_FILE, JSON.stringify(finalConfig, null, 2), 'utf-8');
     if (env) {
       writeFileSync(OPENCLAW_ENV_FILE, env, 'utf-8');
+      addLog('INFO', '已同时写入环境变量文件 (.env)');
     }
-    addLog('INFO', `配置已应用，合并了 ${conflicts.length} 个冲突`);
+    addLog('INFO', `配置已成功应用并保存至: ${OPENCLAW_CONFIG_FILE}`);
+
+    // Handle fileContents
+    if (fileContents) {
+      addLog('INFO', `开始处理文件内容，共 ${Object.keys(fileContents).length} 个文件`);
+      for (const relativeFilePath in fileContents) {
+        if (Object.prototype.hasOwnProperty.call(fileContents, relativeFilePath)) {
+          const base64Content = fileContents[relativeFilePath];
+
+          // Clean up relativeFilePath to ensure it's truly relative to OPENCLAW_CONFIG_DIR
+          // Remove drive letter or leading slash if present
+          const cleanedRelativeFilePath = relativeFilePath.replace(/^[a-zA-Z]:(\\|\/)/, '').replace(/^\//, '');
+          let targetPath = join(OPENCLAW_CONFIG_DIR, cleanedRelativeFilePath);
+          
+          // Ensure directory exists
+          const dir = dirname(targetPath);
+          if (!existsSync(dir)) {
+            mkdirSync(dir, { recursive: true });
+            addLog('INFO', `创建目录: ${dir}`);
+          }
+
+          try {
+            // If file exists, try to delete it first to ensure clean overwrite
+            if (existsSync(targetPath)) {
+              unlinkSync(targetPath);
+              addLog('INFO', `已删除现有文件: ${targetPath}`);
+            }
+            writeFileSync(targetPath, Buffer.from(base64Content, 'base64'));
+            addLog('INFO', `写入文件成功: ${targetPath}`);
+          } catch (fileErr) {
+            addLog('ERROR', `写入文件 ${targetPath} 失败: ${fileErr.message}`);
+          }
+        }
+      }
+      addLog('INFO', '文件内容处理完成');
+    }
+
     res.json({ success: true, conflicts, merged: finalConfig });
   } catch (err) {
+    addLog('ERROR', `配置应用过程中发生严重错误: ${err.message}`);
     res.json({ success: false, error: err.message });
   }
 });

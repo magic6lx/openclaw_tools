@@ -9,14 +9,16 @@ async function saveLogs(logs) {
     let savedCount = 0;
     for (const log of logs) {
       const deviceId = log.deviceId || '';
+      const invitationId = log.invitationId || null; // Get invitationId
       if (!deviceId) {
         continue;
       }
       await query(
-        `INSERT INTO logs (device_id, level, source, message, client_timestamp)
-         VALUES (?, ?, ?, ?, ?)`,
+        `INSERT INTO logs (device_id, invitation_id, level, source, message, client_timestamp)
+         VALUES (?, ?, ?, ?, ?, ?)`,
         [
           deviceId,
+          invitationId, // Save invitationId
           log.level || 'info',
           log.source || '',
           log.message || '',

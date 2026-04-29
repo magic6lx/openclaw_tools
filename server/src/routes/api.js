@@ -49,7 +49,12 @@ router.post('/launcher-logs/upload', async (req, res) => {
     if (!logs || !Array.isArray(logs)) {
       return res.status(400).json({ error: '缺少 logs 参数' });
     }
-    const result = await logService.saveLogs(logs);
+    // Ensure each log entry has an invitationId if available
+    const logsWithInvitationId = logs.map(log => ({
+      ...log,
+      invitationId: log.invitationId || req.user?.invitationId || null // Prioritize log's own invitationId, then request user's
+    }));
+    const result = await logService.saveLogs(logsWithInvitationId);
     res.json(result);
   } catch (err) {
     console.error('保存日志失败:', err);
@@ -164,11 +169,12 @@ const PROVIDER_API_BASE = {
 
 router.get('/proxy/state', authMiddleware, async (req, res) => {
   try {
-    const [invitations] = await require('../db').query(
+    const invitations = await require('../db').query(
       'SELECT token_proxy FROM invitations WHERE id = ?',
       [req.user.id]
     );
-    const tokenProxy = invitations?.[0]?.token_proxy;
+    const tokenProxyRaw = invitations?.[0]?.token_proxy;
+    const tokenProxy = tokenProxyRaw ? (typeof tokenProxyRaw === 'string' ? JSON.parse(tokenProxyRaw) : tokenProxyRaw) : null;
     const enabled = tokenProxy?.enabled || false;
     res.json({ success: true, enabled });
   } catch (err) {
@@ -180,11 +186,12 @@ router.get('/proxy/state', authMiddleware, async (req, res) => {
 router.put('/proxy/state', authMiddleware, async (req, res) => {
   try {
     const { enabled } = req.body;
-    const [invitations] = await require('../db').query(
+    const invitations = await require('../db').query(
       'SELECT token_proxy FROM invitations WHERE id = ?',
       [req.user.id]
     );
-    const currentProxy = invitations?.[0]?.token_proxy || {};
+    const tokenProxyRaw = invitations?.[0]?.token_proxy;
+    const currentProxy = tokenProxyRaw ? (typeof tokenProxyRaw === 'string' ? JSON.parse(tokenProxyRaw) : tokenProxyRaw) : {};
     const updatedProxy = { ...currentProxy, enabled: !!enabled };
     await require('../db').query(
       'UPDATE invitations SET token_proxy = ? WHERE id = ?',
@@ -200,11 +207,12 @@ router.put('/proxy/state', authMiddleware, async (req, res) => {
 router.post('/proxy/chat', authMiddleware, async (req, res) => {
   try {
     const { model, messages, temperature, max_tokens } = req.body;
-    const [invitations] = await require('../db').query(
+    const invitations = await require('../db').query(
       'SELECT token_proxy FROM invitations WHERE id = ?',
       [req.user.id]
     );
-    const tokenProxy = invitations?.[0]?.token_proxy;
+    const tokenProxyRaw = invitations?.[0]?.token_proxy;
+    const tokenProxy = tokenProxyRaw ? (typeof tokenProxyRaw === 'string' ? JSON.parse(tokenProxyRaw) : tokenProxyRaw) : null;
 
     if (!tokenProxy || !tokenProxy.enabled) {
       return res.status(403).json({ error: 'Token代理未启用' });
@@ -286,19 +294,21 @@ router.get('/proxy/usage', authMiddleware, async (req, res) => {
     const db = require('../db');
     const invitationId = req.user.invitationId;
 
-    const [usage] = await db.query(
+    const usage = await db.query(
       'SELECT SUM(input_tokens) as totalInput, SUM(output_tokens) as totalOutput, COUNT(*) as requestCount FROM token_usage WHERE invitation_id = ?',
       [invitationId]
     );
+    const usageData = usage[0] || {};
 
-    const [quota] = await db.query(
+    const quota = await db.query(
       'SELECT token_proxy FROM invitations WHERE id = ?',
       [invitationId]
     );
 
-    const proxyConfig = quota[0]?.token_proxy ? JSON.parse(quota[0].token_proxy) : {};
+    const proxyConfigRaw = quota[0]?.token_proxy;
+    const proxyConfig = proxyConfigRaw ? (typeof proxyConfigRaw === 'string' ? JSON.parse(proxyConfigRaw) : proxyConfigRaw) : {};
     const total = proxyConfig.quota?.total || 100000;
-    const used = usage?.totalInput + usage?.totalOutput || 0;
+    const used = (usageData.totalInput || 0) + (usageData.totalOutput || 0);
 
     res.json({
       success: true,
@@ -306,7 +316,7 @@ router.get('/proxy/usage', authMiddleware, async (req, res) => {
         total,
         used,
         remaining: Math.max(0, total - used),
-        requests: usage?.requestCount || 0
+        requests: usageData.requestCount || 0
       }
     });
   } catch (err) {
@@ -322,7 +332,8 @@ router.get('/templates', authMiddleware, async (req, res) => {
     const parsedTemplates = templates.map(t => ({
       ...t,
       config: t.config ? (typeof t.config === 'string' ? JSON.parse(t.config) : t.config) : null,
-      env: t.env || null
+      env: t.env || null,
+      filePayload: t.file_payload ? (typeof t.file_payload === 'string' ? JSON.parse(t.file_payload) : t.file_payload) : null
     }));
     res.json({ success: true, data: parsedTemplates });
   } catch (err) {
@@ -342,7 +353,8 @@ router.get('/templates/approved', async (req, res) => {
       description: t.description,
       icon: '📋',
       config: t.config ? (typeof t.config === 'string' ? JSON.parse(t.config) : t.config) : {},
-      env: t.env || null
+      env: t.env || null,
+      filePayload: t.file_payload ? (typeof t.file_payload === 'string' ? JSON.parse(t.file_payload) : t.file_payload) : null
     }));
     res.json({ success: true, data: parsedTemplates });
   } catch (err) {
@@ -361,7 +373,8 @@ router.get('/templates/:id', authMiddleware, async (req, res) => {
     const parsedTemplate = {
       ...template,
       config: template.config ? (typeof template.config === 'string' ? JSON.parse(template.config) : template.config) : null,
-      env: template.env || null
+      env: template.env || null,
+      filePayload: template.file_payload ? (typeof template.file_payload === 'string' ? JSON.parse(template.file_payload) : template.file_payload) : null
     };
     res.json({ success: true, data: parsedTemplate });
   } catch (err) {
@@ -373,12 +386,14 @@ router.get('/templates/:id', authMiddleware, async (req, res) => {
 router.post('/templates', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const db = require('../db');
-    const { name, description, config, env } = req.body;
+    const { name, description, config, env, filePayload } = req.body;
     const configJson = (config && typeof config === 'object') ? JSON.stringify(config) : (config || '{}');
     const envJson = (env && typeof env === 'object') ? JSON.stringify(env) : (env || null);
+    const filePayloadJson = (filePayload && typeof filePayload === 'object') ? JSON.stringify(filePayload) : (filePayload || null);
+
     const result = await db.query(
-      'INSERT INTO templates (name, description, config, env, status, created_by) VALUES (?, ?, ?, ?, ?, ?)',
-      [name, description || '', configJson, envJson, 'pending', req.user?.invitationId || null]
+      'INSERT INTO templates (name, description, config, env, status, created_by, file_payload) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [name, description || '', configJson, envJson, 'pending', req.user?.invitationId || null, filePayloadJson]
     );
     res.json({ success: true, data: { id: result.insertId } });
   } catch (err) {
@@ -390,12 +405,14 @@ router.post('/templates', authMiddleware, adminMiddleware, async (req, res) => {
 router.put('/templates/:id', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const db = require('../db');
-    const { name, description, config, env, status } = req.body;
+    const { name, description, config, env, status, filePayload } = req.body;
     const configJson = (config && typeof config === 'object') ? JSON.stringify(config) : (config || null);
     const envJson = (env && typeof env === 'object') ? JSON.stringify(env) : (env || null);
+    const filePayloadJson = (filePayload && typeof filePayload === 'object') ? JSON.stringify(filePayload) : (filePayload || null);
+
     await db.query(
-      'UPDATE templates SET name = ?, description = ?, config = ?, env = ?, status = ? WHERE id = ?',
-      [name, description || '', configJson, envJson, status || 'pending', req.params.id]
+      'UPDATE templates SET name = ?, description = ?, config = ?, env = ?, status = ?, file_payload = ? WHERE id = ?',
+      [name, description || '', configJson, envJson, status || 'pending', filePayloadJson, req.params.id]
     );
     res.json({ success: true });
   } catch (err) {
