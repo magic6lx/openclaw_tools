@@ -57,8 +57,8 @@ function Home() {
 
   const handleDownload = () => {
     const link = document.createElement('a');
-    link.href = '/launcher/download';
-    link.download = '';
+    link.href = '/launcher/download/OpenClawLauncher-win-x64-v1.0.2.zip';
+    link.download = 'OpenClawLauncher-win-x64-v1.0.2.zip';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
