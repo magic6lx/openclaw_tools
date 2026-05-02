@@ -12,3 +12,6 @@ build/
 docs/requirements/
 docs/
 server/public/
+test-results/
+launcher/test-data/
+launcher/.openclaw_test_env/

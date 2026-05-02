@@ -28,4 +28,20 @@ async function start() {
   });
 }
 
+process.on('uncaughtException', (err) => {
+  if (err.code === 'ECONNRESET' || err.code === 'PROTOCOL_CONNECTION_LOST') {
+    console.warn('DB connection error (auto-recovered):', err.code);
+  } else {
+    console.error('Uncaught exception:', err);
+  }
+});
+
+process.on('unhandledRejection', (reason) => {
+  if (reason?.code === 'ECONNRESET' || reason?.code === 'PROTOCOL_CONNECTION_LOST') {
+    console.warn('DB connection rejection (auto-recovered):', reason.code);
+  } else {
+    console.error('Unhandled rejection:', reason);
+  }
+});
+
 start().catch(console.error);

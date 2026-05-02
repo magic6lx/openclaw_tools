@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const logService = require('../services/logService');
+const { query } = require('../db'); // Explicitly import query
 const { login, authMiddleware, adminMiddleware, getInvitations, createInvitation, updateInvitation, deleteInvitation } = require('../middleware/auth');
 
 function redactSensitiveInfo(obj, depth = 0) {
@@ -58,6 +59,31 @@ router.post('/launcher-logs/upload', async (req, res) => {
     res.json(result);
   } catch (err) {
     console.error('保存日志失败:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// New API for device registration/heartbeat
+router.post('/device/register', authMiddleware, async (req, res) => {
+  try {
+    const { deviceId } = req.body;
+    const invitationId = req.user?.id || null; // Get invitationId from authenticated user
+
+    if (!deviceId) {
+      return res.status(400).json({ error: '缺少 deviceId 参数' });
+    }
+
+    // Insert or update device info
+    await query(
+      `INSERT INTO devices (device_id, invitation_id, last_seen)
+       VALUES (?, ?, NOW())
+       ON DUPLICATE KEY UPDATE invitation_id = VALUES(invitation_id), last_seen = NOW()`,
+      [deviceId, invitationId]
+    );
+
+    res.json({ success: true, message: 'Device registered/updated successfully' });
+  } catch (err) {
+    console.error('设备注册/更新失败:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -274,11 +300,11 @@ router.post('/proxy/chat', authMiddleware, async (req, res) => {
       const tokensUsed = (data.usage.prompt_tokens || 0) + (data.usage.completion_tokens || 0);
       await db.query(
         'INSERT INTO token_usage (device_id, invitation_id, model, input_tokens, output_tokens) VALUES (?, ?, ?, ?, ?)',
-        [req.user.deviceId || '', req.user.invitationId || null, model, data.usage.prompt_tokens || 0, data.usage.completion_tokens || 0]
+        [req.user.deviceId || '', req.user.id || null, model, data.usage.prompt_tokens || 0, data.usage.completion_tokens || 0]
       );
       await db.query(
         'UPDATE invitations SET token_proxy = JSON_SET(IFNULL(token_proxy, \'{}\'), \'$.quota.used\', ?) WHERE id = ?',
-        [quota.used + tokensUsed, req.user.invitationId]
+        [quota.used + tokensUsed, req.user.id]
       );
     }
 
@@ -292,7 +318,7 @@ router.post('/proxy/chat', authMiddleware, async (req, res) => {
 router.get('/proxy/usage', authMiddleware, async (req, res) => {
   try {
     const db = require('../db');
-    const invitationId = req.user.invitationId;
+    const invitationId = req.user.id;
 
     const usage = await db.query(
       'SELECT SUM(input_tokens) as totalInput, SUM(output_tokens) as totalOutput, COUNT(*) as requestCount FROM token_usage WHERE invitation_id = ?',
@@ -328,12 +354,22 @@ router.get('/proxy/usage', authMiddleware, async (req, res) => {
 router.get('/templates', authMiddleware, async (req, res) => {
   try {
     const db = require('../db');
-    const templates = await db.query('SELECT * FROM templates ORDER BY created_at DESC');
+    const { status } = req.query;
+    let sql = 'SELECT * FROM templates ORDER BY created_at DESC';
+    let params = [];
+    if (status) {
+      sql = 'SELECT * FROM templates WHERE status = ? ORDER BY created_at DESC';
+      params = [status];
+    }
+    const templates = await db.query(sql, params);
     const parsedTemplates = templates.map(t => ({
       ...t,
-      config: t.config ? (typeof t.config === 'string' ? JSON.parse(t.config) : t.config) : null,
+      config: t.config_content ? (typeof t.config_content === 'string' ? JSON.parse(t.config_content) : t.config_content) : null,
       env: t.env || null,
-      filePayload: t.file_payload ? (typeof t.file_payload === 'string' ? JSON.parse(t.file_payload) : t.file_payload) : null
+      manifest: t.manifest ? (typeof t.manifest === 'string' ? JSON.parse(t.manifest) : t.manifest) : null,
+      fileList: t.file_list ? (typeof t.file_list === 'string' ? JSON.parse(t.file_list) : t.file_list) : null,
+      filePayload: t.file_payload ? (typeof t.file_payload === 'string' ? JSON.parse(t.file_payload) : t.file_payload) : null,
+      categories: t.manifest ? (typeof t.manifest === 'string' ? JSON.parse(t.manifest) : t.manifest)?.templateManifest?.categories?.map(c => c.name) || [] : []
     }));
     res.json({ success: true, data: parsedTemplates });
   } catch (err) {
@@ -352,9 +388,13 @@ router.get('/templates/approved', async (req, res) => {
       label: t.name,
       description: t.description,
       icon: '📋',
-      config: t.config ? (typeof t.config === 'string' ? JSON.parse(t.config) : t.config) : {},
+      config: t.config_content ? (typeof t.config_content === 'string' ? JSON.parse(t.config_content) : t.config_content) : {},
       env: t.env || null,
-      filePayload: t.file_payload ? (typeof t.file_payload === 'string' ? JSON.parse(t.file_payload) : t.file_payload) : null
+      manifest: t.manifest ? (typeof t.manifest === 'string' ? JSON.parse(t.manifest) : t.manifest) : null,
+      fileList: t.file_list ? (typeof t.file_list === 'string' ? JSON.parse(t.file_list) : t.file_list) : null,
+      filePayload: t.file_payload ? (typeof t.file_payload === 'string' ? JSON.parse(t.file_payload) : t.file_payload) : null,
+      categories: t.manifest ? (typeof t.manifest === 'string' ? JSON.parse(t.manifest) : t.manifest)?.templateManifest?.categories?.map(c => c.name) || [] : [],
+      createdAt: t.created_at
     }));
     res.json({ success: true, data: parsedTemplates });
   } catch (err) {
@@ -372,9 +412,12 @@ router.get('/templates/:id', authMiddleware, async (req, res) => {
     }
     const parsedTemplate = {
       ...template,
-      config: template.config ? (typeof template.config === 'string' ? JSON.parse(template.config) : template.config) : null,
+      config: template.config_content ? (typeof template.config_content === 'string' ? JSON.parse(template.config_content) : template.config_content) : null,
       env: template.env || null,
-      filePayload: template.file_payload ? (typeof template.file_payload === 'string' ? JSON.parse(template.file_payload) : template.file_payload) : null
+      manifest: template.manifest ? (typeof template.manifest === 'string' ? JSON.parse(template.manifest) : template.manifest) : null,
+      fileList: template.file_list ? (typeof template.file_list === 'string' ? JSON.parse(template.file_list) : template.file_list) : null,
+      filePayload: template.file_payload ? (typeof template.file_payload === 'string' ? JSON.parse(template.file_payload) : template.file_payload) : null,
+      categories: template.manifest ? (typeof template.manifest === 'string' ? JSON.parse(template.manifest) : template.manifest)?.templateManifest?.categories?.map(c => c.name) || [] : []
     };
     res.json({ success: true, data: parsedTemplate });
   } catch (err) {
@@ -386,14 +429,16 @@ router.get('/templates/:id', authMiddleware, async (req, res) => {
 router.post('/templates', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const db = require('../db');
-    const { name, description, config, env, filePayload } = req.body;
+    const { name, description, config, env, filePayload, manifest, fileList } = req.body;
     const configJson = (config && typeof config === 'object') ? JSON.stringify(config) : (config || '{}');
     const envJson = (env && typeof env === 'object') ? JSON.stringify(env) : (env || null);
     const filePayloadJson = (filePayload && typeof filePayload === 'object') ? JSON.stringify(filePayload) : (filePayload || null);
+    const manifestJson = (manifest && typeof manifest === 'object') ? JSON.stringify(manifest) : (manifest || null);
+    const fileListJson = (fileList && typeof fileList === 'object') ? JSON.stringify(fileList) : (fileList || null);
 
     const result = await db.query(
-      'INSERT INTO templates (name, description, config, env, status, created_by, file_payload) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [name, description || '', configJson, envJson, 'pending', req.user?.invitationId || null, filePayloadJson]
+      'INSERT INTO templates (name, description, config_content, env, status, created_by, file_payload, manifest, file_list) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [name, description || '', configJson, envJson, 'pending', req.user?.id || null, filePayloadJson, manifestJson, fileListJson]
     );
     res.json({ success: true, data: { id: result.insertId } });
   } catch (err) {
@@ -405,14 +450,16 @@ router.post('/templates', authMiddleware, adminMiddleware, async (req, res) => {
 router.put('/templates/:id', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const db = require('../db');
-    const { name, description, config, env, status, filePayload } = req.body;
+    const { name, description, config, env, status, filePayload, manifest, fileList } = req.body;
     const configJson = (config && typeof config === 'object') ? JSON.stringify(config) : (config || null);
     const envJson = (env && typeof env === 'object') ? JSON.stringify(env) : (env || null);
     const filePayloadJson = (filePayload && typeof filePayload === 'object') ? JSON.stringify(filePayload) : (filePayload || null);
+    const manifestJson = (manifest && typeof manifest === 'object') ? JSON.stringify(manifest) : (manifest || null);
+    const fileListJson = (fileList && typeof fileList === 'object') ? JSON.stringify(fileList) : (fileList || null);
 
     await db.query(
-      'UPDATE templates SET name = ?, description = ?, config = ?, env = ?, status = ?, file_payload = ? WHERE id = ?',
-      [name, description || '', configJson, envJson, status || 'pending', filePayloadJson, req.params.id]
+      'UPDATE templates SET name = ?, description = ?, config_content = ?, env = ?, status = ?, file_payload = ?, manifest = ?, file_list = ? WHERE id = ?',
+      [name, description || '', configJson, envJson, status || 'pending', filePayloadJson, manifestJson, fileListJson, req.params.id]
     );
     res.json({ success: true });
   } catch (err) {
@@ -439,6 +486,52 @@ router.post('/templates/:id/approve', authMiddleware, adminMiddleware, async (re
     res.json({ success: true });
   } catch (err) {
     console.error('Approve template error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/templates/:id/verify', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const db = require('../db');
+    const { status } = req.body;
+    if (!['approved', 'rejected'].includes(status)) {
+      return res.status(400).json({ error: '无效的审核状态，仅支持 approved 或 rejected' });
+    }
+    const [template] = await db.query('SELECT * FROM templates WHERE id = ?', [req.params.id]);
+    if (!template) {
+      return res.status(404).json({ error: '模板不存在' });
+    }
+    await db.query('UPDATE templates SET status = ? WHERE id = ?', [status, req.params.id]);
+    res.json({ success: true, status });
+  } catch (err) {
+    console.error('Verify template error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/templates/:id/full', authMiddleware, async (req, res) => {
+  try {
+    const db = require('../db');
+    const [template] = await db.query('SELECT * FROM templates WHERE id = ?', [req.params.id]);
+    if (!template) {
+      return res.status(404).json({ error: '模板不存在' });
+    }
+    const parsedTemplate = {
+      id: template.id,
+      name: template.name,
+      description: template.description,
+      config: template.config_content ? (typeof template.config_content === 'string' ? JSON.parse(template.config_content) : template.config_content) : null,
+      env: template.env || null,
+      manifest: template.manifest ? (typeof template.manifest === 'string' ? JSON.parse(template.manifest) : template.manifest) : null,
+      fileList: template.file_list ? (typeof template.file_list === 'string' ? JSON.parse(template.file_list) : template.file_list) : null,
+      fileContents: template.file_payload ? (typeof template.file_payload === 'string' ? JSON.parse(template.file_payload) : template.file_payload) : null,
+      categories: template.manifest ? (typeof template.manifest === 'string' ? JSON.parse(template.manifest) : template.manifest)?.templateManifest?.categories?.map(c => c.name) || [] : [],
+      status: template.status,
+      createdAt: template.created_at
+    };
+    res.json({ success: true, data: parsedTemplate });
+  } catch (err) {
+    console.error('Get template full error:', err);
     res.status(500).json({ error: err.message });
   }
 });

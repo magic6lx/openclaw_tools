@@ -9,16 +9,26 @@ async function saveLogs(logs) {
     let savedCount = 0;
     for (const log of logs) {
       const deviceId = log.deviceId || '';
-      const invitationId = log.invitationId || null; // Get invitationId
+      let logInvitationId = log.invitationId || null; // Use invitationId if provided in log
+
       if (!deviceId) {
         continue;
       }
+
+      // If log does not have invitationId, try to get it from devices table
+      if (!logInvitationId) {
+        const [devices] = await query('SELECT invitation_id FROM devices WHERE device_id = ?', [deviceId]);
+        if (devices && devices.length > 0) {
+          logInvitationId = devices[0].invitation_id;
+        }
+      }
+
       await query(
         `INSERT INTO logs (device_id, invitation_id, level, source, message, client_timestamp)
          VALUES (?, ?, ?, ?, ?, ?)`,
         [
           deviceId,
-          invitationId, // Save invitationId
+          logInvitationId, // Save the resolved invitationId
           log.level || 'info',
           log.source || '',
           log.message || '',
@@ -38,7 +48,7 @@ async function getLogs(options = {}) {
   try {
     const { deviceId, level, source, startTime, endTime, limit = 100, offset = 0 } = options;
 
-    let sql = 'SELECT l.*, i.code as invitation_code FROM logs l LEFT JOIN devices d ON l.device_id = d.device_id LEFT JOIN invitations i ON d.invitation_id = i.id WHERE 1=1';
+    let sql = 'SELECT l.*, i.code as invitation_code, COALESCE(l.invitation_id, d.invitation_id) as resolved_invitation_id FROM logs l LEFT JOIN devices d ON l.device_id = d.device_id LEFT JOIN invitations i ON COALESCE(l.invitation_id, d.invitation_id) = i.id WHERE 1=1';
     const params = [];
 
     if (deviceId) {

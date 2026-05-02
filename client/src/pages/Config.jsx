@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Typography, Row, Col, Button, Tag, Space, Modal, message, Spin, Descriptions, Divider, Popconfirm, Select, Checkbox, Switch } from 'antd';
-import { CheckCircleOutlined, ReloadOutlined, RocketOutlined, SaveOutlined, DeleteOutlined, LinuxOutlined, ClearOutlined } from '@ant-design/icons';
+import { Card, Typography, Row, Col, Button, Tag, Space, Modal, message, Spin, Descriptions, Divider, Popconfirm, Select, Checkbox, Switch, Table, Tooltip, Collapse } from 'antd';
+import { CheckCircleOutlined, ReloadOutlined, RocketOutlined, SaveOutlined, DeleteOutlined, LinuxOutlined, ClearOutlined, CameraOutlined, UndoOutlined, HistoryOutlined, AppstoreOutlined, EyeOutlined } from '@ant-design/icons';
 import QuickSettings from '../components/QuickSettings';
 import { useConfig } from '../hooks/useConfig';
 
@@ -35,6 +35,14 @@ function Config() {
   const [cliLoading, setCliLoading] = useState(false);
   const [cliResults, setCliResults] = useState(null);
   const [sanitizing, setSanitizing] = useState(false);
+  const [snapshots, setSnapshots] = useState([]);
+  const [applyRecords, setApplyRecords] = useState([]);
+  const [selectedCategories, setSelectedCategories] = useState([]);
+  const [templateDetail, setTemplateDetail] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [applyingWithCategories, setApplyingWithCategories] = useState(false);
+  const [rollingBack, setRollingBack] = useState(false);
+  const [activeRightTab, setActiveRightTab] = useState('templates');
 
   const fetchProxyState = async () => {
     try {
@@ -159,7 +167,157 @@ function Config() {
     fetchConfig();
     fetchTemplates();
     fetchPrivateTemplates();
+    fetchSnapshots();
+    fetchApplyRecords();
   }, []);
+
+  const fetchSnapshots = async () => {
+    try {
+      const res = await fetch(`${LAUNCHER_API}/template/snapshots`);
+      const data = await res.json();
+      if (data.success) {
+        setSnapshots(data.snapshots || []);
+      }
+    } catch (err) {
+      console.error('获取快照列表失败:', err);
+    }
+  };
+
+  const fetchApplyRecords = async () => {
+    try {
+      const res = await fetch(`${LAUNCHER_API}/template/apply-records`);
+      const data = await res.json();
+      if (data.success) {
+        setApplyRecords(data.records || []);
+      }
+    } catch (err) {
+      console.error('获取应用记录失败:', err);
+    }
+  };
+
+  const fetchTemplateDetail = async (templateId) => {
+    setDetailLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${SERVER_API}/api/templates/${templateId}/full`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success && data.data) {
+        setTemplateDetail(data.data);
+        setSelectedCategories(data.data.categories || []);
+      } else {
+        message.error(data.error || '获取模板详情失败');
+      }
+    } catch (err) {
+      message.error(`获取模板详情失败: ${err.message}`);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const handleApplyWithCategories = async () => {
+    if (selectedCategories.length === 0) {
+      message.warning('请至少选择一个分类');
+      return;
+    }
+    if (!templateDetail) return;
+
+    Modal.confirm({
+      title: '确认应用模板',
+      icon: <RocketOutlined />,
+      content: (
+        <div>
+          <Paragraph>将应用模板 <Text strong>{templateDetail.name}</Text> 的以下分类：</Paragraph>
+          <div style={{ marginTop: 8 }}>
+            {selectedCategories.map(cat => (
+              <Tag key={cat} color="blue" style={{ marginBottom: 4 }}>{cat}</Tag>
+            ))}
+          </div>
+          <Paragraph type="warning" style={{ marginTop: 16 }}>
+            系统将在应用前自动创建快照，可随时回滚。
+          </Paragraph>
+        </div>
+      ),
+      onOk: async () => {
+        setApplyingWithCategories(true);
+        try {
+          const res = await fetch(`${LAUNCHER_API}/template/apply`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              templateId: templateDetail.id,
+              selectedCategories,
+              configPaths: true
+            })
+          });
+          const data = await res.json();
+          if (data.success) {
+            message.success(`模板已应用：写入 ${data.applied?.filesWritten || 0} 个文件`);
+            fetchConfig();
+            fetchSnapshots();
+            fetchApplyRecords();
+            setSelectedCategories([]);
+            setTemplateDetail(null);
+          } else {
+            message.error(data.error || '应用失败');
+          }
+        } catch (err) {
+          message.error(`应用失败: ${err.message}`);
+        }
+        setApplyingWithCategories(false);
+      }
+    });
+  };
+
+  const handleRollback = async (snapshotId) => {
+    Modal.confirm({
+      title: '确认回滚',
+      icon: <UndoOutlined />,
+      content: (
+        <div>
+          <Paragraph>确定要回滚到此快照的状态吗？</Paragraph>
+          <Paragraph type="warning">回滚将恢复快照中的所有文件和配置，删除应用后新增的文件。</Paragraph>
+        </div>
+      ),
+      onOk: async () => {
+        setRollingBack(true);
+        try {
+          const res = await fetch(`${LAUNCHER_API}/template/snapshot/${snapshotId}/rollback`, {
+            method: 'POST'
+          });
+          const data = await res.json();
+          if (data.success) {
+            message.success(`回滚成功：恢复 ${data.restoredCount || 0} 个文件，删除 ${data.deletedCount || 0} 个新增文件`);
+            fetchConfig();
+            fetchSnapshots();
+          } else {
+            message.error(data.error || '回滚失败');
+          }
+        } catch (err) {
+          message.error(`回滚失败: ${err.message}`);
+        }
+        setRollingBack(false);
+      }
+    });
+  };
+
+  const handleDeleteSnapshot = async (snapshotId) => {
+    try {
+      const res = await fetch(`${LAUNCHER_API}/template/snapshot/${snapshotId}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (data.success) {
+        message.success('快照已删除');
+        fetchSnapshots();
+      } else {
+        message.error(data.error || '删除失败');
+      }
+    } catch (err) {
+      message.error(`删除失败: ${err.message}`);
+    }
+  };
 
   const handleSavePrivateTemplate = () => {
     if (!localConfig) {
@@ -650,94 +808,353 @@ function Config() {
         </Col>
 
         <Col span={10}>
-          <Card title="模版应用选择">
-            {!selectedTemplate ? (
-              <>
-                <Paragraph type="secondary" style={{ marginBottom: 16 }}>
-                  选择一个模板开始配置
-                </Paragraph>
-                <div style={{ maxHeight: 500, overflow: 'auto' }}>
-                  {templates.map(template => (
-                    <Card
-                      key={template.id}
-                      size="small"
-                      hoverable
-                      style={{ marginBottom: 12 }}
-                      onClick={() => {
-                        setSelectedTemplate(template);
-                        setSelectedConfigKeys([]);
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <Text style={{ fontSize: 28 }}>{template.icon}</Text>
-                        <div style={{ flex: 1 }}>
-                          <Text strong>{template.label}</Text>
-                          <br />
-                          <Text type="secondary" style={{ fontSize: 12 }}>{template.description}</Text>
-                        </div>
-                      </div>
-                    </Card>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <>
-                <Button type="link" onClick={() => { setSelectedTemplate(null); setSelectedConfigKeys([]); }}>
-                  ← 返回模板列表
+          <Card 
+            title={
+              <Space>
+                <AppstoreOutlined />
+                <span>模板与快照</span>
+              </Space>
+            }
+            extra={
+              <Space size="small">
+                <Button 
+                  size="small" 
+                  type={activeRightTab === 'templates' ? 'primary' : 'default'}
+                  onClick={() => setActiveRightTab('templates')}
+                >
+                  模板
                 </Button>
-                <div style={{ marginTop: 8, marginBottom: 16 }}>
-                  <Text strong>已选择: {selectedTemplate.icon} {selectedTemplate.label}</Text>
-                </div>
+                <Button 
+                  size="small" 
+                  type={activeRightTab === 'snapshots' ? 'primary' : 'default'}
+                  onClick={() => setActiveRightTab('snapshots')}
+                >
+                  快照
+                </Button>
+                <Button 
+                  size="small" 
+                  type={activeRightTab === 'records' ? 'primary' : 'default'}
+                  onClick={() => setActiveRightTab('records')}
+                >
+                  记录
+                </Button>
+              </Space>
+            }
+          >
+            {activeRightTab === 'templates' && (
+              <>
+                {!templateDetail ? (
+                  <>
+                    <Paragraph type="secondary" style={{ marginBottom: 16 }}>
+                      选择一个模板，按分类勾选后应用
+                    </Paragraph>
+                    <div style={{ maxHeight: 500, overflow: 'auto' }}>
+                      {templates.map(template => (
+                        <Card
+                          key={template.id}
+                          size="small"
+                          hoverable
+                          style={{ marginBottom: 12 }}
+                          onClick={() => fetchTemplateDetail(template.id)}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <Text style={{ fontSize: 28 }}>{template.icon}</Text>
+                            <div style={{ flex: 1 }}>
+                              <Text strong>{template.label || template.name}</Text>
+                              <br />
+                              <Text type="secondary" style={{ fontSize: 12 }}>{template.description}</Text>
+                            </div>
+                            <EyeOutlined style={{ color: '#1890ff' }} />
+                          </div>
+                        </Card>
+                      ))}
+                      {templates.length === 0 && (
+                        <div style={{ textAlign: 'center', padding: 40 }}>
+                          <Text type="secondary">暂无已发布的模板</Text>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    {detailLoading ? (
+                      <div style={{ textAlign: 'center', padding: 40 }}>
+                        <Spin size="large" />
+                        <Paragraph style={{ marginTop: 16 }}>加载模板详情...</Paragraph>
+                      </div>
+                    ) : (
+                      <>
+                        <Button type="link" onClick={() => { setTemplateDetail(null); setSelectedCategories([]); }} style={{ padding: 0, marginBottom: 12 }}>
+                          ← 返回模板列表
+                        </Button>
+                        <div style={{ marginBottom: 16 }}>
+                          <Text strong style={{ fontSize: 16 }}>{templateDetail.name}</Text>
+                          {templateDetail.description && (
+                            <Paragraph type="secondary" style={{ marginTop: 4, marginBottom: 0 }}>{templateDetail.description}</Paragraph>
+                          )}
+                        </div>
 
-                <div style={{ marginBottom: 12 }}>
-                  <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>快捷选择：</Text>
-                  <Space>
-                    <Button size="small" onClick={() => setSelectedConfigKeys(['gateway', 'logging'])}>基础</Button>
-                    <Button size="small" onClick={() => setSelectedConfigKeys(['gateway', 'agents', 'session', 'models', 'logging'])}>标准</Button>
-                    <Button size="small" onClick={() => setSelectedConfigKeys(Object.keys(selectedTemplate.config || {}))}>高级</Button>
-                  </Space>
-                </div>
+                        <Divider style={{ margin: '12px 0' }}>选择要应用的分类</Divider>
 
-                <Divider style={{ margin: '12px 0' }}>或手动选择单项配置</Divider>
+                        {templateDetail.manifest?.templateManifest?.categories?.length > 0 ? (
+                          <div style={{ border: '1px solid #d9d9d9', borderRadius: 4, padding: 12, maxHeight: 300, overflow: 'auto' }}>
+                            {templateDetail.manifest.templateManifest.categories.map(cat => (
+                              <div key={cat.name} style={{ marginBottom: 8, padding: '4px 8px', background: selectedCategories.includes(cat.name) ? '#e6f7ff' : '#fafafa', borderRadius: 4 }}>
+                                <Checkbox
+                                  checked={selectedCategories.includes(cat.name)}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setSelectedCategories([...selectedCategories, cat.name]);
+                                    } else {
+                                      setSelectedCategories(selectedCategories.filter(c => c !== cat.name));
+                                    }
+                                  }}
+                                >
+                                  <Text strong>{cat.label || cat.name}</Text>
+                                  <Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>
+                                    {cat.paths?.join(', ')}
+                                  </Text>
+                                  {cat.source === 'discovered' && <Tag color="blue" style={{ marginLeft: 4 }}>自动发现</Tag>}
+                                  {cat.source === 'preset' && <Tag color="orange" style={{ marginLeft: 4 }}>预设</Tag>}
+                                </Checkbox>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div style={{ border: '1px solid #d9d9d9', borderRadius: 4, padding: 12 }}>
+                            {(templateDetail.categories || []).map(cat => (
+                              <Checkbox
+                                key={cat}
+                                checked={selectedCategories.includes(cat)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedCategories([...selectedCategories, cat]);
+                                  } else {
+                                    setSelectedCategories(selectedCategories.filter(c => c !== cat));
+                                  }
+                                }}
+                                style={{ marginBottom: 4, display: 'block' }}
+                              >
+                                {cat}
+                              </Checkbox>
+                            ))}
+                          </div>
+                        )}
 
-                <div style={{ maxHeight: 250, overflow: 'auto', border: '1px solid #d9d9d9', borderRadius: 4, padding: 8 }}>
-                  {(Object.keys(selectedTemplate.config || {})).map(key => (
-                    <Checkbox
-                      key={key}
-                      checked={selectedConfigKeys.includes(key)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setSelectedConfigKeys([...selectedConfigKeys, key]);
-                        } else {
-                          setSelectedConfigKeys(selectedConfigKeys.filter(k => k !== key));
-                        }
+                        <div style={{ marginTop: 8 }}>
+                          <Button type="link" size="small" onClick={() => setSelectedCategories(templateDetail.manifest?.templateManifest?.categories?.map(c => c.name) || templateDetail.categories || [])}>全选</Button>
+                          <Button type="link" size="small" onClick={() => setSelectedCategories([])}>清空</Button>
+                        </div>
+
+                        <Divider />
+
+                        {templateDetail.fileList && Object.keys(templateDetail.fileList).length > 0 && (
+                          <Collapse size="small" style={{ marginBottom: 12 }}>
+                            <Collapse.Panel header={`文件清单 (${Object.values(templateDetail.fileList).flat().length} 个文件)`} key="files">
+                              {Object.entries(templateDetail.fileList).map(([cat, files]) => (
+                                <div key={cat} style={{ marginBottom: 8 }}>
+                                  <Text strong style={{ fontSize: 12 }}>{cat}:</Text>
+                                  <div style={{ paddingLeft: 12 }}>
+                                    {files.map(f => (
+                                      <Text key={f} type="secondary" style={{ fontSize: 11, display: 'block' }}>{f}</Text>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
+                            </Collapse.Panel>
+                          </Collapse>
+                        )}
+
+                        <Space>
+                          <Button
+                            type="primary"
+                            icon={<RocketOutlined />}
+                            onClick={handleApplyWithCategories}
+                            loading={applyingWithCategories}
+                            disabled={selectedCategories.length === 0}
+                          >
+                            应用 ({selectedCategories.length} 个分类)
+                          </Button>
+                          <Button onClick={() => { setTemplateDetail(null); setSelectedCategories([]); }}>
+                            重选
+                          </Button>
+                        </Space>
+                      </>
+                    )}
+                  </>
+                )}
+
+                <Divider style={{ margin: '16px 0' }} />
+
+                {privateTemplates.length > 0 && (
+                  <div>
+                    <Space style={{ marginBottom: 8 }}>
+                      <SaveOutlined />
+                      <Text strong>私有模板</Text>
+                      <Tag color="green">{privateTemplates.length}个</Tag>
+                      <Button size="small" type="primary" icon={<SaveOutlined />} onClick={handleSavePrivateTemplate} loading={syncing}>
+                        保存当前
+                      </Button>
+                    </Space>
+                    <Select
+                      style={{ width: '100%', marginBottom: 8 }}
+                      placeholder="选择要恢复的私有模板"
+                      value={selectedPrivateTemplate?.id}
+                      onChange={(id) => {
+                        const tpl = privateTemplates.find(t => t.id === id);
+                        setSelectedPrivateTemplate(tpl);
                       }}
-                      style={{ marginBottom: 4 }}
                     >
-                      {getConfigIcon(key)} {getConfigName(key)}
-                    </Checkbox>
-                  ))}
-                </div>
-                <div style={{ marginTop: 8 }}>
-                  <Button type="link" size="small" onClick={() => setSelectedConfigKeys(Object.keys(selectedTemplate.config || {}))}>全选</Button>
-                  <Button type="link" size="small" onClick={() => setSelectedConfigKeys([])}>清空</Button>
-                </div>
+                      {privateTemplates.map(tpl => (
+                        <Select.Option key={tpl.id} value={tpl.id}>
+                          {tpl.label} - {new Date(tpl.savedAt).toLocaleString()}
+                        </Select.Option>
+                      ))}
+                    </Select>
+                    {selectedPrivateTemplate && (
+                      <Space size="small">
+                        <Button size="small" type="primary" icon={<CheckCircleOutlined />} onClick={handleApplyPrivateTemplate} loading={applying}>
+                          恢复
+                        </Button>
+                        <Popconfirm title="确定删除？" onConfirm={() => handleDeletePrivateTemplate(selectedPrivateTemplate.id)}>
+                          <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
+                        </Popconfirm>
+                      </Space>
+                    )}
+                  </div>
+                )}
+                {privateTemplates.length === 0 && localConfig && (
+                  <div>
+                    <Paragraph type="secondary" style={{ fontSize: 12 }}>
+                      将当前配置保存为私有模板，方便随时恢复。
+                    </Paragraph>
+                    <Button size="small" type="primary" icon={<SaveOutlined />} onClick={handleSavePrivateTemplate} loading={syncing}>
+                      保存当前配置为私有模板
+                    </Button>
+                  </div>
+                )}
+              </>
+            )}
 
-                <Divider />
-                <Space>
-                  <Button
-                    type="primary"
-                    icon={<RocketOutlined />}
-                    onClick={() => handleApplyTemplate(selectedTemplate)}
-                    loading={applying}
-                    disabled={selectedConfigKeys.length === 0}
-                  >
-                    应用 ({selectedConfigKeys.length})
-                  </Button>
-                  <Button onClick={() => { setSelectedTemplate(null); setSelectedConfigKeys([]); }}>
-                    重选
-                  </Button>
+            {activeRightTab === 'snapshots' && (
+              <>
+                <Space style={{ marginBottom: 16 }}>
+                  <CameraOutlined />
+                  <Text strong>应用快照</Text>
+                  <Tag color="blue">{snapshots.length}个</Tag>
+                  <Button size="small" icon={<ReloadOutlined />} onClick={fetchSnapshots}>刷新</Button>
                 </Space>
+                {snapshots.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: 40 }}>
+                    <CameraOutlined style={{ fontSize: 32, color: '#d9d9d9' }} />
+                    <Paragraph type="secondary" style={{ marginTop: 12 }}>暂无快照</Paragraph>
+                    <Text type="secondary" style={{ fontSize: 12 }}>应用模板时会自动创建快照</Text>
+                  </div>
+                ) : (
+                  <div style={{ maxHeight: 500, overflow: 'auto' }}>
+                    {snapshots.map(snap => (
+                      <Card
+                        key={snap.id}
+                        size="small"
+                        style={{ marginBottom: 8, borderColor: '#d9d9d9' }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
+                          <div>
+                            <Text strong>{snap.templateName || '未知模板'}</Text>
+                            <br />
+                            <Text type="secondary" style={{ fontSize: 11 }}>
+                              {new Date(snap.createdAt).toLocaleString()}
+                            </Text>
+                            <br />
+                            <Space size={4} style={{ marginTop: 4 }}>
+                              <Tag color="blue" style={{ fontSize: 10 }}>{snap.filesCount} 个文件</Tag>
+                              <Tag color="green" style={{ fontSize: 10 }}>{snap.newFilesCount} 个新增</Tag>
+                            </Space>
+                            {snap.selectedCategories && snap.selectedCategories.length > 0 && (
+                              <div style={{ marginTop: 4 }}>
+                                {snap.selectedCategories.map(cat => (
+                                  <Tag key={cat} style={{ fontSize: 10, marginBottom: 2 }}>{cat}</Tag>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          <Space direction="vertical" size={4}>
+                            <Tooltip title="回滚到此快照">
+                              <Button
+                                size="small"
+                                icon={<UndoOutlined />}
+                                onClick={() => handleRollback(snap.id)}
+                                loading={rollingBack}
+                              >
+                                回滚
+                              </Button>
+                            </Tooltip>
+                            <Popconfirm title="确定删除此快照？" onConfirm={() => handleDeleteSnapshot(snap.id)}>
+                              <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
+                            </Popconfirm>
+                          </Space>
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+
+            {activeRightTab === 'records' && (
+              <>
+                <Space style={{ marginBottom: 16 }}>
+                  <HistoryOutlined />
+                  <Text strong>应用记录</Text>
+                  <Tag color="purple">{applyRecords.length}条</Tag>
+                  <Button size="small" icon={<ReloadOutlined />} onClick={fetchApplyRecords}>刷新</Button>
+                </Space>
+                {applyRecords.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: 40 }}>
+                    <HistoryOutlined style={{ fontSize: 32, color: '#d9d9d9' }} />
+                    <Paragraph type="secondary" style={{ marginTop: 12 }}>暂无应用记录</Paragraph>
+                  </div>
+                ) : (
+                  <div style={{ maxHeight: 500, overflow: 'auto' }}>
+                    {applyRecords.map(record => (
+                      <Card
+                        key={record.id}
+                        size="small"
+                        style={{ marginBottom: 8, borderColor: '#d9d9d9' }}
+                      >
+                        <div>
+                          <Text strong>{record.templateName || '未知模板'}</Text>
+                          <br />
+                          <Text type="secondary" style={{ fontSize: 11 }}>
+                            {new Date(record.appliedAt).toLocaleString()}
+                          </Text>
+                          <br />
+                          <Space size={4} style={{ marginTop: 4 }}>
+                            <Tag color="green" style={{ fontSize: 10 }}>写入 {record.filesWritten}</Tag>
+                            <Tag color="orange" style={{ fontSize: 10 }}>跳过 {record.filesSkipped}</Tag>
+                            {record.errors && record.errors.length > 0 && (
+                              <Tag color="red" style={{ fontSize: 10 }}>错误 {record.errors.length}</Tag>
+                            )}
+                          </Space>
+                          {record.selectedCategories && record.selectedCategories.length > 0 && (
+                            <div style={{ marginTop: 4 }}>
+                              {record.selectedCategories.map(cat => (
+                                <Tag key={cat} style={{ fontSize: 10, marginBottom: 2 }}>{cat}</Tag>
+                              ))}
+                            </div>
+                          )}
+                          {record.configConflicts && record.configConflicts.length > 0 && (
+                            <div style={{ marginTop: 4 }}>
+                              <Text type="secondary" style={{ fontSize: 10 }}>
+                                配置冲突: {record.configConflicts.length} 处
+                              </Text>
+                            </div>
+                          )}
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+                )}
               </>
             )}
           </Card>

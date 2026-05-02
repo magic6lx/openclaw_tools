@@ -1,6 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync, appendFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { execSync, spawn } from 'child_process';
@@ -13,66 +13,99 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-let installState = {
+const homedir = os.homedir(); // Ensure homedir is defined
+const DEFAULT_GATEWAY_PORT = 18789;
+
+// Use OPENCLAW_TEST_DIR if defined, otherwise default to ~/.openclaw
+const OPENCLAW_CONFIG_DIR = process.env.OPENCLAW_TEST_DIR ? 
+  join(process.cwd(), process.env.OPENCLAW_TEST_DIR) : 
+  join(homedir, '.openclaw');
+
+const OPENCLAW_CONFIG_FILE = join(OPENCLAW_CONFIG_DIR, 'openclaw.json');
+const OPENCLAW_ENV_FILE = join(OPENCLAW_CONFIG_DIR, '.env');
+const PRIVATE_TEMPLATE_DIR = join(OPENCLAW_CONFIG_DIR, 'private_templates');
+const LAUNCHER_DEVICE_ID_FILE = join(OPENCLAW_CONFIG_DIR, 'device_id');
+const MANIFEST_DIR = join(OPENCLAW_CONFIG_DIR, 'manifests');
+const SNAPSHOT_DIR = join(OPENCLAW_CONFIG_DIR, 'snapshots');
+const APPLY_RECORD_DIR = join(OPENCLAW_CONFIG_DIR, 'apply_records');
+const LAUNCHER_JSONL_LOG = join(OPENCLAW_CONFIG_DIR, 'logs', 'launcher.jsonl');
+
+const INSTALL_CHECK_CACHE_MS = 30 * 1000;
+const LOG_RETENTION_DAYS = 7;
+
+let cachedInstallStatus = null;
+let lastInstallCheckTime = 0;
+
+const installState = {
   running: false,
+  process: null,
   logs: [],
-  process: null
 };
 
-let gatewayState = {
+const gatewayState = {
   running: false,
   process: null,
   dashboardUrl: null
 };
 
-const DEFAULT_GATEWAY_PORT = 18789;
+let globalDeviceId = null; // Global variable to store device ID
 
-const LAUNCHER_ROOT = join(__dirname, '..');
-const CONFIG_DIR = join(LAUNCHER_ROOT, 'config');
-const CONFIG_FILE = join(CONFIG_DIR, 'openclaw_config.json');
-const homedir = os.homedir();
-const OPENCLAW_CONFIG_DIR = join(homedir, '.openclaw');
-  const OPENCLAW_CONFIG_FILE = join(OPENCLAW_CONFIG_DIR, 'openclaw.json');
-const PRIVATE_TEMPLATE_DIR = join(OPENCLAW_CONFIG_DIR, 'private_templates');
-const OPENCLAW_ENV_FILE = join(OPENCLAW_CONFIG_DIR, '.env');
-
-function getOpenClawConfig() {
-  if (existsSync(OPENCLAW_CONFIG_FILE)) {
-    try {
-      return JSON.parse(readFileSync(OPENCLAW_CONFIG_FILE, 'utf-8'));
-    } catch (e) {
-      addLog('ERROR', `读取 OpenClaw 配置文件失败: ${e.message}`);
-      return null;
-    }
+// Generate or load device ID on startup
+if (existsSync(LAUNCHER_DEVICE_ID_FILE)) {
+  globalDeviceId = readFileSync(LAUNCHER_DEVICE_ID_FILE, 'utf-8');
+} else {
+  // Simple UUID generation for device ID
+  globalDeviceId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+  // Ensure .openclaw directory exists before writing device ID
+  if (!existsSync(OPENCLAW_CONFIG_DIR)) {
+    mkdirSync(OPENCLAW_CONFIG_DIR, { recursive: true });
   }
-  return null;
+  writeFileSync(LAUNCHER_DEVICE_ID_FILE, globalDeviceId, 'utf-8');
 }
 
-let cachedInstallStatus = null;
-let lastInstallCheckTime = 0;
-const INSTALL_CHECK_CACHE_MS = 30000;
+// Default Manifest for Template Generation & Application
+const DEFAULT_TEMPLATE_MANIFEST = {
+  bundleDirs: ['workspace', 'skills'],
+  normalizePaths: {
+    'agents.defaults.workspace': 'workspace',
+    'logging.file': 'logs/openclaw.log'
+  }
+};
 
-let LAUNCHER_CONFIG = { serverUrl: null };
+let LAUNCHER_CONFIG = { serverUrl: null, templateManifest: DEFAULT_TEMPLATE_MANIFEST };
 try {
+  const CONFIG_DIR = join(__dirname, '..', 'config'); // Assuming a config folder exists next to src
+  const CONFIG_FILE = join(CONFIG_DIR, 'launcher_config.json'); // Use a specific name for launcher config
+
   if (!existsSync(CONFIG_DIR)) {
     mkdirSync(CONFIG_DIR, { recursive: true });
   }
   if (existsSync(CONFIG_FILE)) {
-    LAUNCHER_CONFIG = JSON.parse(readFileSync(CONFIG_FILE, 'utf-8'));
+    const loadedConfig = JSON.parse(readFileSync(CONFIG_FILE, 'utf-8'));
+    LAUNCHER_CONFIG = { ...LAUNCHER_CONFIG, ...loadedConfig };
+    // Ensure manifest falls back to defaults if partially defined
+    LAUNCHER_CONFIG.templateManifest = {
+      bundleDirs: loadedConfig.templateManifest?.bundleDirs || DEFAULT_TEMPLATE_MANIFEST.bundleDirs,
+      normalizePaths: loadedConfig.templateManifest?.normalizePaths || DEFAULT_TEMPLATE_MANIFEST.normalizePaths
+    };
   }
 } catch (e) {
+  // Ignore errors for now, will log later
 }
 
 function getServerUrl() {
   return LAUNCHER_CONFIG.serverUrl || process.env.OPENCLAW_SERVER_URL || 'http://134.175.18.139:3001';
 }
 
-function addLog(level, message, invitationId = null) {
+function addLog(level, message, invitationId = null, deviceIdToUse = globalDeviceId) {
   const cleanMessage = message.replace(/\x1b\[[0-9;]*m/g, '').trim();
   const logEntry = {
     timestamp: new Date().toISOString(),
-    deviceId: 'launcher-local',
-    invitationId: invitationId, // Add invitationId here
+    deviceId: deviceIdToUse,
+    invitationId: invitationId,
     level,
     source: 'launcher',
     message: cleanMessage
@@ -84,10 +117,41 @@ function addLog(level, message, invitationId = null) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      deviceId: 'launcher-local',
+      deviceId: deviceIdToUse,
       logs: [logEntry]
     })
   }).catch(() => {});
+}
+
+function addTaggedLog(level, tag, message, templateId = null) {
+  const taggedMessage = `${tag} ${message}`;
+  const logEntry = {
+    timestamp: new Date().toISOString(),
+    deviceId: globalDeviceId,
+    level,
+    source: 'launcher',
+    message: taggedMessage,
+    tag,
+    templateId
+  };
+  installState.logs.push(logEntry);
+
+  const serverUrl = getServerUrl();
+  fetch(`${serverUrl}/api/launcher-logs/upload`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      deviceId: globalDeviceId,
+      logs: [logEntry]
+    })
+  }).catch(() => {});
+
+  try {
+    if (!existsSync(dirname(LAUNCHER_JSONL_LOG))) {
+      mkdirSync(dirname(LAUNCHER_JSONL_LOG), { recursive: true });
+    }
+    appendFileSync(LAUNCHER_JSONL_LOG, JSON.stringify(logEntry) + '\n', 'utf-8');
+  } catch (e) {}
 }
 
 function isOpenClawInstalled() {
@@ -157,6 +221,7 @@ function getStatus() {
     gatewayRunning: gatewayRunning,
     dashboardUrl: gatewayRunning ? `http://127.0.0.1:${DEFAULT_GATEWAY_PORT}` : null,
     launcherRunning: true,
+    deviceId: globalDeviceId, // Add deviceId here
     checkMethod: 'binary+registry+process+npm'
   };
 }
@@ -177,7 +242,7 @@ function checkGatewayRunning() {
   return false;
 }
 
-app.post('/gateway/start', (req, res) => {
+app.post('/gateway/start', async (req, res) => {
   if (checkGatewayRunning()) {
     addLog('INFO', 'Gateway 已在运行中，端口 18789 已监听');
     return res.json({
@@ -632,14 +697,109 @@ app.get('/config/export', (req, res) => {
       };
     }
 
+    if (result.config) {
+      result.config = normalizeConfigPathsForExport(result.config, OPENCLAW_CONFIG_DIR);
+    }
+
     res.json(result);
   } catch (err) {
     res.json({ success: false, error: err.message });
   }
 });
 
+// Normalize paths for EXPORT (convert absolute paths to relative logical paths)
+function normalizeConfigPathsForExport(config, configDir) {
+  if (!config) return config;
+  const normalized = JSON.parse(JSON.stringify(config)); // Deep copy
+
+  // Fields that might contain paths that need normalization
+  const pathFields = {
+    'agents.defaults.workspace': 'workspace',
+    'logging.file': 'logs/openclaw.log'
+  };
+
+  const isPathProblematic = (pathToCheck) => /^[a-zA-Z]:(\\|\/)/.test(pathToCheck) || (pathToCheck.startsWith('/') && process.platform === 'win32');
+
+  for (const [dotPath, defaultRelativePath] of Object.entries(pathFields)) {
+    const parts = dotPath.split('.');
+    let current = normalized;
+    let found = true;
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (current[parts[i]]) {
+        current = current[parts[i]];
+      } else {
+        found = false;
+        break;
+      }
+    }
+    
+    if (found && current[parts[parts.length - 1]]) {
+      const originalPath = current[parts[parts.length - 1]];
+      // If it's already a relative-looking path without drive letters or root slashes, leave it
+      if (!isPathProblematic(originalPath)) {
+        // We could theoretically check if it starts with configDir and strip it, 
+        // but for safety, we'll assume non-problematic paths are already relative or valid.
+      } else {
+        // It's an absolute path. We force it to be the standard relative path for the template.
+        current[parts[parts.length - 1]] = defaultRelativePath;
+        addLog('INFO', `导出模板：路径 [${dotPath}] 已从硬编码绝对路径 [${originalPath}] 归一化为相对逻辑路径 [${defaultRelativePath}]`);
+      }
+    }
+  }
+  return normalized;
+}
+
+// Hydrate paths for IMPORT (convert relative logical paths to absolute paths for the current machine)
+function hydrateConfigPathsForImport(config, configDir) {
+  if (!config) return config;
+  const hydrated = JSON.parse(JSON.stringify(config)); // Deep copy
+
+  const pathFields = {
+    'agents.defaults.workspace': 'workspace',
+    'logging.file': 'logs/openclaw.log'
+  };
+
+  const isPathProblematic = (pathToCheck) => /^[a-zA-Z]:(\\|\/)/.test(pathToCheck) || (pathToCheck.startsWith('/') && process.platform === 'win32');
+
+  for (const [dotPath, defaultRelativePath] of Object.entries(pathFields)) {
+    const parts = dotPath.split('.');
+    let current = hydrated;
+    let found = true;
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (current[parts[i]]) {
+        current = current[parts[i]];
+      } else {
+        found = false;
+        break;
+      }
+    }
+    
+    if (found && current[parts[parts.length - 1]]) {
+      const originalPath = current[parts[parts.length - 1]];
+      let resolvedPath;
+      
+      // If the template contains a bad absolute path (legacy/malicious), override it
+      if (isPathProblematic(originalPath)) {
+          resolvedPath = join(configDir, defaultRelativePath);
+          addLog('INFO', `导入模板：检测到硬编码绝对路径 [${originalPath}]，已强制水合为 [${resolvedPath}]`);
+      } else {
+          // If it's a relative path (as expected from our new export), join it with the configDir
+          // We check if it's already an absolute path starting with the configDir to avoid double joining
+          if (originalPath.startsWith(configDir)) {
+              resolvedPath = originalPath;
+          } else {
+              resolvedPath = join(configDir, originalPath);
+              addLog('INFO', `导入模板：将逻辑相对路径 [${originalPath}] 水合为当前机器绝对路径 [${resolvedPath}]`);
+          }
+      }
+      current[parts[parts.length - 1]] = resolvedPath.replace(/\\/g, '/'); // Normalize slashes for JSON
+    }
+  }
+  return hydrated;
+}
+
 const SENSITIVE_FIELDS = ['apiKey', 'api_key', 'token', 'secret', 'password', 'privateKey'];
-const PATH_FIELDS = ['workspace', 'agentDir', 'path', 'dir', 'logging.path']; // Add logging.path
+const PATH_FIELDS = ['workspace', 'agentDir', 'path', 'dir', 'logging.file']; // Changed to logging.file
 const KEEP_EXISTING_FIELDS = ['models', 'agents'];
 
 function isSensitiveField(key) {
@@ -653,40 +813,43 @@ function isAbsolutePathWithDriveLetter(path) {
 function adaptPath(templatePath, existingPath, key) {
   if (!templatePath) return templatePath;
 
-  const openclawConfigDir = OPENCLAW_CONFIG_DIR; // Use the dynamically resolved .openclaw directory
+  const openclawConfigDir = OPENCLAW_CONFIG_DIR;
+  const isPathProblematic = (pathToCheck) => isAbsolutePathWithDriveLetter(pathToCheck) || (pathToCheck.startsWith('/') && process.platform === 'win32');
 
-  // Handle absolute paths with drive letters, or invalid absolute paths
-  if (isAbsolutePathWithDriveLetter(templatePath) || (templatePath.startsWith('/') && process.platform === 'win32')) {
-    // For workspace and logging paths, force them to be relative to OPENCLAW_CONFIG_DIR
-    if (key === 'workspace') {
-      // If an existing workspace path is set, prioritize it.
-      // Otherwise, default to ~/.openclaw/workspace
-      return existingPath && existingPath !== templatePath ? existingPath : join(openclawConfigDir, 'workspace');
-    } else if (key === 'logging.path') {
-      // For logging path, default to ~/.openclaw/logs
-      return existingPath && existingPath !== templatePath ? existingPath : join(openclawConfigDir, 'logs');
-    } else {
-      // For other absolute paths, if an existing path is present and different, use it.
-      // Otherwise, if the template path is absolute with drive letter, try to make it relative to openclawConfigDir.
-      // If it's a Linux-style absolute path on Windows, also make it relative.
-      if (existingPath && existingPath !== templatePath) {
-        return existingPath;
+  // 1. Prioritize adapting problematic template paths
+  if (isPathProblematic(templatePath)) {
+      if (key === 'workspace') {
+          return join(openclawConfigDir, 'workspace');
+      } else if (key === 'logging.file') {
+          return join(openclawConfigDir, 'logs', 'openclaw.log');
       } else {
-        // Attempt to make it relative to the .openclaw directory
-        // This is a best-effort. If the path is entirely outside .openclaw, it might still be problematic.
-        const relativeToOpenClaw = templatePath.replace(/^[a-zA-Z]:(\\|\/)/, '').replace(/^\//, ''); // Remove drive letter or leading slash
-        return join(openclawConfigDir, relativeToOpenClaw);
+          // For other problematic paths, try to make them relative to .openclaw config dir
+          const cleanedRelativePath = templatePath.replace(/^[a-zA-Z]:(\\|\/)/, '').replace(/^\//, '');
+          return join(openclawConfigDir, cleanedRelativePath);
       }
-    }
   }
 
-  // If it's not an absolute path with a drive letter, or it's a relative path
-  // And an existing path is present and different, we keep the existing path for PATH_FIELDS
+  // 2. If templatePath is NOT problematic, but existingPath IS problematic, then adapt existingPath
+  // This covers cases where user might have manually edited openclaw.json with a problematic path
+  // AND then applied a template that has a non-problematic (e.g. relative) path for the same key.
+  if (PATH_FIELDS.includes(key) && existingPath && existingPath !== templatePath && isPathProblematic(existingPath)) {
+      if (key === 'workspace') {
+          return join(openclawConfigDir, 'workspace');
+      } else if (key === 'logging.file') {
+          return join(openclawConfigDir, 'logs', 'openclaw.log');
+      } else {
+          const cleanedRelativePath = existingPath.replace(/^[a-zA-Z]:(\\|\/)/, '').replace(/^\//, '');
+          return join(openclawConfigDir, cleanedRelativePath);
+      }
+  }
+
+  // 3. If neither is problematic, and existingPath is different from templatePath for a PATH_FIELD, prefer existingPath.
+  // This is the "user_maintained_config" scenario, where existing config is valid and different from template.
   if (PATH_FIELDS.includes(key) && existingPath && existingPath !== templatePath) {
-    return existingPath; // Preserve user's existing config for paths
+    return existingPath; 
   }
 
-  // Default behavior if no special adaptation is needed
+  // Default: no adaptation needed or templatePath is fine, or existingPath is not found/same as templatePath.
   return templatePath;
 }
 
@@ -744,11 +907,6 @@ function mergeConfigRecursive(existing, template, conflicts = [], path = '') {
         result[key] = templateValue;
       }
       continue;
-    }        result[key] = adaptedPath;
-      } else {
-        result[key] = templateValue;
-      }
-      continue;
     }
 
     if (KEEP_EXISTING_FIELDS.includes(key)) {
@@ -769,7 +927,33 @@ function mergeConfigRecursive(existing, template, conflicts = [], path = '') {
     }
   }
 
-  return result;
+  return template;
+}
+
+// Function to load, adapt paths, and save the OpenClaw config
+async function loadAndAdaptConfig() {
+  if (!existsSync(OPENCLAW_CONFIG_FILE)) {
+    addLog('INFO', '配置文件不存在，跳过预适配。');
+    return;
+  }
+
+  try {
+    const existingConfig = JSON.parse(readFileSync(OPENCLAW_CONFIG_FILE, 'utf-8'));
+    const conflicts = []; // Not interested in conflicts here, just adaptation
+
+    // Recursively adapt paths in the existing config
+    const adaptedConfig = mergeConfigRecursive(existingConfig, existingConfig, conflicts, '');
+
+    // Check if any adaptation happened and save if needed
+    if (JSON.stringify(adaptedConfig) !== JSON.stringify(existingConfig)) {
+      writeFileSync(OPENCLAW_CONFIG_FILE, JSON.stringify(adaptedConfig, null, 2), 'utf-8');
+      addLog('INFO', 'Gateway启动前：openclaw.json 路径已适配并保存。');
+    } else {
+      addLog('INFO', 'Gateway启动前：openclaw.json 路径无需适配。');
+    }
+  } catch (e) {
+    addLog('ERROR', `Gateway启动前：适配 openclaw.json 路径失败: ${e.message}`);
+  }
 }
 
 const INVALID_ROOT_KEYS = ['launcher', 'channels'];
@@ -842,7 +1026,13 @@ function sanitizeConfig(config) {
 app.post('/config/import', (req, res) => {
   try {
     addLog('INFO', '========== 开始应用模板配置 ==========');
-    const { config, env, mergeStrategy, fileContents } = req.body;
+    const { config, env, mergeStrategy, fileContents, applyOptions } = req.body;
+
+    // Determine which directories to actually write based on applyOptions
+    // If not provided, fallback to the full list defined in the manifest
+    const allowedDirsToWrite = applyOptions?.dirs || LAUNCHER_CONFIG.templateManifest.bundleDirs;
+    addLog('INFO', `导入模板：允许覆盖的目录选项 = [${allowedDirsToWrite.join(', ')}]`);
+
     if (!config) {
       addLog('ERROR', '配置应用失败：配置文件为空');
       return res.json({ success: false, error: '配置文件为空' });
@@ -880,6 +1070,12 @@ app.post('/config/import', (req, res) => {
       addLog('INFO', '未发现现有配置，直接写入新配置');
     }
 
+    if (applyOptions?.configPaths !== false) {
+      finalConfig = hydrateConfigPathsForImport(finalConfig, OPENCLAW_CONFIG_DIR);
+    } else {
+      addLog('INFO', `导入模板：依据用户选项，跳过路径配置的覆盖与水合`);
+    }
+
     writeFileSync(OPENCLAW_CONFIG_FILE, JSON.stringify(finalConfig, null, 2), 'utf-8');
     if (env) {
       writeFileSync(OPENCLAW_ENV_FILE, env, 'utf-8');
@@ -888,38 +1084,42 @@ app.post('/config/import', (req, res) => {
     addLog('INFO', `配置已成功应用并保存至: ${OPENCLAW_CONFIG_FILE}`);
 
     // Handle fileContents
-    if (fileContents) {
-      addLog('INFO', `开始处理文件内容，共 ${Object.keys(fileContents).length} 个文件`);
-      for (const relativeFilePath in fileContents) {
-        if (Object.prototype.hasOwnProperty.call(fileContents, relativeFilePath)) {
-          const base64Content = fileContents[relativeFilePath];
+    if (fileContents && typeof fileContents === 'object') {
+      let filesWritten = 0;
+      let filesSkipped = 0;
+      for (const [relativeFilePath, base64Content] of Object.entries(fileContents)) {
+        try {
+          // Identify the top-level directory of this file (e.g., "skills" from "skills/my-skill/main.js")
+          const pathParts = relativeFilePath.split(/\\|\//);
+          const topLevelDir = pathParts[0];
 
-          // Clean up relativeFilePath to ensure it's truly relative to OPENCLAW_CONFIG_DIR
-          // Remove drive letter or leading slash if present
+          // Check if this directory is in the allowed list from the frontend options
+          if (!allowedDirsToWrite.includes(topLevelDir)) {
+              filesSkipped++;
+              continue; // Skip writing this file
+          }
+
           const cleanedRelativeFilePath = relativeFilePath.replace(/^[a-zA-Z]:(\\|\/)/, '').replace(/^\//, '');
           let targetPath = join(OPENCLAW_CONFIG_DIR, cleanedRelativeFilePath);
-          
-          // Ensure directory exists
-          const dir = dirname(targetPath);
-          if (!existsSync(dir)) {
-            mkdirSync(dir, { recursive: true });
-            addLog('INFO', `创建目录: ${dir}`);
+
+          // Security check: prevent path traversal
+          if (!targetPath.startsWith(OPENCLAW_CONFIG_DIR)) {
+              addLog('WARN', `拦截恶意路径穿越尝试: ${relativeFilePath}`);
+              continue;
           }
 
-          try {
-            // If file exists, try to delete it first to ensure clean overwrite
-            if (existsSync(targetPath)) {
-              unlinkSync(targetPath);
-              addLog('INFO', `已删除现有文件: ${targetPath}`);
-            }
-            writeFileSync(targetPath, Buffer.from(base64Content, 'base64'));
-            addLog('INFO', `写入文件成功: ${targetPath}`);
-          } catch (fileErr) {
-            addLog('ERROR', `写入文件 ${targetPath} 失败: ${fileErr.message}`);
+          const targetDir = dirname(targetPath);
+          if (!existsSync(targetDir)) {
+            mkdirSync(targetDir, { recursive: true });
           }
+          const content = Buffer.from(base64Content, 'base64');
+          writeFileSync(targetPath, content);
+          filesWritten++;
+        } catch (e) {
+          addLog('ERROR', `无法写入文件 ${relativeFilePath}: ${e.message}`);
         }
       }
-      addLog('INFO', '文件内容处理完成');
+      addLog('INFO', `文件同步完成：成功写入 ${filesWritten} 个文件，因选项跳过 ${filesSkipped} 个文件`);
     }
 
     res.json({ success: true, conflicts, merged: finalConfig });
@@ -1040,6 +1240,796 @@ app.delete('/config/private-template/:id', (req, res) => {
       addLog('INFO', '私有模板已删除');
     }
     res.json({ success: true });
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+// ===== Template System APIs =====
+
+const DEFAULT_EXCLUDED_DIRS = ['credentials', 'logs', 'bin', 'tools', 'private_templates', 'manifests', 'snapshots', 'apply_records'];
+const FORCE_EXCLUDED_DIRS = ['credentials'];
+
+function discoverCategories(stateDir, config, baseManifest) {
+  addTaggedLog('INFO', '[DISCOVER]', `开始扫描状态目录: ${stateDir}`);
+
+  const excludedDirs = [...DEFAULT_EXCLUDED_DIRS];
+  if (baseManifest?.excludedDirs) {
+    for (const d of baseManifest.excludedDirs) {
+      if (!excludedDirs.includes(d)) excludedDirs.push(d);
+    }
+  }
+
+  const categories = [];
+  const normalizePaths = {
+    'agents.defaults.workspace': 'workspace',
+    'agents.list[].workspace': 'workspace-{agentId}',
+    'session.store': 'agents/{agentId}/sessions/sessions.json',
+    'logging.file': 'logs/openclaw.log'
+  };
+  if (baseManifest?.normalizePaths) {
+    Object.assign(normalizePaths, baseManifest.normalizePaths);
+  }
+
+  const agentsFound = [];
+  const associatedDirs = new Set();
+
+  if (config?.agents?.defaults?.workspace) {
+    const wsValue = config.agents.defaults.workspace;
+    const wsDir = wsValue.replace(/^[a-zA-Z]:(\\|\/)/, '').replace(/^\//, '').split(/\\|\//)[0] || 'workspace';
+    categories.push({
+      name: 'workspace',
+      label: '默认工作区',
+      source: 'discovered',
+      discoveryHint: 'agents.defaults.workspace',
+      paths: [wsDir]
+    });
+    associatedDirs.add(wsDir);
+    addTaggedLog('INFO', '[DISCOVER]', `读取 agents.defaults.workspace = "${wsValue}" → 识别默认工作区`);
+  }
+
+  if (config?.agents?.list && Array.isArray(config.agents.list)) {
+    for (let i = 0; i < config.agents.list.length; i++) {
+      const agent = config.agents.list[i];
+      if (agent.id) {
+        agentsFound.push(agent.id);
+        const agentWsValue = agent.workspace || `workspace-${agent.id}`;
+        const agentWsDir = agentWsValue.replace(/^[a-zA-Z]:(\\|\/)/, '').replace(/^\//, '').split(/\\|\//)[0] || `workspace-${agent.id}`;
+        const agentDir = `agents/${agent.id}`;
+        categories.push({
+          name: `agent-${agent.id}`,
+          label: `Agent: ${agent.id}`,
+          source: 'discovered',
+          discoveryHint: `agents.list[?id=='${agent.id}']`,
+          paths: [agentWsDir, agentDir]
+        });
+        associatedDirs.add(agentWsDir);
+        associatedDirs.add(agentDir);
+        addTaggedLog('INFO', '[DISCOVER]', `读取 agents.list[${i}].id = "${agent.id}", workspace = "${agentWsValue}" → 识别 Agent 分类`);
+      }
+    }
+  }
+
+  if (existsSync(join(stateDir, 'skills'))) {
+    categories.push({
+      name: 'shared-skills',
+      label: '共享技能库',
+      source: 'discovered',
+      discoveryHint: 'skills/',
+      paths: ['skills']
+    });
+    associatedDirs.add('skills');
+    addTaggedLog('INFO', '[DISCOVER]', '检测到 skills/ 目录 → 识别共享技能分类');
+  }
+
+  let totalDirs = 0;
+  if (existsSync(stateDir)) {
+    try {
+      const entries = readdirSync(stateDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          totalDirs++;
+          if (!excludedDirs.includes(entry.name) && !associatedDirs.has(entry.name)) {
+            categories.push({
+              name: entry.name,
+              label: `自定义目录: ${entry.name}`,
+              source: 'discovered',
+              paths: [entry.name]
+            });
+            addTaggedLog('INFO', '[DISCOVER]', `未关联目录: ${entry.name} → 创建独立分类`);
+          }
+        }
+      }
+    } catch (e) {
+      addTaggedLog('ERROR', '[DISCOVER]', `扫描目录失败: ${e.message}`);
+    }
+  }
+
+  if (baseManifest?.categories) {
+    const discoveredNames = new Set(categories.map(c => c.name));
+    for (const presetCat of baseManifest.categories) {
+      if (!discoveredNames.has(presetCat.name)) {
+        categories.push({
+          ...presetCat,
+          source: 'preset'
+        });
+        addTaggedLog('INFO', '[DISCOVER]', `预设中存在但未发现的分类: ${presetCat.name} → source=preset`);
+      }
+    }
+  }
+
+  addTaggedLog('INFO', '[DISCOVER]', `动态发现完成: 共 ${categories.length} 个分类, ${agentsFound.length} 个 Agent`);
+
+  return {
+    categories,
+    normalizePaths,
+    excludedDirs,
+    scanInfo: {
+      stateDir,
+      totalDirs,
+      excludedDirs: excludedDirs.length,
+      discoveredDirs: categories.length,
+      agentsFound
+    }
+  };
+}
+
+function bundleFiles(stateDir, categories, selectedCategories) {
+  const fileContents = {};
+  const fileList = {};
+  const selectedSet = selectedCategories ? new Set(selectedCategories) : null;
+
+  for (const cat of categories) {
+    if (selectedSet && !selectedSet.has(cat.name)) continue;
+    fileList[cat.name] = [];
+
+    for (const relPath of cat.paths) {
+      const fullPath = join(stateDir, relPath);
+      if (!existsSync(fullPath)) continue;
+
+      function readDirRecursive(baseDir, currentRelPath) {
+        if (!existsSync(baseDir)) return;
+        const entries = readdirSync(baseDir, { withFileTypes: true });
+        for (const entry of entries) {
+          const entryFullPath = join(baseDir, entry.name);
+          const entryRelPath = join(currentRelPath, entry.name);
+          if (entry.isFile()) {
+            try {
+              const content = readFileSync(entryFullPath);
+              fileContents[entryRelPath] = content.toString('base64');
+              fileList[cat.name].push(entryRelPath);
+            } catch (e) {
+              addTaggedLog('WARN', '[EXPORT]', `无法读取文件 ${entryRelPath}: ${e.message}`);
+            }
+          } else if (entry.isDirectory()) {
+            readDirRecursive(entryFullPath, entryRelPath);
+          }
+        }
+      }
+
+      const stat = (() => { try { return require('fs').statSync(fullPath); } catch { return null; } })();
+      if (stat && stat.isFile()) {
+        try {
+          const content = readFileSync(fullPath);
+          fileContents[relPath] = content.toString('base64');
+          fileList[cat.name].push(relPath);
+        } catch (e) {
+          addTaggedLog('WARN', '[EXPORT]', `无法读取文件 ${relPath}: ${e.message}`);
+        }
+      } else if (stat && stat.isDirectory()) {
+        readDirRecursive(fullPath, relPath);
+      }
+    }
+  }
+
+  return { fileContents, fileList };
+}
+
+function unbundleFiles(stateDir, fileContents, selectedCategories, manifest) {
+  let filesWritten = 0;
+  let filesSkipped = 0;
+  const errors = [];
+  const selectedPaths = new Set();
+
+  if (manifest?.templateManifest?.categories) {
+    for (const cat of manifest.templateManifest.categories) {
+      if (selectedCategories.includes(cat.name)) {
+        for (const p of cat.paths) {
+          selectedPaths.add(p);
+        }
+      }
+    }
+  }
+
+  for (const [relativePath, base64Content] of Object.entries(fileContents)) {
+    const pathParts = relativePath.split(/\\|\//);
+    const topLevelDir = pathParts[0];
+
+    let shouldWrite = false;
+    for (const sp of selectedPaths) {
+      if (relativePath.startsWith(sp.replace(/\\/g, '/')) || relativePath.startsWith(sp.replace(/\//g, '\\'))) {
+        shouldWrite = true;
+        break;
+      }
+    }
+    if (!shouldWrite && selectedPaths.has(topLevelDir)) {
+      shouldWrite = true;
+    }
+    if (!shouldWrite) {
+      filesSkipped++;
+      continue;
+    }
+
+    const cleanedPath = relativePath.replace(/^[a-zA-Z]:(\\|\/)/, '').replace(/^\//, '');
+    const targetPath = join(stateDir, cleanedPath);
+    const resolvedPath = require('path').resolve(targetPath);
+
+    if (!resolvedPath.startsWith(require('path').resolve(stateDir))) {
+      addTaggedLog('ERROR', '[SECURITY]', `路径穿越检测 → 拒绝写入 ${relativePath} (解析为 ${resolvedPath}, 不在 ${stateDir} 内)`);
+      errors.push(`路径穿越拦截: ${relativePath}`);
+      continue;
+    }
+
+    try {
+      const targetDir = dirname(targetPath);
+      if (!existsSync(targetDir)) {
+        mkdirSync(targetDir, { recursive: true });
+        addTaggedLog('INFO', '[APPLY]', `创建目录: ${targetDir}`);
+      }
+      const content = Buffer.from(base64Content, 'base64');
+      writeFileSync(targetPath, content);
+      filesWritten++;
+      addTaggedLog('INFO', '[APPLY]', `写入文件: ${relativePath} → ${targetPath} (${content.length} bytes)`);
+    } catch (e) {
+      addTaggedLog('ERROR', '[APPLY]', `写入失败: ${relativePath} → ${e.message}`);
+      errors.push(`写入失败: ${relativePath}: ${e.message}`);
+    }
+  }
+
+  return { filesWritten, filesSkipped, errors };
+}
+
+function createApplySnapshot(stateDir, templateId, templateName, selectedCategories, manifest, fileContents) {
+  addTaggedLog('INFO', '[SNAPSHOT]', `开始创建快照: 模板 ${templateName}, 分类 [${selectedCategories.join(', ')}]`);
+
+  const snapshotId = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').substring(0, 19) + '-snapshot';
+  const snapshot = {
+    id: snapshotId,
+    createdAt: new Date().toISOString(),
+    templateId,
+    templateName,
+    selectedCategories,
+    configSnapshot: null,
+    fileContents: {},
+    fileHashes: {},
+    newFiles: []
+  };
+
+  if (existsSync(OPENCLAW_CONFIG_FILE)) {
+    try {
+      snapshot.configSnapshot = JSON.parse(readFileSync(OPENCLAW_CONFIG_FILE, 'utf-8'));
+      addTaggedLog('INFO', '[SNAPSHOT]', `快照配置: openclaw.json`);
+    } catch (e) {
+      addTaggedLog('WARN', '[SNAPSHOT]', `读取配置文件失败: ${e.message}`);
+    }
+  }
+
+  const targetFiles = new Set();
+  if (manifest?.templateManifest?.categories) {
+    for (const cat of manifest.templateManifest.categories) {
+      if (selectedCategories.includes(cat.name)) {
+        for (const p of cat.paths) {
+          const fullPath = join(stateDir, p);
+          if (existsSync(fullPath)) {
+            function collectFiles(dir, relBase) {
+              const entries = readdirSync(dir, { withFileTypes: true });
+              for (const entry of entries) {
+                const fp = join(dir, entry.name);
+                const rp = join(relBase, entry.name);
+                if (entry.isFile()) {
+                  targetFiles.add(rp);
+                } else if (entry.isDirectory()) {
+                  collectFiles(fp, rp);
+                }
+              }
+            }
+            const stat = (() => { try { return require('fs').statSync(fullPath); } catch { return null; } })();
+            if (stat && stat.isDirectory()) {
+              collectFiles(fullPath, p);
+            } else if (stat && stat.isFile()) {
+              targetFiles.add(p);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  const crypto = require('crypto');
+  for (const relPath of targetFiles) {
+    const absPath = join(stateDir, relPath);
+    if (existsSync(absPath)) {
+      try {
+        const content = readFileSync(absPath);
+        snapshot.fileContents[relPath] = content.toString('base64');
+        snapshot.fileHashes[relPath] = crypto.createHash('sha256').update(content).digest('hex');
+        addTaggedLog('INFO', '[SNAPSHOT]', `快照文件: ${relPath} (hash: ${snapshot.fileHashes[relPath].substring(0, 8)}...)`);
+      } catch (e) {
+        addTaggedLog('WARN', '[SNAPSHOT]', `无法快照文件 ${relPath}: ${e.message}`);
+      }
+    }
+  }
+
+  if (fileContents) {
+    for (const relPath of Object.keys(fileContents)) {
+      const pathParts = relPath.split(/\\|\//);
+      let belongsToSelected = false;
+      if (manifest?.templateManifest?.categories) {
+        for (const cat of manifest.templateManifest.categories) {
+          if (selectedCategories.includes(cat.name)) {
+            for (const p of cat.paths) {
+              if (relPath.startsWith(p.replace(/\\/g, '/')) || relPath.startsWith(p.replace(/\//g, '\\')) || pathParts[0] === p) {
+                belongsToSelected = true;
+                break;
+              }
+            }
+          }
+          if (belongsToSelected) break;
+        }
+      }
+      if (belongsToSelected && !snapshot.fileContents[relPath]) {
+        snapshot.newFiles.push(relPath);
+        addTaggedLog('INFO', '[SNAPSHOT]', `新增文件标记 (无需备份): ${relPath}`);
+      }
+    }
+  }
+
+  if (!existsSync(SNAPSHOT_DIR)) {
+    mkdirSync(SNAPSHOT_DIR, { recursive: true });
+  }
+  const snapshotPath = join(SNAPSHOT_DIR, `${snapshotId}.json`);
+  writeFileSync(snapshotPath, JSON.stringify(snapshot, null, 2), 'utf-8');
+  addTaggedLog('INFO', '[SNAPSHOT]', `快照完成: ${snapshotPath}, 备份 ${Object.keys(snapshot.fileContents).length} 个文件, 新增 ${snapshot.newFiles.length} 个文件`);
+
+  return { snapshot, snapshotPath };
+}
+
+function rollbackFromSnapshot(stateDir, snapshotId) {
+  addTaggedLog('INFO', '[ROLLBACK]', `开始回滚: 快照 ${snapshotId}`);
+
+  const snapshotPath = join(SNAPSHOT_DIR, `${snapshotId}.json`);
+  if (!existsSync(snapshotPath)) {
+    return { success: false, error: '快照不存在' };
+  }
+
+  try {
+    const snapshot = JSON.parse(readFileSync(snapshotPath, 'utf-8'));
+    let restoredCount = 0;
+    let deletedCount = 0;
+    const errors = [];
+    const crypto = require('crypto');
+
+    if (snapshot.configSnapshot) {
+      writeFileSync(OPENCLAW_CONFIG_FILE, JSON.stringify(snapshot.configSnapshot, null, 2), 'utf-8');
+      addTaggedLog('INFO', '[ROLLBACK]', '恢复配置: openclaw.json');
+    }
+
+    for (const [relPath, base64Content] of Object.entries(snapshot.fileContents)) {
+      const absPath = join(stateDir, relPath);
+      try {
+        const content = Buffer.from(base64Content, 'base64');
+        const targetDir = dirname(absPath);
+        if (!existsSync(targetDir)) {
+          mkdirSync(targetDir, { recursive: true });
+        }
+        writeFileSync(absPath, content);
+        restoredCount++;
+        addTaggedLog('INFO', '[ROLLBACK]', `恢复文件: ${relPath} → ${absPath}`);
+
+        if (snapshot.fileHashes[relPath]) {
+          const currentHash = crypto.createHash('sha256').update(content).digest('hex');
+          if (currentHash !== snapshot.fileHashes[relPath]) {
+            addTaggedLog('WARN', '[ROLLBACK]', `Hash 校验: ${relPath} mismatch`);
+          } else {
+            addTaggedLog('INFO', '[ROLLBACK]', `Hash 校验: ${relPath} match`);
+          }
+        }
+      } catch (e) {
+        errors.push(`恢复文件失败 ${relPath}: ${e.message}`);
+        addTaggedLog('ERROR', '[ROLLBACK]', `恢复文件失败: ${relPath}: ${e.message}`);
+      }
+    }
+
+    for (const relPath of snapshot.newFiles) {
+      const absPath = join(stateDir, relPath);
+      try {
+        if (existsSync(absPath)) {
+          unlinkSync(absPath);
+          deletedCount++;
+          addTaggedLog('INFO', '[ROLLBACK]', `删除新增文件: ${relPath}`);
+        }
+      } catch (e) {
+        errors.push(`删除新增文件失败 ${relPath}: ${e.message}`);
+        addTaggedLog('WARN', '[ROLLBACK]', `删除新增文件失败: ${relPath}: ${e.message}`);
+      }
+    }
+
+    addTaggedLog('INFO', '[ROLLBACK]', `回滚完成: 恢复 ${restoredCount} 个文件, 删除 ${deletedCount} 个新增文件`);
+    return { success: true, restoredCount, deletedCount, errors };
+  } catch (e) {
+    addTaggedLog('ERROR', '[ROLLBACK]', `回滚失败: ${e.message}`);
+    return { success: false, error: e.message };
+  }
+}
+
+function redactSensitiveFields(config) {
+  if (!config || typeof config !== 'object') return config;
+  const result = JSON.parse(JSON.stringify(config));
+  const sensitiveKeys = ['apiKey', 'api_key', 'token', 'secret', 'password', 'privateKey', 'botToken', 'appToken'];
+
+  function redactRecursive(obj) {
+    if (!obj || typeof obj !== 'object') return;
+    for (const key of Object.keys(obj)) {
+      if (sensitiveKeys.some(sk => key.toLowerCase().includes(sk.toLowerCase()))) {
+        if (obj[key] && typeof obj[key] === 'string' && obj[key].length > 0) {
+          obj[key] = '';
+        }
+      } else if (typeof obj[key] === 'object') {
+        redactRecursive(obj[key]);
+      }
+    }
+  }
+
+  redactRecursive(result);
+  return result;
+}
+
+app.post('/template/discover', (req, res) => {
+  try {
+    const { baseManifest } = req.body;
+    let config = null;
+
+    if (existsSync(OPENCLAW_CONFIG_FILE)) {
+      try {
+        config = JSON.parse(readFileSync(OPENCLAW_CONFIG_FILE, 'utf-8'));
+      } catch (e) {
+        addTaggedLog('ERROR', '[DISCOVER]', `配置文件解析失败: ${e.message}`);
+      }
+    }
+
+    const discovered = discoverCategories(OPENCLAW_CONFIG_DIR, config, baseManifest);
+    res.json({ success: true, discovered });
+  } catch (err) {
+    addTaggedLog('ERROR', '[DISCOVER]', `动态发现失败: ${err.message}`);
+    res.json({ success: false, error: err.message });
+  }
+});
+
+app.post('/template/manifest/save', (req, res) => {
+  try {
+    const { manifest } = req.body;
+    if (!manifest?.templateManifest?.name) {
+      return res.json({ success: false, error: 'Manifest 必须包含 templateManifest.name' });
+    }
+
+    if (!existsSync(MANIFEST_DIR)) {
+      mkdirSync(MANIFEST_DIR, { recursive: true });
+    }
+
+    const manifestName = manifest.templateManifest.name;
+    const manifestPath = join(MANIFEST_DIR, `manifest_${manifestName}.json`);
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
+    addTaggedLog('INFO', '[CONFIG]', `Manifest 已保存: ${manifestName}`);
+    res.json({ success: true, savedTo: manifestPath });
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+app.get('/template/manifests', (req, res) => {
+  try {
+    if (!existsSync(MANIFEST_DIR)) {
+      return res.json({ success: true, manifests: [] });
+    }
+    const files = readdirSync(MANIFEST_DIR).filter(f => f.startsWith('manifest_') && f.endsWith('.json'));
+    const manifests = files.map(f => {
+      try {
+        const content = JSON.parse(readFileSync(join(MANIFEST_DIR, f), 'utf-8'));
+        const tm = content.templateManifest || {};
+        return {
+          name: tm.name || f.replace('manifest_', '').replace('.json', ''),
+          isDefault: tm.isDefault || false,
+          categoryCount: tm.categories?.length || 0,
+          savedAt: require('fs').statSync(join(MANIFEST_DIR, f)).mtime.toISOString()
+        };
+      } catch (e) {
+        return null;
+      }
+    }).filter(Boolean);
+    res.json({ success: true, manifests });
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+app.get('/template/manifest/:name', (req, res) => {
+  try {
+    const manifestPath = join(MANIFEST_DIR, `manifest_${req.params.name}.json`);
+    if (!existsSync(manifestPath)) {
+      return res.json({ success: false, error: 'Manifest 不存在' });
+    }
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'));
+    res.json({ success: true, manifest });
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+app.delete('/template/manifest/:name', (req, res) => {
+  try {
+    const manifestPath = join(MANIFEST_DIR, `manifest_${req.params.name}.json`);
+    if (existsSync(manifestPath)) {
+      unlinkSync(manifestPath);
+      addTaggedLog('INFO', '[CONFIG]', `Manifest 已删除: ${req.params.name}`);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+app.post('/template/export', (req, res) => {
+  try {
+    const { manifestName } = req.body;
+    let manifest = null;
+
+    if (manifestName) {
+      const manifestPath = join(MANIFEST_DIR, `manifest_${manifestName}.json`);
+      if (existsSync(manifestPath)) {
+        manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'));
+      }
+    }
+
+    if (!manifest) {
+      let config = null;
+      if (existsSync(OPENCLAW_CONFIG_FILE)) {
+        config = JSON.parse(readFileSync(OPENCLAW_CONFIG_FILE, 'utf-8'));
+      }
+      const discovered = discoverCategories(OPENCLAW_CONFIG_DIR, config, null);
+      manifest = {
+        templateManifest: {
+          name: 'auto-discovered',
+          isDefault: false,
+          categories: discovered.categories,
+          normalizePaths: discovered.normalizePaths,
+          excludedDirs: discovered.excludedDirs
+        }
+      };
+    }
+
+    const tm = manifest.templateManifest;
+    let config = null;
+    if (existsSync(OPENCLAW_CONFIG_FILE)) {
+      config = JSON.parse(readFileSync(OPENCLAW_CONFIG_FILE, 'utf-8'));
+      config = normalizeConfigPathsForExport(config, OPENCLAW_CONFIG_DIR);
+      config = redactSensitiveFields(config);
+      addTaggedLog('INFO', '[EXPORT]', '配置已归一化并脱敏');
+    }
+
+    const { fileContents, fileList } = bundleFiles(OPENCLAW_CONFIG_DIR, tm.categories);
+    addTaggedLog('INFO', '[EXPORT]', `模板导出完成: ${Object.keys(fileContents).length} 个文件, ${tm.categories.length} 个分类`);
+
+    let env = null;
+    if (existsSync(OPENCLAW_ENV_FILE)) {
+      env = readFileSync(OPENCLAW_ENV_FILE, 'utf-8');
+    }
+
+    res.json({
+      success: true,
+      config,
+      env,
+      manifest,
+      fileContents,
+      fileList,
+      exportInfo: {
+        totalFiles: Object.keys(fileContents).length,
+        totalSizeBytes: Object.values(fileContents).reduce((sum, b64) => sum + Math.ceil(b64.length * 0.75), 0),
+        categories: tm.categories.map(c => c.name),
+        normalizedPaths: Object.keys(tm.normalizePaths || {})
+      }
+    });
+  } catch (err) {
+    addTaggedLog('ERROR', '[EXPORT]', `模板导出失败: ${err.message}`);
+    res.json({ success: false, error: err.message });
+  }
+});
+
+app.post('/template/apply', async (req, res) => {
+  try {
+    const { templateId, selectedCategories, configPaths } = req.body;
+    addTaggedLog('INFO', '[APPLY]', `开始应用模板: templateId=${templateId}, categories=[${selectedCategories?.join(', ')}]`, templateId);
+
+    const serverUrl = getServerUrl();
+    let templateData = null;
+    try {
+      const token = req.headers['x-server-token'] || '';
+      const response = await fetch(`${serverUrl}/api/templates/${templateId}/full`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+      const result = await response.json();
+      if (result.success && result.data) {
+        templateData = result.data;
+      } else {
+        addTaggedLog('ERROR', '[APPLY]', `从服务端拉取模板失败: ${result.error || '未知错误'}`, templateId);
+        return res.json({ success: false, error: `从服务端拉取模板失败: ${result.error || '未知错误'}` });
+      }
+    } catch (e) {
+      addTaggedLog('ERROR', '[APPLY]', `从服务端拉取模板失败: ${e.message}`, templateId);
+      return res.json({ success: false, error: `从服务端拉取模板失败: ${e.message}` });
+    }
+
+    const manifest = templateData.manifest;
+    const fileContents = templateData.fileContents || templateData.filePayload || {};
+    const templateConfig = templateData.config;
+
+    const { snapshot, snapshotPath } = createApplySnapshot(
+      OPENCLAW_CONFIG_DIR,
+      templateId,
+      templateData.name,
+      selectedCategories || [],
+      manifest,
+      fileContents
+    );
+
+    let finalConfig = templateConfig;
+    let configConflicts = [];
+
+    if (templateConfig) {
+      const sanitizedConfig = sanitizeConfig(templateConfig);
+
+      if (existsSync(OPENCLAW_CONFIG_FILE)) {
+        try {
+          const existingConfig = JSON.parse(readFileSync(OPENCLAW_CONFIG_FILE, 'utf-8'));
+          finalConfig = mergeConfigRecursive(existingConfig, sanitizedConfig, configConflicts);
+          addTaggedLog('INFO', '[APPLY]', `配置合并完成: ${configConflicts.length} 处冲突/调整`);
+        } catch (e) {
+          finalConfig = sanitizedConfig;
+          addTaggedLog('WARN', '[APPLY]', `合并配置失败，使用模板配置: ${e.message}`);
+        }
+      }
+
+      if (configPaths !== false) {
+        finalConfig = hydrateConfigPathsForImport(finalConfig, OPENCLAW_CONFIG_DIR);
+        addTaggedLog('INFO', '[APPLY]', `配置路径水合: configPaths=true`);
+      } else {
+        addTaggedLog('INFO', '[APPLY]', `路径水合跳过: 用户选择保留本地路径配置`);
+      }
+
+      writeFileSync(OPENCLAW_CONFIG_FILE, JSON.stringify(finalConfig, null, 2), 'utf-8');
+      addTaggedLog('INFO', '[APPLY]', `配置已写入: ${OPENCLAW_CONFIG_FILE}`);
+    }
+
+    const { filesWritten, filesSkipped, errors: unbundleErrors } = unbundleFiles(
+      OPENCLAW_CONFIG_DIR,
+      fileContents,
+      selectedCategories || [],
+      manifest
+    );
+
+    addTaggedLog('INFO', '[APPLY]', `文件写入完成: 成功 ${filesWritten} 个, 跳过 ${filesSkipped} 个, 失败 ${unbundleErrors.length} 个`);
+
+    const applyRecord = {
+      id: snapshot.id,
+      templateId,
+      templateName: templateData.name,
+      appliedAt: new Date().toISOString(),
+      selectedCategories: selectedCategories || [],
+      configPaths: configPaths !== false,
+      filesWritten,
+      filesSkipped,
+      configConflicts,
+      snapshotPath,
+      errors: unbundleErrors
+    };
+
+    if (!existsSync(APPLY_RECORD_DIR)) {
+      mkdirSync(APPLY_RECORD_DIR, { recursive: true });
+    }
+    writeFileSync(join(APPLY_RECORD_DIR, `${applyRecord.id}.json`), JSON.stringify(applyRecord, null, 2), 'utf-8');
+
+    res.json({
+      success: true,
+      applied: {
+        filesWritten,
+        filesSkipped,
+        configHydrated: configPaths !== false,
+        categories: selectedCategories || [],
+        configConflicts
+      },
+      errors: unbundleErrors,
+      backupPath: snapshotPath
+    });
+  } catch (err) {
+    addTaggedLog('ERROR', '[APPLY]', `模板应用失败: ${err.message}`);
+    res.json({ success: false, error: err.message });
+  }
+});
+
+app.get('/template/snapshots', (req, res) => {
+  try {
+    if (!existsSync(SNAPSHOT_DIR)) {
+      return res.json({ success: true, snapshots: [] });
+    }
+    const files = readdirSync(SNAPSHOT_DIR).filter(f => f.endsWith('.json'));
+    const snapshots = files.map(f => {
+      try {
+        const content = JSON.parse(readFileSync(join(SNAPSHOT_DIR, f), 'utf-8'));
+        return {
+          id: content.id,
+          createdAt: content.createdAt,
+          templateId: content.templateId,
+          templateName: content.templateName,
+          selectedCategories: content.selectedCategories,
+          filesCount: Object.keys(content.fileContents || {}).length,
+          newFilesCount: (content.newFiles || []).length,
+          path: join(SNAPSHOT_DIR, f)
+        };
+      } catch (e) {
+        return null;
+      }
+    }).filter(Boolean).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    while (snapshots.length > 10) {
+      const oldest = snapshots.pop();
+      try {
+        if (!oldest.pinned) {
+          unlinkSync(join(SNAPSHOT_DIR, `${oldest.id}.json`));
+        }
+      } catch (e) {}
+    }
+
+    res.json({ success: true, snapshots });
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+app.post('/template/snapshot/:id/rollback', (req, res) => {
+  try {
+    const result = rollbackFromSnapshot(OPENCLAW_CONFIG_DIR, req.params.id);
+    res.json(result);
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+app.delete('/template/snapshot/:id', (req, res) => {
+  try {
+    const snapshotPath = join(SNAPSHOT_DIR, `${req.params.id}.json`);
+    if (existsSync(snapshotPath)) {
+      unlinkSync(snapshotPath);
+      addTaggedLog('INFO', '[SNAPSHOT]', `快照已删除: ${req.params.id}`);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+app.get('/template/apply-records', (req, res) => {
+  try {
+    if (!existsSync(APPLY_RECORD_DIR)) {
+      return res.json({ success: true, records: [] });
+    }
+    const files = readdirSync(APPLY_RECORD_DIR).filter(f => f.endsWith('.json'));
+    const records = files.map(f => {
+      try {
+        return JSON.parse(readFileSync(join(APPLY_RECORD_DIR, f), 'utf-8'));
+      } catch (e) {
+        return null;
+      }
+    }).filter(Boolean).sort((a, b) => new Date(b.appliedAt) - new Date(a.appliedAt));
+    res.json({ success: true, records });
   } catch (err) {
     res.json({ success: false, error: err.message });
   }

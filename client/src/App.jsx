@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
@@ -51,6 +51,41 @@ function AdminRoute({ children }) {
 function AppRoutes() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
+
+  // Register device when user logs in
+  useEffect(() => {
+    const registerDevice = async () => {
+      if (user) {
+        try {
+          const launcherStatusRes = await fetch(`http://127.0.0.1:3003/status`);
+          const launcherStatus = await launcherStatusRes.json();
+          const deviceId = launcherStatus.deviceId; // Assuming deviceId is available in launcher status
+          console.log('从Launcher获取到设备ID:', deviceId);
+          
+          if (deviceId) {
+            const token = localStorage.getItem('token');
+            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || ''}/api/device/register`, {
+              method: 'POST',
+              headers: { 
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}` 
+              },
+              body: JSON.stringify({ deviceId, invitationId: user.id })
+            });
+            const result = await response.json();
+            if (result.success) {
+              console.log('设备注册/更新成功:', result);
+            } else {
+              console.error('设备注册/更新失败:', result.error);
+            }
+          }
+        } catch (error) {
+          console.error('设备注册/更新失败:', error);
+        }
+      }
+    };
+    registerDevice();
+  }, [user]);
   
   return (
     <Routes>

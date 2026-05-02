@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Table, Typography, Button, Space, Tag, Modal, Form, Input, Select, message, Popconfirm, Divider, Row, Col } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, SendOutlined, ReloadOutlined, CloudDownloadOutlined } from '@ant-design/icons';
+import { Card, Table, Typography, Button, Space, Tag, Modal, Form, Input, Select, message, Popconfirm, Divider, Row, Col, Checkbox, Collapse, Tooltip, Switch, Spin, Descriptions } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, SendOutlined, ReloadOutlined, CloudDownloadOutlined, SearchOutlined, SaveOutlined, ExportOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import QuickSettings from '../../components/QuickSettings';
 import { useConfig, mergeWithDefaults } from '../../hooks/useConfig';
@@ -23,6 +23,15 @@ function Templates() {
   const [serverConfigLoading, setServerConfigLoading] = useState(false);
   const [launcherConfigLoading, setLauncherConfigLoading] = useState(false);
   const [editConfig, setEditConfig] = useState({});
+  const [discoverModalVisible, setDiscoverModalVisible] = useState(false);
+  const [discoveredCategories, setDiscoveredCategories] = useState([]);
+  const [discovering, setDiscovering] = useState(false);
+  const [manifestCategories, setManifestCategories] = useState([]);
+  const [manifestName, setManifestName] = useState('');
+  const [manifests, setManifests] = useState([]);
+  const [exporting, setExporting] = useState(false);
+  const [verifyModalVisible, setVerifyModalVisible] = useState(false);
+  const [verifyingTemplate, setVerifyingTemplate] = useState(null);
 
   const { config: launcherConfig, loading: launcherLoading, fetchConfig: refetchLauncherConfig } = useConfig();
 
@@ -46,7 +55,164 @@ function Templates() {
 
   useEffect(() => {
     fetchTemplates();
+    fetchManifests();
   }, []);
+
+  const fetchManifests = async () => {
+    try {
+      const res = await fetch(`${LAUNCHER_API}/template/manifests`);
+      const data = await res.json();
+      if (data.success) {
+        setManifests(data.manifests || []);
+      }
+    } catch (err) {
+      console.error('获取Manifest列表失败:', err);
+    }
+  };
+
+  const handleDiscover = async () => {
+    setDiscovering(true);
+    setDiscoverModalVisible(true);
+    try {
+      const res = await fetch(`${LAUNCHER_API}/template/discover`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      const data = await res.json();
+      if (data.success && data.discovered) {
+        setDiscoveredCategories(data.discovered.categories || []);
+        setManifestCategories((data.discovered.categories || []).map(c => ({ ...c, enabled: true })));
+        setManifestName('default');
+        addLog('INFO', `动态发现完成: ${data.discovered.categories?.length || 0} 个分类`);
+      } else {
+        message.error(data.error || '动态发现失败');
+      }
+    } catch (err) {
+      message.error(`动态发现失败: ${err.message}`);
+    } finally {
+      setDiscovering(false);
+    }
+  };
+
+  const handleSaveManifest = async () => {
+    if (!manifestName) {
+      message.warning('请输入Manifest名称');
+      return;
+    }
+    try {
+      const enabledCategories = manifestCategories.filter(c => c.enabled);
+      const manifest = {
+        templateManifest: {
+          name: manifestName,
+          isDefault: manifests.length === 0,
+          categories: enabledCategories.map(c => ({
+            name: c.name,
+            label: c.label,
+            source: c.source,
+            paths: c.paths,
+            discoveryHint: c.discoveryHint
+          })),
+          normalizePaths: {
+            'agents.defaults.workspace': 'workspace',
+            'agents.list[].workspace': 'workspace-{agentId}',
+            'session.store': 'agents/{agentId}/sessions/sessions.json',
+            'logging.file': 'logs/openclaw.log'
+          },
+          excludedDirs: ['credentials', 'logs', 'bin', 'tools', 'private_templates', 'manifests', 'snapshots', 'apply_records']
+        }
+      };
+      const res = await fetch(`${LAUNCHER_API}/template/manifest/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ manifest })
+      });
+      const data = await res.json();
+      if (data.success) {
+        message.success('Manifest已保存');
+        fetchManifests();
+      } else {
+        message.error(data.error || '保存失败');
+      }
+    } catch (err) {
+      message.error(`保存失败: ${err.message}`);
+    }
+  };
+
+  const handleDeleteManifest = async (name) => {
+    try {
+      const res = await fetch(`${LAUNCHER_API}/template/manifest/${name}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (data.success) {
+        message.success('Manifest已删除');
+        fetchManifests();
+      } else {
+        message.error(data.error || '删除失败');
+      }
+    } catch (err) {
+      message.error(`删除失败: ${err.message}`);
+    }
+  };
+
+  const handleExportTemplate = async (manifestNameToUse) => {
+    setExporting(true);
+    try {
+      const res = await fetch(`${LAUNCHER_API}/template/export`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ manifestName: manifestNameToUse || undefined })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setEditConfig(data.config || {});
+        setCurrentEnv(data.env || null);
+        message.success(`模板导出成功: ${data.exportInfo?.totalFiles || 0} 个文件, ${data.exportInfo?.categories?.length || 0} 个分类`);
+        setModalVisible(true);
+        form.setFieldsValue({
+          name: `模板-${new Date().toLocaleDateString()}`,
+          category: '标准',
+          description: `自动导出: ${data.exportInfo?.categories?.join(', ')}`
+        });
+      } else {
+        message.error(data.error || '导出失败');
+      }
+    } catch (err) {
+      message.error(`导出失败: ${err.message}`);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleVerifyTemplate = async (templateId, status) => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_BASE}/api/templates/${templateId}/verify`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ status })
+      });
+      const data = await res.json();
+      if (data.success) {
+        message.success(status === 'approved' ? '审核通过' : '已拒绝');
+        fetchTemplates();
+        setVerifyModalVisible(false);
+        setVerifyingTemplate(null);
+      } else {
+        message.error(data.error || '操作失败');
+      }
+    } catch (err) {
+      message.error(`操作失败: ${err.message}`);
+    }
+  };
+
+  function addLog(level, msg) {
+    console.log(`[${level}] ${msg}`);
+  }
 
   const getStatusTag = (status) => {
     const map = { approved: 'success', pending: 'warning', rejected: 'error' };
@@ -242,6 +408,21 @@ function Templates() {
           return;
         }
 
+        const cleanFileContentsPaths = (fileContents) => {
+          if (!fileContents) return null;
+          const cleaned = {};
+          for (const path in fileContents) {
+            if (Object.prototype.hasOwnProperty.call(fileContents, path)) {
+              // Remove drive letter or leading slash if present
+              const cleanedPath = path.replace(/^[a-zA-Z]:(\\|\/)/, '').replace(/^\//, '');
+              cleaned[cleanedPath] = fileContents[path];
+            }
+          }
+          return cleaned;
+        };
+
+        const cleanedFileContents = cleanFileContentsPaths(launcherExportData.fileContents);
+
         const cleanObj = (obj) => {
           if (obj === undefined) return null;
           if (obj === null) return null;
@@ -270,7 +451,7 @@ function Templates() {
           description: values.description || '',
           config: JSON.stringify(cleanObj(editConfig)),
           env: currentEnv ? JSON.stringify(cleanObj(currentEnv)) : null,
-          filePayload: launcherExportData.fileContents ? JSON.stringify(launcherExportData.fileContents) : null // Include fileContents
+          filePayload: cleanedFileContents ? JSON.stringify(cleanedFileContents) : null // Include cleaned fileContents
         };
   
         const method = editing ? 'PUT' : 'POST';
@@ -356,7 +537,7 @@ function Templates() {
         <Space>
           <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(r)}>编辑</Button>
           {r.status === 'pending' && (
-            <Button size="small" type="primary" onClick={() => handleApprove(r)}>审核</Button>
+            <Button size="small" type="primary" onClick={() => { setVerifyingTemplate(r); setVerifyModalVisible(true); }}>审核</Button>
           )}
           {r.status === 'approved' && (
             <Button size="small" icon={<SendOutlined />} onClick={() => handleDistribute(r)}>发放</Button>
@@ -374,7 +555,9 @@ function Templates() {
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 24 }}>
         <Title level={2}>模板配置及发放</Title>
         <Space>
-          <Button icon={<ReloadOutlined />} onClick={fetchTemplates}>刷新</Button>
+          <Button icon={<SearchOutlined />} onClick={handleDiscover} loading={discovering}>动态发现</Button>
+          <Button icon={<ExportOutlined />} onClick={() => handleExportTemplate()} loading={exporting}>导出模板</Button>
+          <Button icon={<ReloadOutlined />} onClick={() => { fetchTemplates(); fetchManifests(); }}>刷新</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>新建模板</Button>
         </Space>
       </div>
@@ -507,6 +690,157 @@ function Templates() {
           rows={15}
           style={{ fontFamily: 'monospace' }}
         />
+      </Modal>
+
+      <Card
+        style={{ marginTop: 16, borderColor: '#722ed1' }}
+        title={
+          <Space>
+            <SearchOutlined />
+            <Text>Manifest 管理</Text>
+            <Tag color="purple">{manifests.length}个</Tag>
+          </Space>
+        }
+        extra={
+          <Space>
+            <Button size="small" icon={<SearchOutlined />} onClick={handleDiscover} loading={discovering}>
+              动态发现
+            </Button>
+            <Button size="small" icon={<ExportOutlined />} onClick={() => handleExportTemplate()} loading={exporting}>
+              导出
+            </Button>
+          </Space>
+        }
+      >
+        {manifests.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: 20 }}>
+            <Text type="secondary">暂无已保存的Manifest，点击"动态发现"创建</Text>
+          </div>
+        ) : (
+          <div>
+            {manifests.map(m => (
+              <Card
+                key={m.name}
+                size="small"
+                style={{ marginBottom: 8, borderColor: m.isDefault ? '#722ed1' : '#d9d9d9' }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <Text strong>{m.name}</Text>
+                    {m.isDefault && <Tag color="purple" style={{ marginLeft: 8 }}>默认</Tag>}
+                    <br />
+                    <Text type="secondary" style={{ fontSize: 11 }}>
+                      {m.categoryCount} 个分类 | 保存于 {new Date(m.savedAt).toLocaleString()}
+                    </Text>
+                  </div>
+                  <Space>
+                    <Button size="small" icon={<ExportOutlined />} onClick={() => handleExportTemplate(m.name)}>
+                      导出
+                    </Button>
+                    <Popconfirm title="确定删除？" onConfirm={() => handleDeleteManifest(m.name)}>
+                      <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
+                    </Popconfirm>
+                  </Space>
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <Modal
+        title="动态发现 - 分类扫描"
+        open={discoverModalVisible}
+        onCancel={() => setDiscoverModalVisible(false)}
+        width={700}
+        footer={[
+          <Button key="cancel" onClick={() => setDiscoverModalVisible(false)}>关闭</Button>,
+          <Button key="save" type="primary" icon={<SaveOutlined />} onClick={handleSaveManifest}>
+            保存为Manifest
+          </Button>
+        ]}
+      >
+        {discovering ? (
+          <div style={{ textAlign: 'center', padding: 40 }}>
+            <Spin size="large" />
+            <Paragraph style={{ marginTop: 16 }}>正在扫描本地目录...</Paragraph>
+          </div>
+        ) : (
+          <>
+            <div style={{ marginBottom: 16 }}>
+              <Text strong>Manifest 名称：</Text>
+              <Input
+                value={manifestName}
+                onChange={(e) => setManifestName(e.target.value)}
+                placeholder="输入Manifest名称"
+                style={{ width: 200, marginLeft: 8 }}
+              />
+            </div>
+            <Divider style={{ margin: '12px 0' }}>发现的分类 ({manifestCategories.length})</Divider>
+            <div style={{ maxHeight: 400, overflow: 'auto' }}>
+              {manifestCategories.map((cat, idx) => (
+                <Card
+                  key={cat.name}
+                  size="small"
+                  style={{
+                    marginBottom: 8,
+                    borderColor: cat.enabled ? '#722ed1' : '#d9d9d9',
+                    background: cat.enabled ? '#f9f0ff' : '#fafafa'
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Checkbox
+                        checked={cat.enabled}
+                        onChange={(e) => {
+                          const newCats = [...manifestCategories];
+                          newCats[idx] = { ...newCats[idx], enabled: e.target.checked };
+                          setManifestCategories(newCats);
+                        }}
+                      />
+                      <div>
+                        <Text strong>{cat.label || cat.name}</Text>
+                        {cat.source === 'discovered' && <Tag color="blue" style={{ marginLeft: 4 }}>自动发现</Tag>}
+                        {cat.source === 'preset' && <Tag color="orange" style={{ marginLeft: 4 }}>预设</Tag>}
+                        <br />
+                        <Text type="secondary" style={{ fontSize: 11 }}>
+                          路径: {cat.paths?.join(', ')}
+                          {cat.discoveryHint && ` | 来源: ${cat.discoveryHint}`}
+                        </Text>
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          </>
+        )}
+      </Modal>
+
+      <Modal
+        title="模板审核"
+        open={verifyModalVisible}
+        onCancel={() => { setVerifyModalVisible(false); setVerifyingTemplate(null); }}
+        footer={[
+          <Button key="cancel" onClick={() => { setVerifyModalVisible(false); setVerifyingTemplate(null); }}>取消</Button>,
+          <Button key="reject" danger icon={<CloseOutlined />} onClick={() => verifyingTemplate && handleVerifyTemplate(verifyingTemplate.id, 'rejected')}>
+            拒绝
+          </Button>,
+          <Button key="approve" type="primary" icon={<CheckOutlined />} onClick={() => verifyingTemplate && handleVerifyTemplate(verifyingTemplate.id, 'approved')}>
+            通过
+          </Button>
+        ]}
+      >
+        {verifyingTemplate && (
+          <div>
+            <Descriptions column={1} bordered size="small">
+              <Descriptions.Item label="模板名称">{verifyingTemplate.name}</Descriptions.Item>
+              <Descriptions.Item label="描述">{verifyingTemplate.description || '-'}</Descriptions.Item>
+              <Descriptions.Item label="分类">{verifyingTemplate.category || '-'}</Descriptions.Item>
+              <Descriptions.Item label="创建时间">{new Date(verifyingTemplate.created_at).toLocaleString()}</Descriptions.Item>
+            </Descriptions>
+          </div>
+        )}
       </Modal>
     </div>
   );
