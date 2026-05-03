@@ -139,6 +139,82 @@ function Templates() {
     }
   };
 
+  const handleGenerateTemplate = async () => {
+    const enabledCategories = manifestCategories.filter(c => c.enabled);
+    if (enabledCategories.length === 0) {
+      message.warning('请至少选择一个分类');
+      return;
+    }
+    const templateName = manifestName || `模板-${new Date().toLocaleDateString()}`;
+    try {
+      setExporting(true);
+      const res = await fetch(`${LAUNCHER_API}/template/export`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          categories: enabledCategories.map(c => ({
+            name: c.name,
+            paths: c.paths
+          }))
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        const cleanObj = (obj) => {
+          if (obj === undefined) return null;
+          if (obj === null) return null;
+          if (Array.isArray(obj)) {
+            return obj.map(item => cleanObj(item)).filter(item => item !== undefined);
+          }
+          if (typeof obj === 'object') {
+            const result = {};
+            for (const [key, val] of Object.entries(obj)) {
+              if (val !== undefined) {
+                result[key] = cleanObj(val);
+              } else {
+                result[key] = null;
+              }
+            }
+            return result;
+          }
+          if (typeof obj === 'number' && isNaN(obj)) return null;
+          if (obj === Infinity) return null;
+          if (typeof obj === 'function' || typeof obj === 'symbol') return null;
+          return obj;
+        };
+        const token = localStorage.getItem('token');
+        const payload = {
+          name: templateName,
+          description: `从 ${enabledCategories.length} 个分类生成: ${enabledCategories.map(c => c.label || c.name).join(', ')}`,
+          config: JSON.stringify(cleanObj(data.config) || {}),
+          env: data.env ? JSON.stringify(cleanObj(data.env)) : null
+        };
+        const createRes = await fetch(`${API_BASE}/api/templates`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify(payload)
+        });
+        const createData = await createRes.json();
+        if (createData.success) {
+          message.success('模板已生成');
+          setDiscoverModalVisible(false);
+          fetchTemplates();
+        } else {
+          message.error(createData.error || '生成失败');
+        }
+      } else {
+        message.error(data.error || '导出配置失败');
+      }
+    } catch (err) {
+      message.error(`生成失败: ${err.message}`);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const handleDeleteManifest = async (name) => {
     try {
       const res = await fetch(`${LAUNCHER_API}/template/manifest/${name}`, {
@@ -555,8 +631,6 @@ function Templates() {
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 24 }}>
         <Title level={2}>模板配置及发放</Title>
         <Space>
-          <Button icon={<SearchOutlined />} onClick={handleDiscover} loading={discovering}>动态发现</Button>
-          <Button icon={<ExportOutlined />} onClick={() => handleExportTemplate()} loading={exporting}>导出模板</Button>
           <Button icon={<ReloadOutlined />} onClick={() => { fetchTemplates(); fetchManifests(); }}>刷新</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>新建模板</Button>
         </Space>
@@ -706,9 +780,6 @@ function Templates() {
             <Button size="small" icon={<SearchOutlined />} onClick={handleDiscover} loading={discovering}>
               动态发现
             </Button>
-            <Button size="small" icon={<ExportOutlined />} onClick={() => handleExportTemplate()} loading={exporting}>
-              导出
-            </Button>
           </Space>
         }
       >
@@ -755,8 +826,11 @@ function Templates() {
         width={700}
         footer={[
           <Button key="cancel" onClick={() => setDiscoverModalVisible(false)}>关闭</Button>,
-          <Button key="save" type="primary" icon={<SaveOutlined />} onClick={handleSaveManifest}>
+          <Button key="save" icon={<SaveOutlined />} onClick={handleSaveManifest}>
             保存为Manifest
+          </Button>,
+          <Button key="generate" type="primary" icon={<PlusOutlined />} onClick={handleGenerateTemplate}>
+            生成模板
           </Button>
         ]}
       >

@@ -1780,7 +1780,7 @@ app.delete('/template/manifest/:name', (req, res) => {
 
 app.post('/template/export', (req, res) => {
   try {
-    const { manifestName } = req.body;
+    const { manifestName, categories } = req.body;
     let manifest = null;
 
     if (manifestName) {
@@ -1788,6 +1788,21 @@ app.post('/template/export', (req, res) => {
       if (existsSync(manifestPath)) {
         manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'));
       }
+    } else if (categories && Array.isArray(categories)) {
+      manifest = {
+        templateManifest: {
+          name: 'temp-export',
+          isDefault: false,
+          categories,
+          normalizePaths: {
+            'agents.defaults.workspace': 'workspace',
+            'agents.list[].workspace': 'workspace-{agentId}',
+            'session.store': 'agents/{agentId}/sessions/sessions.json',
+            'logging.file': 'logs/openclaw.log'
+          },
+          excludedDirs: ['credentials', 'logs', 'bin', 'tools', 'private_templates', 'manifests', 'snapshots', 'apply_records']
+        }
+      };
     }
 
     if (!manifest) {

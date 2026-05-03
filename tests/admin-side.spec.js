@@ -21,11 +21,11 @@ test.describe('管理员端 - 模板管理页面', () => {
     await expect(discoverButton).toBeVisible({ timeout: 15000 });
   });
 
-  test('A-04 导出模板按钮可见', async ({ adminPage: page }) => {
+  test('A-04 刷新按钮可见', async ({ adminPage: page }) => {
     await page.goto('/admin/templates');
     await page.waitForTimeout(3000);
-    const exportButton = page.locator('button:has-text("导出模板")');
-    await expect(exportButton).toBeVisible({ timeout: 15000 });
+    const refreshButton = page.locator('button:has-text("刷新")');
+    await expect(refreshButton).toBeVisible({ timeout: 15000 });
   });
 
   test('A-05 新建模板按钮可见', async ({ adminPage: page }) => {
@@ -51,7 +51,7 @@ test.describe('管理员端 - 模板管理页面', () => {
 });
 
 test.describe('管理员端 - 动态发现', () => {
-  test('A-07 点击动态发现打开弹窗', async ({ adminPage: page }) => {
+  test('A-07 点击动态发现打开弹窗并显示生成模板按钮', async ({ adminPage: page }) => {
     await page.goto('/admin/templates');
     await page.waitForTimeout(3000);
     const discoverButton = page.locator('button:has-text("动态发现")').first();
@@ -62,6 +62,8 @@ test.describe('管理员端 - 动态发现', () => {
     const isModalVisible = await modal.isVisible().catch(() => false);
     if (isModalVisible) {
       await expect(modal).toBeVisible();
+      await expect(page.locator('button:has-text("生成模板")')).toBeVisible({ timeout: 5000 });
+      await expect(page.locator('button:has-text("保存为Manifest")')).toBeVisible({ timeout: 5000 });
     }
   });
 
