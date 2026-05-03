@@ -51,7 +51,7 @@ test.describe('管理员端 - 模板管理页面', () => {
 });
 
 test.describe('管理员端 - 动态发现', () => {
-  test('A-07 点击动态发现打开弹窗并显示生成模板按钮', async ({ adminPage: page }) => {
+  test('A-07 点击动态发现打开弹窗并显示保存Manifest按钮', async ({ adminPage: page }) => {
     await page.goto('/admin/templates');
     await page.waitForTimeout(3000);
     const discoverButton = page.locator('button:has-text("动态发现")').first();
@@ -62,7 +62,6 @@ test.describe('管理员端 - 动态发现', () => {
     const isModalVisible = await modal.isVisible().catch(() => false);
     if (isModalVisible) {
       await expect(modal).toBeVisible();
-      await expect(page.locator('button:has-text("生成模板")')).toBeVisible({ timeout: 5000 });
       await expect(page.locator('button:has-text("保存为Manifest")')).toBeVisible({ timeout: 5000 });
     }
   });

@@ -32,6 +32,7 @@ function Templates() {
   const [exporting, setExporting] = useState(false);
   const [verifyModalVisible, setVerifyModalVisible] = useState(false);
   const [verifyingTemplate, setVerifyingTemplate] = useState(null);
+  const [selectedManifestForTemplate, setSelectedManifestForTemplate] = useState(null);
 
   const { config: launcherConfig, loading: launcherLoading, fetchConfig: refetchLauncherConfig } = useConfig();
 
@@ -139,82 +140,6 @@ function Templates() {
     }
   };
 
-  const handleGenerateTemplate = async () => {
-    const enabledCategories = manifestCategories.filter(c => c.enabled);
-    if (enabledCategories.length === 0) {
-      message.warning('请至少选择一个分类');
-      return;
-    }
-    const templateName = manifestName || `模板-${new Date().toLocaleDateString()}`;
-    try {
-      setExporting(true);
-      const res = await fetch(`${LAUNCHER_API}/template/export`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          categories: enabledCategories.map(c => ({
-            name: c.name,
-            paths: c.paths
-          }))
-        })
-      });
-      const data = await res.json();
-      if (data.success) {
-        const cleanObj = (obj) => {
-          if (obj === undefined) return null;
-          if (obj === null) return null;
-          if (Array.isArray(obj)) {
-            return obj.map(item => cleanObj(item)).filter(item => item !== undefined);
-          }
-          if (typeof obj === 'object') {
-            const result = {};
-            for (const [key, val] of Object.entries(obj)) {
-              if (val !== undefined) {
-                result[key] = cleanObj(val);
-              } else {
-                result[key] = null;
-              }
-            }
-            return result;
-          }
-          if (typeof obj === 'number' && isNaN(obj)) return null;
-          if (obj === Infinity) return null;
-          if (typeof obj === 'function' || typeof obj === 'symbol') return null;
-          return obj;
-        };
-        const token = localStorage.getItem('token');
-        const payload = {
-          name: templateName,
-          description: `从 ${enabledCategories.length} 个分类生成: ${enabledCategories.map(c => c.label || c.name).join(', ')}`,
-          config: JSON.stringify(cleanObj(data.config) || {}),
-          env: data.env ? JSON.stringify(cleanObj(data.env)) : null
-        };
-        const createRes = await fetch(`${API_BASE}/api/templates`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`
-          },
-          body: JSON.stringify(payload)
-        });
-        const createData = await createRes.json();
-        if (createData.success) {
-          message.success('模板已生成');
-          setDiscoverModalVisible(false);
-          fetchTemplates();
-        } else {
-          message.error(createData.error || '生成失败');
-        }
-      } else {
-        message.error(data.error || '导出配置失败');
-      }
-    } catch (err) {
-      message.error(`生成失败: ${err.message}`);
-    } finally {
-      setExporting(false);
-    }
-  };
-
   const handleDeleteManifest = async (name) => {
     try {
       const res = await fetch(`${LAUNCHER_API}/template/manifest/${name}`, {
@@ -298,6 +223,7 @@ function Templates() {
 
   const handleAdd = () => {
     setEditing(null);
+    setSelectedManifestForTemplate(null);
     if (launcherConfig) {
       setEditConfig({ ...launcherConfig });
     } else {
@@ -446,13 +372,18 @@ function Templates() {
   const handleLoadLauncherConfig = async () => {
     setLauncherConfigLoading(true);
     try {
-      const res = await fetch(`${LAUNCHER_API}/config/export`);
+      const res = await fetch(`${LAUNCHER_API}/config/export`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ manifestName: selectedManifestForTemplate || undefined })
+      });
       const data = await res.json();
       if (data.success && data.config) {
         const config = mergeWithDefaults(data.config);
         setEditConfig(config);
         setCurrentEnv(data.env || null);
-        message.success('本地配置已加载（包含config和env）');
+        const sourceInfo = data.manifestName ? `Manifest[${data.manifestName}]` : '默认';
+        message.success(`本地配置已加载（${sourceInfo}，${Object.keys(data.fileContents || {}).length}个文件）`);
       } else {
         message.warning(data.message || '本地配置文件不存在');
       }
@@ -476,7 +407,11 @@ function Templates() {
         const token = localStorage.getItem('token');
   
         // Step 1: Get complete config from launcher, including fileContents
-        const launcherExportRes = await fetch(`${LAUNCHER_API}/config/export`);
+        const launcherExportRes = await fetch(`${LAUNCHER_API}/config/export`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ manifestName: selectedManifestForTemplate || undefined })
+        });
         const launcherExportData = await launcherExportRes.json();
   
         if (!launcherExportData.success) {
@@ -527,7 +462,8 @@ function Templates() {
           description: values.description || '',
           config: JSON.stringify(cleanObj(editConfig)),
           env: currentEnv ? JSON.stringify(cleanObj(currentEnv)) : null,
-          filePayload: cleanedFileContents ? JSON.stringify(cleanedFileContents) : null // Include cleaned fileContents
+          filePayload: cleanedFileContents ? JSON.stringify(cleanedFileContents) : null,
+          manifest: selectedManifestForTemplate ? JSON.stringify({ name: selectedManifestForTemplate }) : null
         };
   
         const method = editing ? 'PUT' : 'POST';
@@ -715,7 +651,17 @@ function Templates() {
         <Divider />
 
         <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Text strong>配置内容</Text>
+          <Space>
+            <Text strong>配置内容</Text>
+            <Select
+              placeholder="选择Manifest（可选）"
+              allowClear
+              value={selectedManifestForTemplate}
+              onChange={(val) => setSelectedManifestForTemplate(val)}
+              style={{ width: 220 }}
+              options={manifests.map(m => ({ label: m.name, value: m.name }))}
+            />
+          </Space>
           <Button
             icon={<CloudDownloadOutlined />}
             onClick={handleLoadLauncherConfig}
@@ -826,11 +772,8 @@ function Templates() {
         width={700}
         footer={[
           <Button key="cancel" onClick={() => setDiscoverModalVisible(false)}>关闭</Button>,
-          <Button key="save" icon={<SaveOutlined />} onClick={handleSaveManifest}>
+          <Button key="save" type="primary" icon={<SaveOutlined />} onClick={handleSaveManifest}>
             保存为Manifest
-          </Button>,
-          <Button key="generate" type="primary" icon={<PlusOutlined />} onClick={handleGenerateTemplate}>
-            生成模板
           </Button>
         ]}
       >

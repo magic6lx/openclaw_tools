@@ -707,6 +707,86 @@ app.get('/config/export', (req, res) => {
   }
 });
 
+app.post('/config/export', (req, res) => {
+  try {
+    const { manifestName } = req.body;
+    const result = {
+      success: true,
+      config: null,
+      env: null,
+      source: 'default',
+      configPath: OPENCLAW_CONFIG_FILE,
+      envPath: OPENCLAW_ENV_FILE,
+      manifestName: manifestName || null,
+      fileContents: {}
+    };
+
+    if (existsSync(OPENCLAW_CONFIG_FILE)) {
+      result.config = JSON.parse(readFileSync(OPENCLAW_CONFIG_FILE, 'utf-8'));
+      result.source = 'openclaw';
+    }
+
+    if (existsSync(OPENCLAW_ENV_FILE)) {
+      result.env = readFileSync(OPENCLAW_ENV_FILE, 'utf-8');
+    }
+
+    const filesToBundle = {};
+
+    function readAndEncodeFilesFromDir(baseDir, relativePath = '') {
+      if (!existsSync(baseDir)) return;
+      const entries = readdirSync(baseDir, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = join(baseDir, entry.name);
+        const currentRelativePath = join(relativePath, entry.name);
+        if (entry.isFile()) {
+          try {
+            const content = readFileSync(fullPath);
+            filesToBundle[currentRelativePath] = content.toString('base64');
+          } catch (e) {}
+        } else if (entry.isDirectory()) {
+          readAndEncodeFilesFromDir(fullPath, currentRelativePath);
+        }
+      }
+    }
+
+    if (manifestName) {
+      const manifestPath = join(MANIFEST_DIR, `manifest_${manifestName}.json`);
+      if (existsSync(manifestPath)) {
+        const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'));
+        const tm = manifest.templateManifest;
+        if (tm && tm.categories) {
+          for (const cat of tm.categories) {
+            if (cat.paths && Array.isArray(cat.paths)) {
+              for (const relPath of cat.paths) {
+                const fullPath = join(OPENCLAW_CONFIG_DIR, relPath);
+                readAndEncodeFilesFromDir(fullPath, relPath);
+              }
+            }
+          }
+        }
+        addTaggedLog('INFO', '[EXPORT]', `基于Manifest[${manifestName}]导出: ${Object.keys(filesToBundle).length}个文件`);
+      } else {
+        addTaggedLog('WARN', '[EXPORT]', `Manifest[${manifestName}]不存在，使用默认导出`);
+        readAndEncodeFilesFromDir(join(OPENCLAW_CONFIG_DIR, 'workspace'), 'workspace');
+        readAndEncodeFilesFromDir(join(OPENCLAW_CONFIG_DIR, 'skills'), 'skills');
+      }
+    } else {
+      readAndEncodeFilesFromDir(join(OPENCLAW_CONFIG_DIR, 'workspace'), 'workspace');
+      readAndEncodeFilesFromDir(join(OPENCLAW_CONFIG_DIR, 'skills'), 'skills');
+    }
+
+    result.fileContents = filesToBundle;
+
+    if (result.config) {
+      result.config = normalizeConfigPathsForExport(result.config, OPENCLAW_CONFIG_DIR);
+    }
+
+    res.json(result);
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
 // Normalize paths for EXPORT (convert absolute paths to relative logical paths)
 function normalizeConfigPathsForExport(config, configDir) {
   if (!config) return config;
