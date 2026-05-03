@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import QuickSettings from '../../components/QuickSettings';
 import { useConfig, mergeWithDefaults } from '../../hooks/useConfig';
 
-const { Title, Text } = Typography;
+const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 const LAUNCHER_API = 'http://127.0.0.1:3003';
