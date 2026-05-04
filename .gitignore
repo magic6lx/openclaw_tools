@@ -15,3 +15,4 @@ server/public/
 test-results/
 launcher/test-data/
 launcher/.openclaw_test_env/
+launcher/.openclaw-test/

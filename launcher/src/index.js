@@ -1,9 +1,10 @@
 import express from 'express';
 import cors from 'cors';
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync, appendFileSync } from 'fs';
-import { join, dirname } from 'path';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync, appendFileSync, renameSync, statSync } from 'fs';
+import { join, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { execSync, spawn } from 'child_process';
+import crypto from 'crypto';
 import os from 'os';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -16,16 +17,16 @@ app.use(express.json());
 const homedir = os.homedir(); // Ensure homedir is defined
 const DEFAULT_GATEWAY_PORT = 18789;
 
-// Use OPENCLAW_TEST_DIR if defined, otherwise default to ~/.openclaw
-const OPENCLAW_CONFIG_DIR = process.env.OPENCLAW_TEST_DIR ? 
-  join(process.cwd(), process.env.OPENCLAW_TEST_DIR) : 
-  join(homedir, '.openclaw');
+// Use OPENCLAW_TEST_DIR if defined for manifests only, otherwise default to ~/.openclaw
+const OPENCLAW_CONFIG_DIR = join(homedir, '.openclaw');
+const MANIFEST_DIR = process.env.OPENCLAW_TEST_DIR ?
+  join(process.cwd(), process.env.OPENCLAW_TEST_DIR, 'manifests') :
+  join(OPENCLAW_CONFIG_DIR, 'manifests');
 
 const OPENCLAW_CONFIG_FILE = join(OPENCLAW_CONFIG_DIR, 'openclaw.json');
 const OPENCLAW_ENV_FILE = join(OPENCLAW_CONFIG_DIR, '.env');
 const PRIVATE_TEMPLATE_DIR = join(OPENCLAW_CONFIG_DIR, 'private_templates');
 const LAUNCHER_DEVICE_ID_FILE = join(OPENCLAW_CONFIG_DIR, 'device_id');
-const MANIFEST_DIR = join(OPENCLAW_CONFIG_DIR, 'manifests');
 const SNAPSHOT_DIR = join(OPENCLAW_CONFIG_DIR, 'snapshots');
 const APPLY_RECORD_DIR = join(OPENCLAW_CONFIG_DIR, 'apply_records');
 const LAUNCHER_JSONL_LOG = join(OPENCLAW_CONFIG_DIR, 'logs', 'launcher.jsonl');
@@ -269,6 +270,17 @@ app.post('/gateway/start', async (req, res) => {
     addLog('INFO', 'openclaw setup 完成。');
   } catch (setupErr) {
     addLog('WARN', `openclaw setup 失败或超时 (可能已配置): ${setupErr.message}`);
+  }
+
+  function getOpenClawConfig() {
+    if (existsSync(OPENCLAW_CONFIG_FILE)) {
+      try {
+        return JSON.parse(readFileSync(OPENCLAW_CONFIG_FILE, 'utf-8'));
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
   }
 
   try {
@@ -736,10 +748,16 @@ app.post('/config/export', (req, res) => {
       if (!existsSync(baseDir)) return;
       const entries = readdirSync(baseDir, { withFileTypes: true });
       for (const entry of entries) {
+        if (excludedPatterns.includes(entry.name)) continue;
         const fullPath = join(baseDir, entry.name);
         const currentRelativePath = join(relativePath, entry.name);
         if (entry.isFile()) {
           try {
+            const stat = statSync(fullPath);
+            if (stat.size > 5 * 1024 * 1024) {
+              addTaggedLog('WARN', '[EXPORT]', `跳过过大文件: ${currentRelativePath} (${(stat.size/1024/1024).toFixed(1)}MB)`);
+              continue;
+            }
             const content = readFileSync(fullPath);
             filesToBundle[currentRelativePath] = content.toString('base64');
           } catch (e) {}
@@ -832,7 +850,7 @@ function normalizeConfigPathsForExport(config, configDir) {
 // Hydrate paths for IMPORT (convert relative logical paths to absolute paths for the current machine)
 function hydrateConfigPathsForImport(config, configDir) {
   if (!config) return config;
-  const hydrated = JSON.parse(JSON.stringify(config)); // Deep copy
+  const hydrated = JSON.parse(JSON.stringify(config));
 
   const pathFields = {
     'agents.defaults.workspace': 'workspace',
@@ -858,13 +876,10 @@ function hydrateConfigPathsForImport(config, configDir) {
       const originalPath = current[parts[parts.length - 1]];
       let resolvedPath;
       
-      // If the template contains a bad absolute path (legacy/malicious), override it
       if (isPathProblematic(originalPath)) {
           resolvedPath = join(configDir, defaultRelativePath);
           addLog('INFO', `导入模板：检测到硬编码绝对路径 [${originalPath}]，已强制水合为 [${resolvedPath}]`);
       } else {
-          // If it's a relative path (as expected from our new export), join it with the configDir
-          // We check if it's already an absolute path starting with the configDir to avoid double joining
           if (originalPath.startsWith(configDir)) {
               resolvedPath = originalPath;
           } else {
@@ -872,9 +887,28 @@ function hydrateConfigPathsForImport(config, configDir) {
               addLog('INFO', `导入模板：将逻辑相对路径 [${originalPath}] 水合为当前机器绝对路径 [${resolvedPath}]`);
           }
       }
-      current[parts[parts.length - 1]] = resolvedPath.replace(/\\/g, '/'); // Normalize slashes for JSON
+      current[parts[parts.length - 1]] = resolvedPath.replace(/\\/g, '/');
     }
   }
+
+  if (hydrated.agents?.list && Array.isArray(hydrated.agents.list)) {
+    for (const agent of hydrated.agents.list) {
+      if (!agent.workspace && agent.id) {
+        agent.workspace = join(configDir, `workspace-${agent.id}`).replace(/\\/g, '/');
+        addLog('INFO', `导入模板：为 Agent [${agent.id}] 自动设置 workspace: ${agent.workspace}`);
+      } else if (agent.workspace) {
+        const originalPath = agent.workspace;
+        if (isPathProblematic(originalPath)) {
+          agent.workspace = join(configDir, `workspace-${agent.id}`).replace(/\\/g, '/');
+          addLog('INFO', `导入模板：Agent [${agent.id}] 硬编码路径 [${originalPath}]，已水合为 [${agent.workspace}]`);
+        } else if (!originalPath.startsWith(configDir)) {
+          agent.workspace = join(configDir, originalPath).replace(/\\/g, '/');
+          addLog('INFO', `导入模板：Agent [${agent.id}] 相对路径 [${originalPath}]，已水合为 [${agent.workspace}]`);
+        }
+      }
+    }
+  }
+
   return hydrated;
 }
 
@@ -1156,6 +1190,16 @@ app.post('/config/import', (req, res) => {
       addLog('INFO', `导入模板：依据用户选项，跳过路径配置的覆盖与水合`);
     }
 
+    if (!finalConfig.gateway) finalConfig.gateway = {};
+    if (!finalConfig.gateway.auth) finalConfig.gateway.auth = {};
+    if (finalConfig.gateway.auth.mode === 'none' || !finalConfig.gateway.auth.mode) {
+      finalConfig.gateway.auth.mode = 'token';
+      if (!finalConfig.gateway.auth.token) {
+        finalConfig.gateway.auth.token = crypto.randomBytes(24).toString('hex');
+      }
+      addLog('INFO', `导入模板：gateway.auth.mode 已设置为 token 模式（正常认证）`);
+    }
+
     writeFileSync(OPENCLAW_CONFIG_FILE, JSON.stringify(finalConfig, null, 2), 'utf-8');
     if (env) {
       writeFileSync(OPENCLAW_ENV_FILE, env, 'utf-8');
@@ -1327,6 +1371,7 @@ app.delete('/config/private-template/:id', (req, res) => {
 
 // ===== Template System APIs =====
 
+const excludedPatterns = ['.git', '.gitignore', '.gitattributes', 'node_modules', '.DS_Store', 'Thumbs.db', 'sessions', '.jsonl', '.deleted.', '.session', '.bak', '.bak.', '.clobbered.', '.fixed', '手动备份'];
 const DEFAULT_EXCLUDED_DIRS = ['credentials', 'logs', 'bin', 'tools', 'private_templates', 'manifests', 'snapshots', 'apply_records'];
 const FORCE_EXCLUDED_DIRS = ['credentials'];
 
@@ -1454,10 +1499,44 @@ function discoverCategories(stateDir, config, baseManifest) {
   };
 }
 
+function redactFileContent(relativePath, rawContent) {
+  const fileName = relativePath.split(/[/\\]/).pop();
+  if (fileName !== 'auth-profiles.json' && fileName !== 'models.json') {
+    return rawContent;
+  }
+
+  try {
+    const json = JSON.parse(rawContent.toString('utf-8'));
+    let modified = false;
+
+    function redactRecursive(obj) {
+      if (!obj || typeof obj !== 'object') return;
+      for (const key of Object.keys(obj)) {
+        if (typeof obj[key] === 'string' && isSensitiveField(key) && obj[key].length > 0) {
+          obj[key] = '';
+          modified = true;
+        } else if (typeof obj[key] === 'object') {
+          redactRecursive(obj[key]);
+        }
+      }
+    }
+
+    redactRecursive(json);
+    if (modified) {
+      addTaggedLog('INFO', '[EXPORT]', `脱敏文件: ${relativePath}`);
+      return Buffer.from(JSON.stringify(json, null, 2), 'utf-8');
+    }
+    return rawContent;
+  } catch (e) {
+    return rawContent;
+  }
+}
+
 function bundleFiles(stateDir, categories, selectedCategories) {
   const fileContents = {};
   const fileList = {};
   const selectedSet = selectedCategories ? new Set(selectedCategories) : null;
+  const excludedPatterns = ['.git', '.gitignore', '.gitattributes', 'node_modules', '.DS_Store', 'Thumbs.db', 'sessions', '.jsonl', '.deleted.', '.session', '.bak', '.bak.', '.clobbered.', '.fixed', '手动备份'];
 
   for (const cat of categories) {
     if (selectedSet && !selectedSet.has(cat.name)) continue;
@@ -1471,11 +1550,13 @@ function bundleFiles(stateDir, categories, selectedCategories) {
         if (!existsSync(baseDir)) return;
         const entries = readdirSync(baseDir, { withFileTypes: true });
         for (const entry of entries) {
+          if (excludedPatterns.includes(entry.name)) continue;
           const entryFullPath = join(baseDir, entry.name);
           const entryRelPath = join(currentRelPath, entry.name);
           if (entry.isFile()) {
             try {
-              const content = readFileSync(entryFullPath);
+              const rawContent = readFileSync(entryFullPath);
+              const content = redactFileContent(entryRelPath, rawContent);
               fileContents[entryRelPath] = content.toString('base64');
               fileList[cat.name].push(entryRelPath);
             } catch (e) {
@@ -1487,10 +1568,11 @@ function bundleFiles(stateDir, categories, selectedCategories) {
         }
       }
 
-      const stat = (() => { try { return require('fs').statSync(fullPath); } catch { return null; } })();
+      const stat = (() => { try { return statSync(fullPath); } catch { return null; } })();
       if (stat && stat.isFile()) {
         try {
-          const content = readFileSync(fullPath);
+          const rawContent = readFileSync(fullPath);
+          const content = redactFileContent(relPath, rawContent);
           fileContents[relPath] = content.toString('base64');
           fileList[cat.name].push(relPath);
         } catch (e) {
@@ -1542,9 +1624,9 @@ function unbundleFiles(stateDir, fileContents, selectedCategories, manifest) {
 
     const cleanedPath = relativePath.replace(/^[a-zA-Z]:(\\|\/)/, '').replace(/^\//, '');
     const targetPath = join(stateDir, cleanedPath);
-    const resolvedPath = require('path').resolve(targetPath);
+    const resolvedPath = resolve(targetPath);
 
-    if (!resolvedPath.startsWith(require('path').resolve(stateDir))) {
+    if (!resolvedPath.startsWith(resolve(stateDir))) {
       addTaggedLog('ERROR', '[SECURITY]', `路径穿越检测 → 拒绝写入 ${relativePath} (解析为 ${resolvedPath}, 不在 ${stateDir} 内)`);
       errors.push(`路径穿越拦截: ${relativePath}`);
       continue;
@@ -1613,7 +1695,7 @@ function createApplySnapshot(stateDir, templateId, templateName, selectedCategor
                 }
               }
             }
-            const stat = (() => { try { return require('fs').statSync(fullPath); } catch { return null; } })();
+            const stat = (() => { try { return statSync(fullPath); } catch { return null; } })();
             if (stat && stat.isDirectory()) {
               collectFiles(fullPath, p);
             } else if (stat && stat.isFile()) {
@@ -1625,7 +1707,6 @@ function createApplySnapshot(stateDir, templateId, templateName, selectedCategor
     }
   }
 
-  const crypto = require('crypto');
   for (const relPath of targetFiles) {
     const absPath = join(stateDir, relPath);
     if (existsSync(absPath)) {
@@ -1687,7 +1768,6 @@ function rollbackFromSnapshot(stateDir, snapshotId) {
     let restoredCount = 0;
     let deletedCount = 0;
     const errors = [];
-    const crypto = require('crypto');
 
     if (snapshot.configSnapshot) {
       writeFileSync(OPENCLAW_CONFIG_FILE, JSON.stringify(snapshot.configSnapshot, null, 2), 'utf-8');
@@ -1792,13 +1872,47 @@ app.post('/template/manifest/save', (req, res) => {
       return res.json({ success: false, error: 'Manifest 必须包含 templateManifest.name' });
     }
 
-    if (!existsSync(MANIFEST_DIR)) {
-      mkdirSync(MANIFEST_DIR, { recursive: true });
+    const manifestName = manifest.templateManifest.name;
+    if (!/^[a-zA-Z0-9_\-]+$/.test(manifestName)) {
+      return res.json({ success: false, error: 'Manifest名称只能包含字母、数字、下划线和连字符，不能使用中文或特殊字符' });
     }
 
-    const manifestName = manifest.templateManifest.name;
+    if (!existsSync(MANIFEST_DIR)) {
+      mkdirSync(MANIFEST_DIR, { recursive: true });
+      addTaggedLog('INFO', '[CONFIG]', `Manifest目录创建: ${MANIFEST_DIR}`);
+    }
+
     const manifestPath = join(MANIFEST_DIR, `manifest_${manifestName}.json`);
-    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
+    console.log('[SAVE] Attempting to write:', manifestPath);
+    console.log('[SAVE] File exists before:', existsSync(manifestPath));
+    console.log('[SAVE] Dir writable:', (() => { try { writeFileSync(manifestPath + '.test', 'test'); unlinkSync(manifestPath + '.test'); return true; } catch { return false; } })());
+    try {
+      writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
+      console.log('[SAVE] Write succeeded');
+    } catch (writeErr) {
+      console.log('[SAVE] Write failed:', writeErr.code, writeErr.message);
+      if (writeErr.code === 'EPERM') {
+        if (existsSync(manifestPath)) {
+          const backupPath = manifestPath + `.bak.${Date.now()}`;
+          try {
+            renameSync(manifestPath, backupPath);
+            console.log('[SAVE] File renamed to:', backupPath);
+            addTaggedLog('WARN', '[CONFIG]', `Manifest文件被占用，重命名为: ${backupPath}`);
+          } catch (renameErr) {
+            console.log('[SAVE] Rename failed:', renameErr.message);
+            addTaggedLog('ERROR', '[CONFIG]', `Manifest重命名失败: ${renameErr.message}`);
+          }
+          writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
+          console.log('[SAVE] Write after rename succeeded');
+        } else {
+          console.log('[SAVE] EPERM on new file, no fallback available');
+          addTaggedLog('ERROR', '[CONFIG]', `Manifest写入失败(EPERM): ${manifestPath} - ${writeErr.message}`);
+          return res.json({ success: false, error: `文件写入失败: ${writeErr.message}` });
+        }
+      } else {
+        throw writeErr;
+      }
+    }
     addTaggedLog('INFO', '[CONFIG]', `Manifest 已保存: ${manifestName}`);
     res.json({ success: true, savedTo: manifestPath });
   } catch (err) {
@@ -1808,26 +1922,37 @@ app.post('/template/manifest/save', (req, res) => {
 
 app.get('/template/manifests', (req, res) => {
   try {
+    console.log('[DEBUG] GET /template/manifests called, MANIFEST_DIR:', MANIFEST_DIR);
     if (!existsSync(MANIFEST_DIR)) {
-      return res.json({ success: true, manifests: [] });
+      console.log('[DEBUG] Dir not exists');
+      return res.json({ success: true, manifests: [], debug: 'dir not exists' });
     }
-    const files = readdirSync(MANIFEST_DIR).filter(f => f.startsWith('manifest_') && f.endsWith('.json'));
-    const manifests = files.map(f => {
+    const allFiles = readdirSync(MANIFEST_DIR);
+    const filteredFiles = allFiles.filter(f => f.startsWith('manifest_') && f.endsWith('.json'));
+    console.log('[DEBUG] allFiles:', allFiles, 'filteredFiles:', filteredFiles);
+    const manifests = filteredFiles.map(f => {
       try {
-        const content = JSON.parse(readFileSync(join(MANIFEST_DIR, f), 'utf-8'));
+        const fullPath = join(MANIFEST_DIR, f);
+        console.log('[DEBUG] Reading file:', fullPath);
+        const content = JSON.parse(readFileSync(fullPath, 'utf-8'));
         const tm = content.templateManifest || {};
-        return {
+        const result = {
           name: tm.name || f.replace('manifest_', '').replace('.json', ''),
           isDefault: tm.isDefault || false,
           categoryCount: tm.categories?.length || 0,
-          savedAt: require('fs').statSync(join(MANIFEST_DIR, f)).mtime.toISOString()
+          savedAt: statSync(fullPath).mtime.toISOString()
         };
+        console.log('[DEBUG] File OK:', f, '->', result.name);
+        return result;
       } catch (e) {
+        console.log('[DEBUG] File error', f, ':', e.code, e.message);
         return null;
       }
     }).filter(Boolean);
-    res.json({ success: true, manifests });
+    console.log('[DEBUG] manifests result:', manifests.length, 'items');
+    res.json({ success: true, manifests, debug: { MANIFEST_DIR, allFiles, filteredFiles } });
   } catch (err) {
+    console.log('[DEBUG] Outer error:', err.message);
     res.json({ success: false, error: err.message });
   }
 });
@@ -2000,6 +2125,16 @@ app.post('/template/apply', async (req, res) => {
         addTaggedLog('INFO', '[APPLY]', `路径水合跳过: 用户选择保留本地路径配置`);
       }
 
+      if (!finalConfig.gateway) finalConfig.gateway = {};
+      if (!finalConfig.gateway.auth) finalConfig.gateway.auth = {};
+      if (finalConfig.gateway.auth.mode === 'none' || !finalConfig.gateway.auth.mode) {
+        finalConfig.gateway.auth.mode = 'token';
+        if (!finalConfig.gateway.auth.token) {
+          finalConfig.gateway.auth.token = crypto.randomBytes(24).toString('hex');
+        }
+        addTaggedLog('INFO', '[APPLY]', `gateway.auth.mode 已设置为 token 模式（正常认证）`);
+      }
+
       writeFileSync(OPENCLAW_CONFIG_FILE, JSON.stringify(finalConfig, null, 2), 'utf-8');
       addTaggedLog('INFO', '[APPLY]', `配置已写入: ${OPENCLAW_CONFIG_FILE}`);
     }
@@ -2012,6 +2147,45 @@ app.post('/template/apply', async (req, res) => {
     );
 
     addTaggedLog('INFO', '[APPLY]', `文件写入完成: 成功 ${filesWritten} 个, 跳过 ${filesSkipped} 个, 失败 ${unbundleErrors.length} 个`);
+
+    try {
+      addTaggedLog('INFO', '[APPLY]', '执行 openclaw doctor --repair 自动修复...');
+      const doctorOutput = execSync('openclaw doctor --repair --non-interactive', {
+        encoding: 'utf8',
+        timeout: 60000,
+        windowsHide: true,
+        env: { ...process.env, HOME: homedir, USERPROFILE: homedir }
+      });
+      addTaggedLog('INFO', '[APPLY]', `doctor 修复完成: ${doctorOutput.substring(0, 500)}`);
+    } catch (doctorErr) {
+      addTaggedLog('WARN', '[APPLY]', `doctor 修复失败（非致命）: ${doctorErr.message?.substring(0, 200)}`);
+    }
+
+    try {
+      addTaggedLog('INFO', '[APPLY]', '执行 openclaw setup 初始化 workspace...');
+      execSync('openclaw setup', {
+        encoding: 'utf8',
+        timeout: 30000,
+        windowsHide: true,
+        env: { ...process.env, HOME: homedir, USERPROFILE: homedir }
+      });
+      addTaggedLog('INFO', '[APPLY]', 'workspace 初始化完成');
+    } catch (setupErr) {
+      addTaggedLog('WARN', '[APPLY]', `setup 初始化失败（非致命）: ${setupErr.message?.substring(0, 200)}`);
+    }
+
+    try {
+      addTaggedLog('INFO', '[APPLY]', '执行 openclaw gateway restart 使认证配置生效...');
+      execSync('openclaw gateway restart', {
+        encoding: 'utf8',
+        timeout: 30000,
+        windowsHide: true,
+        env: { ...process.env, HOME: homedir, USERPROFILE: homedir }
+      });
+      addTaggedLog('INFO', '[APPLY]', 'gateway 重启完成');
+    } catch (restartErr) {
+      addTaggedLog('WARN', '[APPLY]', `gateway 重启失败（非致命）: ${restartErr.message?.substring(0, 200)}`);
+    }
 
     const applyRecord = {
       id: snapshot.id,
@@ -2138,6 +2312,17 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
+app.get('/api/diagnostic', (req, res) => {
+  res.json({
+    MANIFEST_DIR,
+    OPENCLAW_CONFIG_DIR,
+    homedir: os.homedir(),
+    cwd: process.cwd(),
+    env_OPENCLAW_TEST_DIR: process.env.OPENCLAW_TEST_DIR,
+    test_dir_files: existsSync(MANIFEST_DIR) ? readdirSync(MANIFEST_DIR).filter(f => f.startsWith('manifest_') && f.endsWith('.json')) : []
+  });
+});
+
 const ALLOWED_CLI_COMMANDS = [
   'openclaw channels login --channel feishu',
   'openclaw devices approve',
@@ -2219,6 +2404,185 @@ app.post('/api/cli/exec', (req, res) => {
   } catch (err) {
     addLog('ERROR', `命令执行异常: ${err.message}`);
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/config/proxy', (req, res) => {
+  try {
+    const { enabled, serverUrl, userToken } = req.body;
+    if (typeof enabled !== 'boolean') {
+      return res.json({ success: false, error: 'enabled 参数必填' });
+    }
+
+    if (!existsSync(OPENCLAW_CONFIG_FILE)) {
+      return res.json({ success: false, error: 'openclaw.json 不存在' });
+    }
+
+    const config = JSON.parse(readFileSync(OPENCLAW_CONFIG_FILE, 'utf-8'));
+
+    if (!config.models) config.models = {};
+    if (!config.models.providers) config.models.providers = {};
+
+    const proxyProviders = ['volcengine', 'openai', 'anthropic', 'google'];
+
+    if (enabled) {
+      if (!serverUrl) {
+        return res.json({ success: false, error: '启用代理需要提供 serverUrl' });
+      }
+
+      for (const providerName of proxyProviders) {
+        if (!config.models.providers[providerName]) {
+          config.models.providers[providerName] = {};
+        }
+        const provider = config.models.providers[providerName];
+
+        if (!provider._originalBaseUrl) {
+          provider._originalBaseUrl = provider.baseUrl || '';
+        }
+        if (!provider._originalApiKey) {
+          provider._originalApiKey = provider.apiKey || '';
+        }
+
+        provider.baseUrl = `${serverUrl}/api/proxy/${providerName}`;
+        provider.apiKey = userToken || 'proxy';
+        provider.api = 'openai-completions';
+      }
+
+      config.models.useProxy = true;
+      addLog('INFO', `代理已启用: baseUrl 指向 ${serverUrl}/api/proxy/`);
+    } else {
+      for (const providerName of proxyProviders) {
+        const provider = config.models.providers[providerName];
+        if (provider) {
+          if (provider._originalBaseUrl !== undefined) {
+            provider.baseUrl = provider._originalBaseUrl || undefined;
+            delete provider._originalBaseUrl;
+          }
+          if (provider._originalApiKey !== undefined) {
+            provider.apiKey = provider._originalApiKey || undefined;
+            delete provider._originalApiKey;
+          }
+          if (provider.baseUrl === undefined) delete provider.baseUrl;
+          if (provider.apiKey === undefined) delete provider.apiKey;
+          if (provider.api === 'openai-completions') delete provider.api;
+        }
+      }
+
+      if (config.models.useProxy !== undefined) delete config.models.useProxy;
+      addLog('INFO', '代理已关闭: 已恢复原始 provider 配置');
+    }
+
+    writeFileSync(OPENCLAW_CONFIG_FILE, JSON.stringify(config, null, 2), 'utf-8');
+
+    const agentIds = [];
+    if (config.agents?.list && Array.isArray(config.agents.list)) {
+      for (const agent of config.agents.list) {
+        if (agent.id) agentIds.push(agent.id);
+      }
+    }
+
+    for (const agentId of agentIds) {
+      const authProfilesPath = join(OPENCLAW_CONFIG_DIR, 'agents', agentId, 'agent', 'auth-profiles.json');
+      if (!existsSync(authProfilesPath)) continue;
+
+      try {
+        const authData = JSON.parse(readFileSync(authProfilesPath, 'utf-8'));
+        if (!authData.profiles) continue;
+
+        if (enabled) {
+          if (!authData._originalProfiles) {
+            authData._originalProfiles = JSON.parse(JSON.stringify(authData.profiles));
+          }
+          for (const providerName of proxyProviders) {
+            const profileKey = `${providerName}:default`;
+            if (authData.profiles[profileKey]) {
+              authData.profiles[profileKey].key = userToken || 'proxy';
+              authData.profiles[profileKey].type = 'api_key';
+            }
+          }
+          addLog('INFO', `代理已启用: Agent [${agentId}] auth-profiles.json 已更新`);
+        } else {
+          if (authData._originalProfiles) {
+            authData.profiles = authData._originalProfiles;
+            delete authData._originalProfiles;
+            addLog('INFO', `代理已关闭: Agent [${agentId}] auth-profiles.json 已恢复`);
+          }
+        }
+
+        writeFileSync(authProfilesPath, JSON.stringify(authData, null, 2), 'utf-8');
+      } catch (e) {
+        addLog('WARN', `Agent [${agentId}] auth-profiles.json 更新失败: ${e.message}`);
+      }
+
+      const modelsJsonPath = join(OPENCLAW_CONFIG_DIR, 'agents', agentId, 'agent', 'models.json');
+      if (!existsSync(modelsJsonPath)) continue;
+
+      try {
+        const modelsData = JSON.parse(readFileSync(modelsJsonPath, 'utf-8'));
+        if (!modelsData.providers) continue;
+
+        if (enabled) {
+          if (!modelsData._originalProviders) {
+            modelsData._originalProviders = JSON.parse(JSON.stringify(modelsData.providers));
+          }
+          for (const providerName of proxyProviders) {
+            if (modelsData.providers[providerName]) {
+              if (!modelsData.providers[providerName]._originalBaseUrl) {
+                modelsData.providers[providerName]._originalBaseUrl = modelsData.providers[providerName].baseUrl || '';
+              }
+              if (!modelsData.providers[providerName]._originalApiKey) {
+                modelsData.providers[providerName]._originalApiKey = modelsData.providers[providerName].apiKey || '';
+              }
+              modelsData.providers[providerName].baseUrl = `${serverUrl}/api/proxy/${providerName}`;
+              modelsData.providers[providerName].apiKey = userToken || 'proxy';
+            }
+          }
+          addLog('INFO', `代理已启用: Agent [${agentId}] models.json 已更新`);
+        } else {
+          if (modelsData._originalProviders) {
+            modelsData.providers = modelsData._originalProviders;
+            delete modelsData._originalProviders;
+            addLog('INFO', `代理已关闭: Agent [${agentId}] models.json 已恢复`);
+          } else {
+            for (const providerName of proxyProviders) {
+              if (modelsData.providers[providerName]) {
+                const p = modelsData.providers[providerName];
+                if (p._originalBaseUrl !== undefined) {
+                  p.baseUrl = p._originalBaseUrl || undefined;
+                  delete p._originalBaseUrl;
+                }
+                if (p._originalApiKey !== undefined) {
+                  p.apiKey = p._originalApiKey || undefined;
+                  delete p._originalApiKey;
+                }
+              }
+            }
+          }
+        }
+
+        writeFileSync(modelsJsonPath, JSON.stringify(modelsData, null, 2), 'utf-8');
+      } catch (e) {
+        addLog('WARN', `Agent [${agentId}] models.json 更新失败: ${e.message}`);
+      }
+    }
+
+    res.json({ success: true, enabled });
+  } catch (err) {
+    addLog('ERROR', `代理配置失败: ${err.message}`);
+    res.json({ success: false, error: err.message });
+  }
+});
+
+app.get('/config/proxy', (req, res) => {
+  try {
+    if (!existsSync(OPENCLAW_CONFIG_FILE)) {
+      return res.json({ success: false, enabled: false });
+    }
+    const config = JSON.parse(readFileSync(OPENCLAW_CONFIG_FILE, 'utf-8'));
+    const enabled = config.models?.useProxy === true;
+    res.json({ success: true, enabled });
+  } catch (err) {
+    res.json({ success: false, enabled: false, error: err.message });
   }
 });
 

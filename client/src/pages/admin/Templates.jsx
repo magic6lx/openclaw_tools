@@ -33,6 +33,10 @@ function Templates() {
   const [verifyModalVisible, setVerifyModalVisible] = useState(false);
   const [verifyingTemplate, setVerifyingTemplate] = useState(null);
   const [selectedManifestForTemplate, setSelectedManifestForTemplate] = useState(null);
+  const [viewManifestModalVisible, setViewManifestModalVisible] = useState(false);
+  const [viewManifestData, setViewManifestData] = useState(null);
+  const [exportFileList, setExportFileList] = useState([]);
+  const [showFileListModal, setShowFileListModal] = useState(false);
 
   const { config: launcherConfig, loading: launcherLoading, fetchConfig: refetchLauncherConfig } = useConfig();
 
@@ -65,9 +69,12 @@ function Templates() {
       const data = await res.json();
       if (data.success) {
         setManifests(data.manifests || []);
+        console.log('[Manifest] 列表已刷新，当前数量:', data.manifests?.length);
+      } else {
+        console.warn('[Manifest] 获取列表失败:', data.error);
       }
     } catch (err) {
-      console.error('获取Manifest列表失败:', err);
+      console.error('[Manifest] 获取列表失败:', err);
     }
   };
 
@@ -157,6 +164,21 @@ function Templates() {
     }
   };
 
+  const handleViewManifest = async (name) => {
+    try {
+      const res = await fetch(`${LAUNCHER_API}/template/manifest/${name}`);
+      const data = await res.json();
+      if (data.success && data.manifest) {
+        setViewManifestData(data.manifest);
+        setViewManifestModalVisible(true);
+      } else {
+        message.error(data.error || '获取Manifest详情失败');
+      }
+    } catch (err) {
+      message.error(`获取Manifest详情失败: ${err.message}`);
+    }
+  };
+
   const handleExportTemplate = async (manifestNameToUse) => {
     setExporting(true);
     try {
@@ -169,6 +191,8 @@ function Templates() {
       if (data.success) {
         setEditConfig(data.config || {});
         setCurrentEnv(data.env || null);
+        // fileList is an object grouped by category name, convert to flat array
+        setExportFileList(Object.values(data.fileList || {}).flat());
         message.success(`模板导出成功: ${data.exportInfo?.totalFiles || 0} 个文件, ${data.exportInfo?.categories?.length || 0} 个分类`);
         setModalVisible(true);
         form.setFieldsValue({
@@ -382,6 +406,7 @@ function Templates() {
         const config = mergeWithDefaults(data.config);
         setEditConfig(config);
         setCurrentEnv(data.env || null);
+        setExportFileList(Object.keys(data.fileContents || {}));
         const sourceInfo = data.manifestName ? `Manifest[${data.manifestName}]` : '默认';
         message.success(`本地配置已加载（${sourceInfo}，${Object.keys(data.fileContents || {}).length}个文件）`);
       } else {
@@ -463,7 +488,20 @@ function Templates() {
           config: JSON.stringify(cleanObj(editConfig)),
           env: currentEnv ? JSON.stringify(cleanObj(currentEnv)) : null,
           filePayload: cleanedFileContents ? JSON.stringify(cleanedFileContents) : null,
-          manifest: selectedManifestForTemplate ? JSON.stringify({ name: selectedManifestForTemplate }) : null
+          manifest: selectedManifestForTemplate ? (async () => {
+            const manifestRes = await fetch(`${LAUNCHER_API}/template/manifest/${encodeURIComponent(selectedManifestForTemplate)}`);
+            const manifestData = await manifestRes.json();
+            if (manifestData.success && manifestData.manifest) {
+              return JSON.stringify(manifestData.manifest);
+            }
+            return JSON.stringify({ name: selectedManifestForTemplate });
+          })() : null
+        };
+
+        const manifestToSave = await payload.manifest;
+        const finalPayload = {
+          ...payload,
+          manifest: manifestToSave
         };
   
         const method = editing ? 'PUT' : 'POST';
@@ -475,7 +513,7 @@ function Templates() {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`
           },
-          body: JSON.stringify(payload)
+          body: JSON.stringify(finalPayload)
         });
         const data = await res.json();
 
@@ -669,6 +707,14 @@ function Templates() {
           >
             读取本地配置
           </Button>
+          {exportFileList.length > 0 && (
+            <Button
+              icon={<SearchOutlined />}
+              onClick={() => setShowFileListModal(true)}
+            >
+              查看文件列表 ({exportFileList.length})
+            </Button>
+          )}
         </div>
 
         <QuickSettings
@@ -751,6 +797,9 @@ function Templates() {
                     </Text>
                   </div>
                   <Space>
+                    <Button size="small" icon={<SearchOutlined />} onClick={() => handleViewManifest(m.name)}>
+                      查看分类
+                    </Button>
                     <Button size="small" icon={<ExportOutlined />} onClick={() => handleExportTemplate(m.name)}>
                       导出
                     </Button>
@@ -858,6 +907,70 @@ function Templates() {
             </Descriptions>
           </div>
         )}
+      </Modal>
+
+      <Modal
+        title={`分类详情 - ${viewManifestData?.templateManifest?.name || ''}`}
+        open={viewManifestModalVisible}
+        onCancel={() => { setViewManifestModalVisible(false); setViewManifestData(null); }}
+        footer={[
+          <Button key="close" type="primary" onClick={() => { setViewManifestModalVisible(false); setViewManifestData(null); }}>
+            关闭
+          </Button>
+        ]}
+        width={700}
+      >
+        {viewManifestData?.templateManifest?.categories && (
+          <div>
+            <Text type="secondary" style={{ marginBottom: 16, display: 'block' }}>
+              共 {viewManifestData.templateManifest.categories.length} 个分类
+            </Text>
+            <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+              {viewManifestData.templateManifest.categories.map((cat, idx) => (
+                <Card key={idx} size="small" style={{ marginBottom: 8 }}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Text strong>{cat.label || cat.name}</Text>
+                      <Tag color="blue">{cat.name}</Tag>
+                    </div>
+                    <div style={{ marginTop: 4 }}>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        路径: {cat.paths?.join(', ')}
+                      </Text>
+                    </div>
+                    {cat.discoveryHint && (
+                      <div>
+                        <Text type="secondary" style={{ fontSize: 11 }}>
+                          来源: {cat.discoveryHint}
+                        </Text>
+                      </div>
+                    )}
+                  </div>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        title={`文件列表预览 (${exportFileList.length} 个文件)`}
+        open={showFileListModal}
+        onCancel={() => setShowFileListModal(false)}
+        footer={[
+          <Button key="close" type="primary" onClick={() => setShowFileListModal(false)}>
+            关闭
+          </Button>
+        ]}
+        width={600}
+      >
+        <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+          {exportFileList.map((file, idx) => (
+            <div key={idx} style={{ fontSize: 12, padding: '2px 0', borderBottom: '1px solid #f0f0f0', wordBreak: 'break-all' }}>
+              <Text type="secondary">{file}</Text>
+            </div>
+          ))}
+        </div>
       </Modal>
     </div>
   );

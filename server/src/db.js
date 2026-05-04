@@ -73,6 +73,54 @@ async function initSchema() {
       console.log('✅ Schema initialized: file_payload column added to templates table');
     }
 
+    // Add config_content column to templates table if it doesn't exist
+    const [configContentColumns] = await pool.execute(`
+      SELECT COLUMN_NAME FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'templates' AND COLUMN_NAME = 'config_content'
+    `);
+    if (configContentColumns.length > 0) {
+      console.log('ℹ️ Schema already up to date: config_content column exists in templates table');
+    } else {
+      await pool.execute(`ALTER TABLE templates ADD COLUMN config_content LONGTEXT DEFAULT NULL`);
+      console.log('✅ Schema initialized: config_content column added to templates table');
+    }
+
+    // Add env column to templates table if it doesn't exist
+    const [envColumns] = await pool.execute(`
+      SELECT COLUMN_NAME FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'templates' AND COLUMN_NAME = 'env'
+    `);
+    if (envColumns.length > 0) {
+      console.log('ℹ️ Schema already up to date: env column exists in templates table');
+    } else {
+      await pool.execute(`ALTER TABLE templates ADD COLUMN env LONGTEXT DEFAULT NULL`);
+      console.log('✅ Schema initialized: env column added to templates table');
+    }
+
+    // Add manifest column to templates table if it doesn't exist
+    const [manifestColumns] = await pool.execute(`
+      SELECT COLUMN_NAME FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'templates' AND COLUMN_NAME = 'manifest'
+    `);
+    if (manifestColumns.length > 0) {
+      console.log('ℹ️ Schema already up to date: manifest column exists in templates table');
+    } else {
+      await pool.execute(`ALTER TABLE templates ADD COLUMN manifest LONGTEXT DEFAULT NULL`);
+      console.log('✅ Schema initialized: manifest column added to templates table');
+    }
+
+    // Add file_list column to templates table if it doesn't exist
+    const [fileListColumns] = await pool.execute(`
+      SELECT COLUMN_NAME FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'templates' AND COLUMN_NAME = 'file_list'
+    `);
+    if (fileListColumns.length > 0) {
+      console.log('ℹ️ Schema already up to date: file_list column exists in templates table');
+    } else {
+      await pool.execute(`ALTER TABLE templates ADD COLUMN file_list LONGTEXT DEFAULT NULL`);
+      console.log('✅ Schema initialized: file_list column added to templates table');
+    }
+
     // Add invitation_id column to logs table if it doesn't exist
     const [logColumns] = await pool.execute(`
       SELECT COLUMN_NAME FROM information_schema.COLUMNS

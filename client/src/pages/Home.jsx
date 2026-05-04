@@ -299,7 +299,9 @@ function Home() {
             <Title level={5}>openclaw关键配置</Title>
             <Paragraph type="secondary">查看和管理当前配置</Paragraph>
             <Link to="/config">
-              <Button disabled={launcherStatus !== 'online'}>查看配置</Button>
+              <Button type="primary" icon={<SettingOutlined />} disabled={launcherStatus !== 'online'} style={{ background: '#722ed1', borderColor: '#722ed1' }}>
+                查看配置
+              </Button>
             </Link>
           </Card>
         </Col>

@@ -13,16 +13,16 @@ test.describe('用户端 - 配置页面', () => {
     await expect(page.locator('text=OpenClaw核心配置')).toBeVisible({ timeout: 15000 });
   });
 
-  test('U-03 模板与快照区域可见', async ({ userPage: page }) => {
+  test('U-03 共享模版区域可见', async ({ userPage: page }) => {
     await page.goto('/config');
     await page.waitForTimeout(3000);
-    await expect(page.locator('text=模板与快照')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('text=共享模版')).toBeVisible({ timeout: 15000 });
   });
 
-  test('U-04 切换到快照Tab', async ({ userPage: page }) => {
+  test('U-04 切换到共享模版Tab', async ({ userPage: page }) => {
     await page.goto('/config');
     await page.waitForTimeout(3000);
-    const snapshotTab = page.locator('text=快 照').first();
+    const sharedTemplatesTab = page.locator('text=共享模版').first();
     await expect(snapshotTab).toBeVisible({ timeout: 15000 });
     await snapshotTab.click();
     await page.waitForTimeout(1000);
@@ -37,7 +37,7 @@ test.describe('用户端 - 配置页面', () => {
     await page.waitForTimeout(1000);
   });
 
-  test('U-06 切换到模板Tab', async ({ userPage: page }) => {
+  test('U-06 切换到共享模版Tab', async ({ userPage: page }) => {
     await page.goto('/config');
     await page.waitForTimeout(3000);
     const templatesTab = page.locator('text=模 板').first();
@@ -48,7 +48,7 @@ test.describe('用户端 - 配置页面', () => {
 });
 
 test.describe('用户端 - 模板应用', () => {
-  test('U-07 模板列表加载', async ({ userPage: page }) => {
+  test('U-07 共享模版列表加载', async ({ userPage: page }) => {
     await page.goto('/config');
     await page.waitForTimeout(3000);
     const templatesTab = page.locator('text=模 板').first();
@@ -56,7 +56,7 @@ test.describe('用户端 - 模板应用', () => {
     await page.waitForTimeout(2000);
   });
 
-  test('U-08 点击模板查看详情', async ({ userPage: page }) => {
+  test('U-08 点击共享模版查看详情', async ({ userPage: page }) => {
     await page.goto('/config');
     await page.waitForTimeout(3000);
 

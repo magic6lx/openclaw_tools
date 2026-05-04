@@ -43,8 +43,10 @@ function Config() {
   const [applyingWithCategories, setApplyingWithCategories] = useState(false);
   const [rollingBack, setRollingBack] = useState(false);
   const [activeRightTab, setActiveRightTab] = useState('templates');
+  const [coreConfigCollapsed, setCoreConfigCollapsed] = useState(true);
 
   const fetchProxyState = async () => {
+    let serverEnabled = false;
     try {
       const token = localStorage.getItem('token');
       const res = await fetch(`${SERVER_API}/api/proxy/state`, {
@@ -52,10 +54,21 @@ function Config() {
       });
       const data = await res.json();
       if (data.success) {
+        serverEnabled = data.enabled;
         setProxyEnabled(data.enabled);
       }
     } catch (err) {
       console.error('获取代理状态失败:', err);
+    }
+
+    try {
+      const launcherRes = await fetch(`${LAUNCHER_API}/config/proxy`);
+      const launcherData = await launcherRes.json();
+      if (launcherData.success && launcherData.enabled !== serverEnabled) {
+        setProxyEnabled(launcherData.enabled);
+      }
+    } catch (err) {
+      // launcher not running, ignore
     }
   };
 
@@ -80,6 +93,23 @@ function Config() {
       });
       const data = await res.json();
       if (data.success) {
+        try {
+          const launcherRes = await fetch(`${LAUNCHER_API}/config/proxy`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              enabled: checked,
+              serverUrl: SERVER_API || window.location.origin,
+              userToken: token
+            })
+          });
+          const launcherData = await launcherRes.json();
+          if (!launcherData.success) {
+            message.warning(`服务端代理已${checked ? '启用' : '关闭'}，但本地配置更新失败: ${launcherData.error}`);
+          }
+        } catch (launcherErr) {
+          message.warning(`服务端代理已${checked ? '启用' : '关闭'}，但本地配置更新失败（Launcher 未运行）`);
+        }
         setProxyEnabled(data.enabled);
         message.success(checked ? '已启用代理' : '已关闭代理');
       } else {
@@ -242,9 +272,13 @@ function Config() {
       onOk: async () => {
         setApplyingWithCategories(true);
         try {
+          const token = localStorage.getItem('token');
           const res = await fetch(`${LAUNCHER_API}/template/apply`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              'x-server-token': token || ''
+            },
             body: JSON.stringify({
               templateId: templateDetail.id,
               selectedCategories,
@@ -259,6 +293,26 @@ function Config() {
             fetchApplyRecords();
             setSelectedCategories([]);
             setTemplateDetail(null);
+
+            setTimeout(() => {
+              Modal.confirm({
+                title: '模型访问配置',
+                icon: <RocketOutlined />,
+                content: (
+                  <div>
+                    <Paragraph>模板已成功应用！现在需要配置模型访问方式，请选择：</Paragraph>
+                    <Paragraph type="secondary" style={{ fontSize: 12 }}>
+                      💡 推荐：开启 Token 代理可共享服务端大模型，无需单独配置 API Key
+                    </Paragraph>
+                  </div>
+                ),
+                okText: '开启 Token 代理（推荐）',
+                cancelText: '跳过，稍后配置',
+                onOk: async () => {
+                  await handleToggleProxy(true);
+                }
+              });
+            }, 500);
           } else {
             message.error(data.error || '应用失败');
           }
@@ -586,35 +640,47 @@ function Config() {
                 {configSource === 'openclaw' && <Tag color="blue">OpenClaw配置</Tag>}
                 {configSource === 'default' && <Tag color="orange">默认配置</Tag>}
                 {localConfig && <Tag color="green">已加载</Tag>}
+                <Button size="small" type="text" onClick={() => setCoreConfigCollapsed(!coreConfigCollapsed)}>
+                  {coreConfigCollapsed ? '展开' : '收起'}
+                </Button>
               </Space>
             }
           >
-            {configPath && (
-              <Descriptions size="small" column={1} style={{ marginBottom: 12 }}>
-                <Descriptions.Item label="配置文件">
-                  <Text type="secondary" style={{ fontSize: 11 }} copyable={{ text: configPath }}>
-                    {configPath}
-                  </Text>
-                </Descriptions.Item>
-                {envPath && (
-                  <Descriptions.Item label="密钥文件">
-                    <Text type="secondary" style={{ fontSize: 11 }} copyable={{ text: envPath }}>
-                      {configEnv ? '✓ 已存在' : '✗ 不存在'}
-                    </Text>
-                  </Descriptions.Item>
+            {!coreConfigCollapsed && (
+              <>
+                {configPath && (
+                  <Descriptions size="small" column={1} style={{ marginBottom: 12 }}>
+                    <Descriptions.Item label="配置文件">
+                      <Text type="secondary" style={{ fontSize: 11 }} copyable={{ text: configPath }}>
+                        {configPath}
+                      </Text>
+                    </Descriptions.Item>
+                    {envPath && (
+                      <Descriptions.Item label="密钥文件">
+                        <Text type="secondary" style={{ fontSize: 11 }} copyable={{ text: envPath }}>
+                          {configEnv ? '✓ 已存在' : '✗ 不存在'}
+                        </Text>
+                      </Descriptions.Item>
+                    )}
+                  </Descriptions>
                 )}
-              </Descriptions>
+                {loading ? (
+                  <div style={{ textAlign: 'center', padding: 40 }}>
+                    <Spin size="large" />
+                    <Paragraph style={{ marginTop: 16 }}>正在获取本地配置...</Paragraph>
+                  </div>
+                ) : localConfig ? (
+                  <QuickSettings config={localConfig} disabled={true} />
+                ) : (
+                  <div style={{ textAlign: 'center', padding: 40 }}>
+                    <Text type="secondary">点击「刷新」按钮获取本地配置</Text>
+                  </div>
+                )}
+              </>
             )}
-            {loading ? (
-              <div style={{ textAlign: 'center', padding: 40 }}>
-                <Spin size="large" />
-                <Paragraph style={{ marginTop: 16 }}>正在获取本地配置...</Paragraph>
-              </div>
-            ) : localConfig ? (
-              <QuickSettings config={localConfig} disabled={true} />
-            ) : (
-              <div style={{ textAlign: 'center', padding: 40 }}>
-                <Text type="secondary">点击「刷新」按钮获取本地配置</Text>
+            {coreConfigCollapsed && (
+              <div style={{ textAlign: 'center', padding: 16 }}>
+                <Text type="secondary">配置已折叠，点击"展开"查看详情</Text>
               </div>
             )}
           </Card>
@@ -732,7 +798,7 @@ function Config() {
                   onClick={handleSavePrivateTemplate}
                   loading={syncing}
                 >
-                  保存当前
+                  保存当前配置
                 </Button>
               }
             >
@@ -812,7 +878,7 @@ function Config() {
             title={
               <Space>
                 <AppstoreOutlined />
-                <span>模板与快照</span>
+                <span>共享模版</span>
               </Space>
             }
             extra={
@@ -985,54 +1051,6 @@ function Config() {
                 )}
 
                 <Divider style={{ margin: '16px 0' }} />
-
-                {privateTemplates.length > 0 && (
-                  <div>
-                    <Space style={{ marginBottom: 8 }}>
-                      <SaveOutlined />
-                      <Text strong>私有模板</Text>
-                      <Tag color="green">{privateTemplates.length}个</Tag>
-                      <Button size="small" type="primary" icon={<SaveOutlined />} onClick={handleSavePrivateTemplate} loading={syncing}>
-                        保存当前
-                      </Button>
-                    </Space>
-                    <Select
-                      style={{ width: '100%', marginBottom: 8 }}
-                      placeholder="选择要恢复的私有模板"
-                      value={selectedPrivateTemplate?.id}
-                      onChange={(id) => {
-                        const tpl = privateTemplates.find(t => t.id === id);
-                        setSelectedPrivateTemplate(tpl);
-                      }}
-                    >
-                      {privateTemplates.map(tpl => (
-                        <Select.Option key={tpl.id} value={tpl.id}>
-                          {tpl.label} - {new Date(tpl.savedAt).toLocaleString()}
-                        </Select.Option>
-                      ))}
-                    </Select>
-                    {selectedPrivateTemplate && (
-                      <Space size="small">
-                        <Button size="small" type="primary" icon={<CheckCircleOutlined />} onClick={handleApplyPrivateTemplate} loading={applying}>
-                          恢复
-                        </Button>
-                        <Popconfirm title="确定删除？" onConfirm={() => handleDeletePrivateTemplate(selectedPrivateTemplate.id)}>
-                          <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
-                        </Popconfirm>
-                      </Space>
-                    )}
-                  </div>
-                )}
-                {privateTemplates.length === 0 && localConfig && (
-                  <div>
-                    <Paragraph type="secondary" style={{ fontSize: 12 }}>
-                      将当前配置保存为私有模板，方便随时恢复。
-                    </Paragraph>
-                    <Button size="small" type="primary" icon={<SaveOutlined />} onClick={handleSavePrivateTemplate} loading={syncing}>
-                      保存当前配置为私有模板
-                    </Button>
-                  </div>
-                )}
               </>
             )}
 

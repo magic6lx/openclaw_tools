@@ -351,6 +351,86 @@ router.get('/proxy/usage', authMiddleware, async (req, res) => {
   }
 });
 
+router.post('/proxy/:provider/chat/completions', authMiddleware, async (req, res) => {
+  try {
+    const { provider } = req.params;
+    const { model, messages, temperature, max_tokens, stream } = req.body;
+
+    const invitations = await query(
+      'SELECT token_proxy FROM invitations WHERE id = ?',
+      [req.user.id]
+    );
+    const tokenProxyRaw = invitations?.[0]?.token_proxy;
+    const tokenProxy = tokenProxyRaw ? (typeof tokenProxyRaw === 'string' ? JSON.parse(tokenProxyRaw) : tokenProxyRaw) : null;
+
+    if (!tokenProxy || !tokenProxy.enabled) {
+      return res.status(403).json({ error: { message: 'Token代理未启用', type: 'proxy_disabled' } });
+    }
+
+    const providers = tokenProxy.providers || {};
+    const providerConfig = providers[provider];
+
+    if (!providerConfig || !providerConfig.apiKey) {
+      return res.status(403).json({ error: { message: `代理未配置${provider}的API Key`, type: 'missing_api_key' } });
+    }
+
+    const quota = tokenProxy.quota || { total: 100000, used: 0 };
+    if (quota.used >= quota.total) {
+      return res.status(403).json({ error: { message: 'Token配额已用完', type: 'quota_exceeded' } });
+    }
+
+    const apiBase = PROVIDER_API_BASE[provider] || providerConfig.apiBase || 'https://api.openai.com/v1';
+
+    let requestBody = { model, messages, temperature: temperature || 0.7, max_tokens: max_tokens || 2000 };
+    if (stream !== undefined) requestBody.stream = stream;
+
+    let headers = { 'Content-Type': 'application/json' };
+
+    if (provider === 'anthropic') {
+      headers['x-api-key'] = providerConfig.apiKey;
+      headers['anthropic-version'] = '2023-06-01';
+    } else {
+      headers['Authorization'] = `Bearer ${providerConfig.apiKey}`;
+    }
+
+    const response = await fetch(`${apiBase}/chat/completions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(requestBody)
+    });
+
+    if (stream && response.ok) {
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      const reader = response.body;
+      reader.on('data', (chunk) => res.write(chunk));
+      reader.on('end', () => res.end());
+      return;
+    }
+
+    const data = await response.json();
+
+    if (data.usage) {
+      const db = require('../db');
+      const tokensUsed = (data.usage.prompt_tokens || 0) + (data.usage.completion_tokens || 0);
+      await db.query(
+        'INSERT INTO token_usage (device_id, invitation_id, model, input_tokens, output_tokens) VALUES (?, ?, ?, ?, ?)',
+        [req.user.deviceId || '', req.user.id || null, model, data.usage.prompt_tokens || 0, data.usage.completion_tokens || 0]
+      );
+      await db.query(
+        'UPDATE invitations SET token_proxy = JSON_SET(IFNULL(token_proxy, \'{}\'), \'$.quota.used\', ?) WHERE id = ?',
+        [quota.used + tokensUsed, req.user.id]
+      );
+    }
+
+    res.json(data);
+  } catch (err) {
+    console.error('Proxy error:', err);
+    res.status(500).json({ error: { message: err.message, type: 'proxy_error' } });
+  }
+});
+
 router.get('/templates', authMiddleware, async (req, res) => {
   try {
     const db = require('../db');
