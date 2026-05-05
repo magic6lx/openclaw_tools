@@ -2167,9 +2167,11 @@ app.post('/template/apply', async (req, res) => {
 
             for (const [providerName, providerValue] of Object.entries(agentModelsData.providers)) {
               if (!configForSync.models.providers[providerName]) {
-                configForSync.models.providers[providerName] = JSON.parse(JSON.stringify(providerValue));
+                const copy = JSON.parse(JSON.stringify(providerValue));
+                delete copy.apiKey;
+                configForSync.models.providers[providerName] = copy;
                 modelsSynced = true;
-                addTaggedLog('INFO', '[APPLY]', `从 Agent [${agent.id}] models.json 同步 provider: ${providerName}`);
+                addTaggedLog('INFO', '[APPLY]', `从 Agent [${agent.id}] models.json 同步 provider: ${providerName}（不含 apiKey）`);
               }
             }
           } catch (e) {
