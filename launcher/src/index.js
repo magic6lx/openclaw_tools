@@ -2149,6 +2149,44 @@ app.post('/template/apply', async (req, res) => {
     addTaggedLog('INFO', '[APPLY]', `文件写入完成: 成功 ${filesWritten} 个, 跳过 ${filesSkipped} 个, 失败 ${unbundleErrors.length} 个`);
 
     try {
+      const configForSync = JSON.parse(readFileSync(OPENCLAW_CONFIG_FILE, 'utf-8'));
+      let modelsSynced = false;
+
+      if (configForSync.agents?.list && Array.isArray(configForSync.agents.list)) {
+        for (const agent of configForSync.agents.list) {
+          if (!agent.id) continue;
+          const agentModelsPath = join(OPENCLAW_CONFIG_DIR, 'agents', agent.id, 'agent', 'models.json');
+          if (!existsSync(agentModelsPath)) continue;
+
+          try {
+            const agentModelsData = JSON.parse(readFileSync(agentModelsPath, 'utf-8'));
+            if (!agentModelsData.providers) continue;
+
+            if (!configForSync.models) configForSync.models = {};
+            if (!configForSync.models.providers) configForSync.models.providers = {};
+
+            for (const [providerName, providerValue] of Object.entries(agentModelsData.providers)) {
+              if (!configForSync.models.providers[providerName]) {
+                configForSync.models.providers[providerName] = JSON.parse(JSON.stringify(providerValue));
+                modelsSynced = true;
+                addTaggedLog('INFO', '[APPLY]', `从 Agent [${agent.id}] models.json 同步 provider: ${providerName}`);
+              }
+            }
+          } catch (e) {
+            addTaggedLog('WARN', `[APPLY] Agent [${agent.id}] models.json 读取失败: ${e.message}`);
+          }
+        }
+      }
+
+      if (modelsSynced) {
+        writeFileSync(OPENCLAW_CONFIG_FILE, JSON.stringify(configForSync, null, 2), 'utf-8');
+        addTaggedLog('INFO', '[APPLY]', 'models.providers 已从 Agent 级别同步到 openclaw.json');
+      }
+    } catch (syncErr) {
+      addTaggedLog('WARN', `[APPLY] models.providers 同步失败（非致命）: ${syncErr.message}`);
+    }
+
+    try {
       addTaggedLog('INFO', '[APPLY]', '执行 openclaw doctor --repair 自动修复...');
       const doctorOutput = execSync('openclaw doctor --repair --non-interactive', {
         encoding: 'utf8',
