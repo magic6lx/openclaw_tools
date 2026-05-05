@@ -1071,10 +1071,10 @@ async function loadAndAdaptConfig() {
 }
 
 const INVALID_ROOT_KEYS = ['launcher', 'channels'];
-const INVALID_MODELS_KEYS = ['useProxy', 'originalProviders'];
+const INVALID_MODELS_KEYS = ['useProxy', 'originalProviders', '_originalProviders'];
 const INVALID_GATEWAY_KEYS = ['enabled'];
 const INVALID_HOOKS_KEYS = ['preTask', 'postTask'];
-const INVALID_PROVIDER_KEYS = ['apiBase', 'apiKey'];
+const INVALID_PROVIDER_KEYS = ['apiBase', 'apiKey', '_originalBaseUrl', '_originalApiKey'];
 
 function sanitizeConfig(config) {
   if (!config || typeof config !== 'object') return config;
@@ -2491,6 +2491,7 @@ app.post('/config/proxy', (req, res) => {
       config.models.useProxy = true;
       addLog('INFO', `代理已启用: baseUrl 指向 ${serverUrl}/api/proxy/`);
     } else {
+      const providersToRemove = [];
       for (const providerName of proxyProviders) {
         const provider = config.models.providers[providerName];
         if (provider) {
@@ -2505,7 +2506,15 @@ app.post('/config/proxy', (req, res) => {
           if (provider.baseUrl === undefined) delete provider.baseUrl;
           if (provider.apiKey === undefined) delete provider.apiKey;
           if (provider.api === 'openai-completions') delete provider.api;
+          const remainingKeys = Object.keys(provider).filter(k => provider[k] !== undefined && provider[k] !== null && provider[k] !== '');
+          if (remainingKeys.length === 0) {
+            providersToRemove.push(providerName);
+          }
         }
+      }
+      for (const id of providersToRemove) {
+        delete config.models.providers[id];
+        addLog('INFO', `代理已关闭: 删除空壳 provider ${id}`);
       }
 
       if (config.models.useProxy !== undefined) delete config.models.useProxy;
