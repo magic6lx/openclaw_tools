@@ -509,16 +509,17 @@ router.get('/templates/:id', authMiddleware, async (req, res) => {
 router.post('/templates', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const db = require('../db');
-    const { name, description, config, env, filePayload, manifest, fileList } = req.body;
+    const { name, description, config, env, filePayload, manifest, fileList, configMigration } = req.body;
     const configJson = (config && typeof config === 'object') ? JSON.stringify(config) : (config || '{}');
     const envJson = (env && typeof env === 'object') ? JSON.stringify(env) : (env || null);
     const filePayloadJson = (filePayload && typeof filePayload === 'object') ? JSON.stringify(filePayload) : (filePayload || null);
     const manifestJson = (manifest && typeof manifest === 'object') ? JSON.stringify(manifest) : (manifest || null);
     const fileListJson = (fileList && typeof fileList === 'object') ? JSON.stringify(fileList) : (fileList || null);
+    const configMigrationJson = (configMigration && typeof configMigration === 'object') ? JSON.stringify(configMigration) : (configMigration || null);
 
     const result = await db.query(
-      'INSERT INTO templates (name, description, config_content, env, status, created_by, file_payload, manifest, file_list) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [name, description || '', configJson, envJson, 'pending', req.user?.id || null, filePayloadJson, manifestJson, fileListJson]
+      'INSERT INTO templates (name, description, config_content, env, status, created_by, file_payload, manifest, file_list, config_migration) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [name, description || '', configJson, envJson, 'pending', req.user?.id || null, filePayloadJson, manifestJson, fileListJson, configMigrationJson]
     );
     res.json({ success: true, data: { id: result.insertId } });
   } catch (err) {
@@ -530,16 +531,17 @@ router.post('/templates', authMiddleware, adminMiddleware, async (req, res) => {
 router.put('/templates/:id', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const db = require('../db');
-    const { name, description, config, env, status, filePayload, manifest, fileList } = req.body;
+    const { name, description, config, env, status, filePayload, manifest, fileList, configMigration } = req.body;
     const configJson = (config && typeof config === 'object') ? JSON.stringify(config) : (config || null);
     const envJson = (env && typeof env === 'object') ? JSON.stringify(env) : (env || null);
     const filePayloadJson = (filePayload && typeof filePayload === 'object') ? JSON.stringify(filePayload) : (filePayload || null);
     const manifestJson = (manifest && typeof manifest === 'object') ? JSON.stringify(manifest) : (manifest || null);
     const fileListJson = (fileList && typeof fileList === 'object') ? JSON.stringify(fileList) : (fileList || null);
+    const configMigrationJson = (configMigration && typeof configMigration === 'object') ? JSON.stringify(configMigration) : (configMigration || null);
 
     await db.query(
-      'UPDATE templates SET name = ?, description = ?, config_content = ?, env = ?, status = ?, file_payload = ?, manifest = ?, file_list = ? WHERE id = ?',
-      [name, description || '', configJson, envJson, status || 'pending', filePayloadJson, manifestJson, fileListJson, req.params.id]
+      'UPDATE templates SET name = ?, description = ?, config_content = ?, env = ?, status = ?, file_payload = ?, manifest = ?, file_list = ?, config_migration = ? WHERE id = ?',
+      [name, description || '', configJson, envJson, status || 'pending', filePayloadJson, manifestJson, fileListJson, configMigrationJson, req.params.id]
     );
     res.json({ success: true });
   } catch (err) {
@@ -605,6 +607,7 @@ router.get('/templates/:id/full', authMiddleware, async (req, res) => {
       manifest: template.manifest ? (typeof template.manifest === 'string' ? JSON.parse(template.manifest) : template.manifest) : null,
       fileList: template.file_list ? (typeof template.file_list === 'string' ? JSON.parse(template.file_list) : template.file_list) : null,
       fileContents: template.file_payload ? (typeof template.file_payload === 'string' ? JSON.parse(template.file_payload) : template.file_payload) : null,
+      configMigration: template.config_migration ? (typeof template.config_migration === 'string' ? JSON.parse(template.config_migration) : template.config_migration) : null,
       categories: template.manifest ? (typeof template.manifest === 'string' ? JSON.parse(template.manifest) : template.manifest)?.templateManifest?.categories?.map(c => c.name) || [] : [],
       status: template.status,
       createdAt: template.created_at

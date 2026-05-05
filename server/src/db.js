@@ -121,6 +121,18 @@ async function initSchema() {
       console.log('✅ Schema initialized: file_list column added to templates table');
     }
 
+    // Add config_migration column to templates table if it doesn't exist
+    const [configMigrationColumns] = await pool.execute(`
+      SELECT COLUMN_NAME FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'templates' AND COLUMN_NAME = 'config_migration'
+    `);
+    if (configMigrationColumns.length > 0) {
+      console.log('ℹ️ Schema already up to date: config_migration column exists in templates table');
+    } else {
+      await pool.execute(`ALTER TABLE templates ADD COLUMN config_migration LONGTEXT DEFAULT NULL`);
+      console.log('✅ Schema initialized: config_migration column added to templates table');
+    }
+
     // Add invitation_id column to logs table if it doesn't exist
     const [logColumns] = await pool.execute(`
       SELECT COLUMN_NAME FROM information_schema.COLUMNS

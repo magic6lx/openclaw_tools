@@ -1091,6 +1091,62 @@ const INVALID_GATEWAY_KEYS = ['enabled'];
 const INVALID_HOOKS_KEYS = ['preTask', 'postTask'];
 const INVALID_PROVIDER_KEYS = ['apiBase', 'apiKey', '_originalBaseUrl', '_originalApiKey'];
 
+function migrateConfig(config, migration) {
+  if (!migration || !config) return config;
+  const result = JSON.parse(JSON.stringify(config));
+  let changed = false;
+
+  for (const [keyPath, rule] of Object.entries(migration)) {
+    if (rule === null || rule === undefined) continue;
+
+    const parts = keyPath.split('.');
+    const lastPart = parts[parts.length - 1];
+
+    if (parts[0] === 'models' && parts[1] === 'providers' && lastPart === '*') {
+      const providerPattern = parts.slice(0, 3).join('.');
+      const keyToRemove = parts[3];
+      if (parts.length === 4 && keyToRemove) {
+        if (result.models?.providers) {
+          for (const [provId, prov] of Object.entries(result.models.providers)) {
+            if (prov && typeof prov === 'object' && keyToRemove in prov) {
+              delete prov[keyToRemove];
+              changed = true;
+            }
+          }
+        }
+      }
+      continue;
+    }
+
+    let obj = result;
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (obj == null || typeof obj !== 'object') break;
+      obj = obj[parts[i]];
+    }
+    if (obj && typeof obj === 'object' && lastPart in obj) {
+      delete obj[lastPart];
+      changed = true;
+    }
+  }
+
+  if (migration.removeProvidersWithoutModels && Array.isArray(migration.removeProvidersWithoutModels)) {
+    if (result.models?.providers) {
+      for (const provId of migration.removeProvidersWithoutModels) {
+        const prov = result.models.providers[provId];
+        if (prov && typeof prov === 'object' && (!Array.isArray(prov.models) || prov.models.length === 0)) {
+          delete result.models.providers[provId];
+          changed = true;
+        }
+      }
+    }
+  }
+
+  if (changed) {
+    addLog('INFO', `[migrateConfig] 配置迁移完成: ${Object.keys(migration).length} 条规则已应用`);
+  }
+  return result;
+}
+
 function sanitizeConfig(config) {
   if (!config || typeof config !== 'object') return config;
   const cleaned = JSON.parse(JSON.stringify(config));
@@ -1152,7 +1208,7 @@ function sanitizeConfig(config) {
 app.post('/config/import', (req, res) => {
   try {
     addLog('INFO', '========== 开始应用模板配置 ==========');
-    const { config, env, mergeStrategy, fileContents, applyOptions } = req.body;
+    const { config, env, mergeStrategy, fileContents, applyOptions, configMigration } = req.body;
 
     // Determine which directories to actually write based on applyOptions
     // If not provided, fallback to the full list defined in the manifest
@@ -1200,6 +1256,14 @@ app.post('/config/import', (req, res) => {
       finalConfig = hydrateConfigPathsForImport(finalConfig, OPENCLAW_CONFIG_DIR);
     } else {
       addLog('INFO', `导入模板：依据用户选项，跳过路径配置的覆盖与水合`);
+    }
+
+    if (configMigration) {
+      const migratedConfig = migrateConfig(finalConfig, configMigration);
+      if (migratedConfig !== finalConfig) {
+        finalConfig = migratedConfig;
+        addLog('INFO', `导入模板：配置迁移已完成（基于 configMigration）`);
+      }
     }
 
     if (!finalConfig.gateway) finalConfig.gateway = {};
@@ -1340,7 +1404,7 @@ app.get('/config/private-template/:id', (req, res) => {
 
 app.post('/config/private-template', (req, res) => {
   try {
-    const { config, env, label, description } = req.body;
+    const { config, env, label, description, configMigration } = req.body;
     if (!config) {
       return res.json({ success: false, error: '配置不能为空' });
     }
@@ -1356,6 +1420,7 @@ app.post('/config/private-template', (req, res) => {
       icon: '📁',
       category: '私有',
       config,
+      configMigration: configMigration || null,
       env: env || null,
       savedAt: new Date().toISOString()
     };
@@ -2103,6 +2168,7 @@ app.post('/template/apply', async (req, res) => {
     const manifest = templateData.manifest;
     const fileContents = templateData.fileContents || templateData.filePayload || {};
     const templateConfig = templateData.config;
+    const configMigration = templateData.configMigration;
 
     const { snapshot, snapshotPath } = createApplySnapshot(
       OPENCLAW_CONFIG_DIR,
@@ -2135,6 +2201,14 @@ app.post('/template/apply', async (req, res) => {
         addTaggedLog('INFO', '[APPLY]', `配置路径水合: configPaths=true`);
       } else {
         addTaggedLog('INFO', '[APPLY]', `路径水合跳过: 用户选择保留本地路径配置`);
+      }
+
+      if (configMigration) {
+        const migratedConfig = migrateConfig(finalConfig, configMigration);
+        if (migratedConfig !== finalConfig) {
+          finalConfig = migratedConfig;
+          addTaggedLog('INFO', '[APPLY]', `配置迁移已完成（基于模板 configMigration）`);
+        }
       }
 
       if (!finalConfig.gateway) finalConfig.gateway = {};
