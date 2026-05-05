@@ -260,6 +260,21 @@ app.post('/gateway/start', async (req, res) => {
   }
 
   addLog('INFO', '========== 开始启动 Gateway ==========');
+
+  try {
+    if (existsSync(OPENCLAW_CONFIG_FILE)) {
+      const rawConfig = readFileSync(OPENCLAW_CONFIG_FILE, 'utf-8');
+      const configObj = JSON.parse(rawConfig);
+      const cleaned = sanitizeConfig(configObj);
+      if (JSON.stringify(cleaned) !== JSON.stringify(configObj)) {
+        writeFileSync(OPENCLAW_CONFIG_FILE, JSON.stringify(cleaned, null, 2), 'utf-8');
+        addLog('INFO', 'Gateway 启动前：已自动清理 openclaw.json 中的无效字段');
+      }
+    }
+  } catch (e) {
+    addLog('WARN', `Gateway 启动前清理配置失败（非致命）: ${e.message}`);
+  }
+
   addLog('INFO', '执行命令: openclaw gateway run');
   addLog('INFO', '目标端口: 18789');
 
@@ -1095,20 +1110,17 @@ function sanitizeConfig(config) {
     if (cleaned.models.providers && typeof cleaned.models.providers === 'object') {
       const providersToRemove = [];
       for (const [providerId, provider] of Object.entries(cleaned.models.providers)) {
-        console.log(`[sanitize] 检查 provider ${providerId}: ${JSON.stringify(provider)}`);
         if (provider && typeof provider === 'object') {
           for (const key of INVALID_PROVIDER_KEYS) {
             if (key in provider) {
               delete provider[key];
-              console.log(`[sanitize] 删除 ${providerId}.${key}`);
             }
           }
-          console.log(`[sanitize] ${providerId} 删除invalid后: ${JSON.stringify(provider)}`);
           const validKeys = Object.keys(provider).filter(k => provider[k] !== undefined && provider[k] !== null && provider[k] !== '');
-          console.log(`[sanitize] ${providerId} validKeys: ${JSON.stringify(validKeys)}`);
           if (validKeys.length === 0) {
             providersToRemove.push(providerId);
-            console.log(`[sanitize] 标记删除 provider ${providerId}`);
+          } else if (!Array.isArray(provider.models) || provider.models.length === 0) {
+            providersToRemove.push(providerId);
           }
         }
       }
