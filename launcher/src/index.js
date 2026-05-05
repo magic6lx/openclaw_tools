@@ -1041,7 +1041,7 @@ function mergeConfigRecursive(existing, template, conflicts = [], path = '') {
     }
   }
 
-  return template;
+  return result;
 }
 
 // Function to load, adapt paths, and save the OpenClaw config
