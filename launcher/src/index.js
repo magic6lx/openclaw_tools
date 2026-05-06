@@ -1070,124 +1070,97 @@ async function loadAndAdaptConfig() {
   }
 }
 
-const INVALID_ROOT_KEYS = ['launcher', 'channels'];
-const INVALID_MODELS_KEYS = ['useProxy', 'originalProviders', '_originalProviders'];
-const INVALID_GATEWAY_KEYS = ['enabled'];
-const INVALID_HOOKS_KEYS = ['preTask', 'postTask'];
-const INVALID_PROVIDER_KEYS = ['apiBase', 'apiKey', '_originalBaseUrl', '_originalApiKey'];
 
-function migrateConfig(config, migration) {
-  if (!migration || !config) return config;
-  const result = JSON.parse(JSON.stringify(config));
-  let changed = false;
 
-  for (const [keyPath, rule] of Object.entries(migration)) {
-    if (rule === null || rule === undefined) continue;
+function applyRule(obj, path, op) {
+  const parts = path.split('.');
+  const last = parts[parts.length - 1];
 
-    const parts = keyPath.split('.');
-    const lastPart = parts[parts.length - 1];
-
-    if (parts[0] === 'models' && parts[1] === 'providers' && lastPart === '*') {
-      const providerPattern = parts.slice(0, 3).join('.');
-      const keyToRemove = parts[3];
-      if (parts.length === 4 && keyToRemove) {
-        if (result.models?.providers) {
-          for (const [provId, prov] of Object.entries(result.models.providers)) {
-            if (prov && typeof prov === 'object' && keyToRemove in prov) {
-              delete prov[keyToRemove];
-              changed = true;
-            }
-          }
-        }
-      }
-      continue;
+  if (parts.length === 1) {
+    if (op === 'delete') {
+      if (last in obj) { delete obj[last]; return true; }
     }
-
-    let obj = result;
-    for (let i = 0; i < parts.length - 1; i++) {
-      if (obj == null || typeof obj !== 'object') break;
-      obj = obj[parts[i]];
-    }
-    if (obj && typeof obj === 'object' && lastPart in obj) {
-      delete obj[lastPart];
-      changed = true;
-    }
+    return false;
   }
 
-  if (migration.removeProvidersWithoutModels && Array.isArray(migration.removeProvidersWithoutModels)) {
-    if (result.models?.providers) {
-      for (const provId of migration.removeProvidersWithoutModels) {
-        const prov = result.models.providers[provId];
+  for (let i = 0; i < parts.length - 1; i++) {
+    const part = parts[i];
+    if (part === '*') {
+      if (Array.isArray(obj)) {
+        let anyChanged = false;
+        for (const item of obj) {
+          if (item && typeof item === 'object') anyChanged = applyRule(item, parts.slice(i + 1).join('.'), op) || anyChanged;
+        }
+        return anyChanged;
+      } else if (obj && typeof obj === 'object') {
+        let anyChanged = false;
+        for (const v of Object.values(obj)) {
+          if (v && typeof v === 'object') anyChanged = applyRule(v, parts.slice(i + 1).join('.'), op) || anyChanged;
+        }
+        return anyChanged;
+      }
+      return false;
+    }
+    if (obj === null || typeof obj !== 'object') return false;
+    obj = obj[part];
+    if (!obj) return false;
+  }
+
+  if (op === 'delete') {
+    if (last in obj) { delete obj[last]; return true; }
+  }
+  return false;
+}
+
+function applyRules(content, rules) {
+  if (!rules || !content) return content;
+  if (typeof content !== 'object' || content === null) return content;
+  const result = JSON.parse(JSON.stringify(content));
+  let changed = false;
+
+  if (rules.removeProvidersWithoutModels && Array.isArray(rules.removeProvidersWithoutModels)) {
+    const provPath = result.models?.providers;
+    if (provPath && typeof provPath === 'object') {
+      for (const provId of rules.removeProvidersWithoutModels) {
+        const prov = provPath[provId];
         if (prov && typeof prov === 'object' && (!Array.isArray(prov.models) || prov.models.length === 0)) {
-          delete result.models.providers[provId];
+          delete provPath[provId];
           changed = true;
         }
       }
     }
   }
 
-  if (changed) {
-    addLog('INFO', `[migrateConfig] 配置迁移完成: ${Object.keys(migration).length} 条规则已应用`);
+  if (rules.rules && typeof rules.rules === 'object') {
+    for (const [path, rule] of Object.entries(rules.rules)) {
+      if (rule === null || rule === undefined) {
+        if (applyRule(result, path, 'delete')) changed = true;
+      } else if (typeof rule === 'object' && rule.op === 'delete') {
+        if (applyRule(result, path, 'delete')) changed = true;
+      }
+    }
+  }
+
+  return changed ? result : content;
+}
+
+function migrateContent(content, migration, pathHint) {
+  if (!content || typeof content !== 'object') return content;
+  if (!migration) return content;
+
+  const rules = migration.rules || migration;
+  if (!rules || typeof rules !== 'object') return content;
+
+  const result = applyRules(content, rules);
+
+  if (result !== content) {
+    addLog('INFO', `[migrateContent] 文件迁移完成 (${pathHint || 'unknown'}): ${Object.keys(rules).length} 条规则`);
   }
   return result;
 }
 
-function sanitizeConfig(config) {
-  if (!config || typeof config !== 'object') return config;
-  const cleaned = JSON.parse(JSON.stringify(config));
-
-  for (const key of INVALID_ROOT_KEYS) {
-    if (key in cleaned) {
-      delete cleaned[key];
-    }
-  }
-
-  if (cleaned.models && typeof cleaned.models === 'object') {
-    for (const key of INVALID_MODELS_KEYS) {
-      if (key in cleaned.models) {
-        delete cleaned.models[key];
-      }
-    }
-    if (cleaned.models.providers && typeof cleaned.models.providers === 'object') {
-      const providersToRemove = [];
-      for (const [providerId, provider] of Object.entries(cleaned.models.providers)) {
-        if (provider && typeof provider === 'object') {
-          for (const key of INVALID_PROVIDER_KEYS) {
-            if (key in provider) {
-              delete provider[key];
-            }
-          }
-          const validKeys = Object.keys(provider).filter(k => provider[k] !== undefined && provider[k] !== null && provider[k] !== '');
-          if (validKeys.length === 0) {
-            providersToRemove.push(providerId);
-          } else if (!Array.isArray(provider.models) || provider.models.length === 0) {
-            providersToRemove.push(providerId);
-          }
-        }
-      }
-      for (const id of providersToRemove) {
-        delete cleaned.models.providers[id];
-      }
-    }
-  }
-
-  if (cleaned.gateway && typeof cleaned.gateway === 'object') {
-    for (const key of INVALID_GATEWAY_KEYS) {
-      if (key in cleaned.gateway) {
-        delete cleaned.gateway[key];
-      }
-    }
-  }
-
-  if (cleaned.hooks && typeof cleaned.hooks === 'object') {
-    for (const key of INVALID_HOOKS_KEYS) {
-      if (key in cleaned.hooks) {
-        delete cleaned.hooks[key];
-      }
-    }
-  }
-
-  return cleaned;
+function sanitizeConfig(config, migration) {
+  return migrateContent(config, migration, 'openclaw.json');
 }
 
 app.post('/config/import', (req, res) => {
@@ -1206,7 +1179,7 @@ app.post('/config/import', (req, res) => {
     }
 
     addLog('INFO', `接收到配置项个数: ${Object.keys(config).length}`);
-    const sanitizedConfig = sanitizeConfig(config);
+    const sanitizedConfig = sanitizeConfig(config, configMigration);
 
     if (!existsSync(OPENCLAW_CONFIG_DIR)) {
       mkdirSync(OPENCLAW_CONFIG_DIR, { recursive: true });
@@ -1241,14 +1214,6 @@ app.post('/config/import', (req, res) => {
       finalConfig = hydrateConfigPathsForImport(finalConfig, OPENCLAW_CONFIG_DIR);
     } else {
       addLog('INFO', `导入模板：依据用户选项，跳过路径配置的覆盖与水合`);
-    }
-
-    if (configMigration) {
-      const migratedConfig = migrateConfig(finalConfig, configMigration);
-      if (migratedConfig !== finalConfig) {
-        finalConfig = migratedConfig;
-        addLog('INFO', `导入模板：配置迁移已完成（基于 configMigration）`);
-      }
     }
 
     if (!finalConfig.gateway) finalConfig.gateway = {};
@@ -2168,7 +2133,7 @@ app.post('/template/apply', async (req, res) => {
     let configConflicts = [];
 
     if (templateConfig) {
-      const sanitizedConfig = sanitizeConfig(templateConfig);
+      const sanitizedConfig = sanitizeConfig(templateConfig, configMigration);
 
       if (existsSync(OPENCLAW_CONFIG_FILE)) {
         try {
@@ -2186,14 +2151,6 @@ app.post('/template/apply', async (req, res) => {
         addTaggedLog('INFO', '[APPLY]', `配置路径水合: configPaths=true`);
       } else {
         addTaggedLog('INFO', '[APPLY]', `路径水合跳过: 用户选择保留本地路径配置`);
-      }
-
-      if (configMigration) {
-        const migratedConfig = migrateConfig(finalConfig, configMigration);
-        if (migratedConfig !== finalConfig) {
-          finalConfig = migratedConfig;
-          addTaggedLog('INFO', '[APPLY]', `配置迁移已完成（基于模板 configMigration）`);
-        }
       }
 
       if (!finalConfig.gateway) finalConfig.gateway = {};
