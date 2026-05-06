@@ -260,21 +260,6 @@ app.post('/gateway/start', async (req, res) => {
   }
 
   addLog('INFO', '========== 开始启动 Gateway ==========');
-
-  try {
-    if (existsSync(OPENCLAW_CONFIG_FILE)) {
-      const rawConfig = readFileSync(OPENCLAW_CONFIG_FILE, 'utf-8');
-      const configObj = JSON.parse(rawConfig);
-      const cleaned = sanitizeConfig(configObj);
-      if (JSON.stringify(cleaned) !== JSON.stringify(configObj)) {
-        writeFileSync(OPENCLAW_CONFIG_FILE, JSON.stringify(cleaned, null, 2), 'utf-8');
-        addLog('INFO', 'Gateway 启动前：已自动清理 openclaw.json 中的无效字段');
-      }
-    }
-  } catch (e) {
-    addLog('WARN', `Gateway 启动前清理配置失败（非致命）: ${e.message}`);
-  }
-
   addLog('INFO', '执行命令: openclaw gateway run');
   addLog('INFO', '目标端口: 18789');
 

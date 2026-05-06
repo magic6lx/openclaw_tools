@@ -591,6 +591,40 @@ router.put('/templates/:id/verify', authMiddleware, adminMiddleware, async (req,
   }
 });
 
+router.get('/templates/:id/config-migration', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const db = require('../db');
+    const [template] = await db.query('SELECT id, name, config_migration FROM templates WHERE id = ?', [req.params.id]);
+    if (!template) {
+      return res.status(404).json({ error: '模板不存在' });
+    }
+    const migration = template.config_migration
+      ? (typeof template.config_migration === 'string' ? JSON.parse(template.config_migration) : template.config_migration)
+      : null;
+    res.json({ success: true, data: { id: template.id, name: template.name, configMigration: migration } });
+  } catch (err) {
+    console.error('Get config migration error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/templates/:id/config-migration', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const db = require('../db');
+    const { configMigration } = req.body;
+    const [template] = await db.query('SELECT id FROM templates WHERE id = ?', [req.params.id]);
+    if (!template) {
+      return res.status(404).json({ error: '模板不存在' });
+    }
+    const migrationJson = (configMigration && typeof configMigration === 'object') ? JSON.stringify(configMigration) : null;
+    await db.query('UPDATE templates SET config_migration = ? WHERE id = ?', [migrationJson, req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Update config migration error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/templates/:id/full', authMiddleware, async (req, res) => {
   try {
     const db = require('../db');
