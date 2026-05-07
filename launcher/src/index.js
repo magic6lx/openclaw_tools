@@ -1072,44 +1072,168 @@ async function loadAndAdaptConfig() {
 
 
 
-function applyRule(obj, path, op) {
+function getValueAtPath(obj, path) {
+  const parts = path.split('.');
+  for (const part of parts) {
+    if (obj === null || typeof obj !== 'object') return undefined;
+    obj = obj[part];
+    if (obj === undefined) return undefined;
+  }
+  return obj;
+}
+
+function setValueAtPath(obj, path, value) {
   const parts = path.split('.');
   const last = parts[parts.length - 1];
-
-  if (parts.length === 1) {
-    if (op === 'delete') {
-      if (last in obj) { delete obj[last]; return true; }
-    }
-    return false;
-  }
-
   for (let i = 0; i < parts.length - 1; i++) {
     const part = parts[i];
-    if (part === '*') {
-      if (Array.isArray(obj)) {
-        let anyChanged = false;
-        for (const item of obj) {
-          if (item && typeof item === 'object') anyChanged = applyRule(item, parts.slice(i + 1).join('.'), op) || anyChanged;
-        }
-        return anyChanged;
-      } else if (obj && typeof obj === 'object') {
-        let anyChanged = false;
-        for (const v of Object.values(obj)) {
-          if (v && typeof v === 'object') anyChanged = applyRule(v, parts.slice(i + 1).join('.'), op) || anyChanged;
-        }
-        return anyChanged;
-      }
-      return false;
+    if (obj[part] === null || typeof obj[part] !== 'object') {
+      obj[part] = {};
     }
-    if (obj === null || typeof obj !== 'object') return false;
     obj = obj[part];
-    if (!obj) return false;
+  }
+  obj[last] = value;
+}
+
+function deleteValueAtPath(obj, path) {
+  const parts = path.split('.');
+  const last = parts[parts.length - 1];
+  for (let i = 0; i < parts.length - 1; i++) {
+    const part = parts[i];
+    if (obj === null || typeof obj !== 'object' || obj[part] === undefined) return false;
+    obj = obj[part];
+  }
+  if (last in obj) { delete obj[last]; return true; }
+  return false;
+}
+
+const BUILTIN_TRANSFORMS = {
+  toLowerCase: v => typeof v === 'string' ? v.toLowerCase() : v,
+  toUpperCase: v => typeof v === 'string' ? v.toUpperCase() : v,
+  trim: v => typeof v === 'string' ? v.trim() : v,
+  basename: v => typeof v === 'string' ? (v.split('/').pop().split('\\').pop()) : v,
+  dirname: v => typeof v === 'string' ? (v.replace(/[/\\][^/\\]*$/, '')) : v,
+  relativePath: (v, base) => typeof v === 'string' ? (base ? v.replace(base, '') : v) : v,
+  joinConfigDir: v => typeof v === 'string' ? join(OPENCLAW_CONFIG_DIR, v) : v,
+  arrayUnique: v => Array.isArray(v) ? [...new Set(v)] : v,
+  arrayFilterEmpty: v => Array.isArray(v) ? v.filter(i => i !== null && i !== undefined && i !== '') : v,
+};
+
+function applyTransform(value, fn, args = []) {
+  const fnMap = BUILTIN_TRANSFORMS;
+  if (typeof fnMap[fn] === 'function') {
+    return fnMap[fn](value, ...args);
+  }
+  return value;
+}
+
+function applyRuleOp(obj, path, rule) {
+  if (rule === null || rule === undefined) {
+    return deleteValueAtPath(obj, path) ? 'deleted' : 'noop';
+  }
+  if (typeof rule !== 'object') return 'noop';
+
+  const op = rule.op;
+  if (!op) {
+    if (rule === null) return deleteValueAtPath(obj, path) ? 'deleted' : 'noop';
+    return 'noop';
   }
 
-  if (op === 'delete') {
-    if (last in obj) { delete obj[last]; return true; }
+  switch (op) {
+    case 'delete': {
+      if ('ifValue' in rule) {
+        const current = getValueAtPath(obj, path);
+        if (current !== rule.ifValue) return 'noop';
+      }
+      return deleteValueAtPath(obj, path) ? 'deleted' : 'noop';
+    }
+
+    case 'rename': {
+      const to = rule.to;
+      if (!to || typeof to !== 'string') return 'noop';
+      const parts = path.split('.');
+      const last = parts[parts.length - 1];
+      let parent = obj;
+      for (let i = 0; i < parts.length - 1; i++) {
+        if (parent === null || typeof parent !== 'object') return 'noop';
+        parent = parent[parts[i]];
+      }
+      if (parent === null || typeof parent !== 'object' || !(last in parent)) return 'noop';
+      parent[to] = parent[last];
+      delete parent[last];
+      return 'renamed';
+    }
+
+    case 'move': {
+      const to = rule.to;
+      if (!to || typeof to !== 'string') return 'noop';
+      const val = getValueAtPath(obj, path);
+      if (val === undefined) return 'noop';
+      deleteValueAtPath(obj, path);
+      setValueAtPath(obj, to, val);
+      return 'moved';
+    }
+
+    case 'value': {
+      if ('value' in rule) {
+        setValueAtPath(obj, path, rule.value);
+        return 'set';
+      }
+      return 'noop';
+    }
+
+    case 'default': {
+      const current = getValueAtPath(obj, path);
+      if (current === undefined) {
+        setValueAtPath(obj, path, rule.value);
+        return 'defaulted';
+      }
+      return 'noop';
+    }
+
+    case 'copy': {
+      const from = rule.from;
+      if (!from || typeof from !== 'string') return 'noop';
+      const val = getValueAtPath(obj, from);
+      if (val === undefined) return 'noop';
+      setValueAtPath(obj, path, JSON.parse(JSON.stringify(val)));
+      return 'copied';
+    }
+
+    case 'transform': {
+      const fn = rule.fn;
+      if (!fn || typeof fn !== 'string') return 'noop';
+      const val = getValueAtPath(obj, path);
+      const transformed = applyTransform(val, fn, rule.args || []);
+      setValueAtPath(obj, path, transformed);
+      return 'transformed';
+    }
+
+    case 'backup': {
+      const to = rule.to;
+      if (!to || typeof to !== 'string') return 'noop';
+      const val = getValueAtPath(obj, path);
+      if (val === undefined) return 'noop';
+      if (getValueAtPath(obj, to) === undefined) {
+        setValueAtPath(obj, to, JSON.parse(JSON.stringify(val)));
+        return 'backup';
+      }
+      return 'noop';
+    }
+
+    case 'restore': {
+      const from = rule.from;
+      if (!from || typeof from !== 'string') return 'noop';
+      const val = getValueAtPath(obj, from);
+      if (val === undefined) return 'noop';
+      setValueAtPath(obj, path, JSON.parse(JSON.stringify(val)));
+      deleteValueAtPath(obj, from);
+      return 'restored';
+    }
+
+    default:
+      return 'noop';
   }
-  return false;
 }
 
 function applyRules(content, rules) {
@@ -1118,7 +1242,7 @@ function applyRules(content, rules) {
   const result = JSON.parse(JSON.stringify(content));
   let changed = false;
 
-  if (rules.removeProvidersWithoutModels && Array.isArray(rules.removeProvidersWithoutModels)) {
+  if (Array.isArray(rules.removeProvidersWithoutModels)) {
     const provPath = result.models?.providers;
     if (provPath && typeof provPath === 'object') {
       for (const provId of rules.removeProvidersWithoutModels) {
@@ -1131,17 +1255,49 @@ function applyRules(content, rules) {
     }
   }
 
-  if (rules.rules && typeof rules.rules === 'object') {
-    for (const [path, rule] of Object.entries(rules.rules)) {
-      if (rule === null || rule === undefined) {
-        if (applyRule(result, path, 'delete')) changed = true;
-      } else if (typeof rule === 'object' && rule.op === 'delete') {
-        if (applyRule(result, path, 'delete')) changed = true;
+  const ruleMap = rules.rules || rules;
+  if (typeof ruleMap === 'object' && ruleMap !== null) {
+    for (const [path, rule] of Object.entries(ruleMap)) {
+      if (path === 'removeProvidersWithoutModels') continue;
+      if (path.includes('*')) {
+        const expanded = expandWildcardPaths(result, path);
+        for (const realPath of expanded) {
+          applyRuleOp(result, realPath, rule);
+        }
+      } else {
+        applyRuleOp(result, path, rule);
       }
     }
   }
 
-  return changed ? result : content;
+  return result;
+}
+
+function expandWildcardPaths(obj, path) {
+  const parts = path.split('.');
+  const results = [];
+
+  function walk(current, prefix, partIndex) {
+    if (partIndex >= parts.length) {
+      results.push(prefix);
+      return;
+    }
+    const part = parts[partIndex];
+    if (part === '*') {
+      if (current && typeof current === 'object' && !Array.isArray(current)) {
+        for (const key of Object.keys(current)) {
+          walk(current[key], prefix ? `${prefix}.${key}` : key, partIndex + 1);
+        }
+      }
+    } else {
+      if (current && typeof current === 'object') {
+        walk(current[part], prefix ? `${prefix}.${part}` : part, partIndex + 1);
+      }
+    }
+  }
+
+  walk(obj, '', 0);
+  return results;
 }
 
 function migrateContent(content, migration, pathHint) {
@@ -1154,13 +1310,198 @@ function migrateContent(content, migration, pathHint) {
   const result = applyRules(content, rules);
 
   if (result !== content) {
-    addLog('INFO', `[migrateContent] 文件迁移完成 (${pathHint || 'unknown'}): ${Object.keys(rules).length} 条规则`);
+    addLog('INFO', `[migrateContent] 文件迁移完成 (${pathHint || 'unknown'})`);
   }
   return result;
 }
 
 function sanitizeConfig(config, migration) {
   return migrateContent(config, migration, 'openclaw.json');
+}
+
+const PROXY_RULES = {
+  providers: ['volcengine', 'openai', 'anthropic', 'google'],
+  enable: {
+    openclawJson: {
+      'models.useProxy': { op: 'value', value: true },
+    },
+    providerOps: [
+      { path: 'baseUrl', backupTo: '_originalBaseUrl' },
+      { path: 'apiKey', backupTo: '_originalApiKey' },
+      { path: 'baseUrl', op: 'value', value: '{{serverUrl}}/api/proxy/{{providerName}}' },
+      { path: 'apiKey', op: 'value', value: '{{userToken}}' },
+      { path: 'api', op: 'value', value: 'openai-completions' },
+    ],
+    authProfiles: {
+      'profiles': { op: 'backup', to: '_originalProfiles' },
+    },
+    authProfileKey: {
+      op: 'value',
+      value: '{{userToken}}',
+    },
+    agentModels: {
+      'providers': { op: 'backup', to: '_originalProviders' },
+    },
+  },
+  disable: {
+    openclawJson: {
+      'models.useProxy': null,
+    },
+    providerOps: [
+      { path: 'baseUrl', restoreFrom: '_originalBaseUrl' },
+      { path: 'apiKey', restoreFrom: '_originalApiKey' },
+      { path: '_originalBaseUrl': null },
+      { path: '_originalApiKey': null },
+      { path: 'api', op: 'delete', ifValue: 'openai-completions' },
+    ],
+    removeEmptyProviders: true,
+    authProfiles: {
+      'profiles': { op: 'restore', from: '_originalProfiles' },
+      '_originalProfiles': null,
+    },
+    agentModels: {
+      'providers': { op: 'restore', from: '_originalProviders' },
+      '_originalProviders': null,
+    },
+  },
+};
+
+function resolveTemplate(str, vars) {
+  if (typeof str !== 'string') return str;
+  return str.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] !== undefined ? vars[key] : '');
+}
+
+function applyProxyRules(config, rules, vars, fileHint) {
+  if (!config || typeof config !== 'object') return config;
+  const result = JSON.parse(JSON.stringify(config));
+
+  const openclawJsonRules = rules.openclawJson;
+  if (openclawJsonRules && typeof openclawJsonRules === 'object') {
+    for (const [path, rule] of Object.entries(openclawJsonRules)) {
+      const resolvedRule = JSON.parse(JSON.stringify(rule), (key, val) => {
+        if (typeof val === 'string') return resolveTemplate(val, vars);
+        return val;
+      });
+      applyRuleOp(result, path, resolvedRule);
+    }
+  }
+
+  const providerOps = rules.providerOps;
+  if (Array.isArray(providerOps) && result.models?.providers) {
+    for (const providerName of vars._providers) {
+      const provider = result.models.providers[providerName];
+      if (!provider) continue;
+      for (const opDef of providerOps) {
+        const resolvedOp = JSON.parse(JSON.stringify(opDef), (key, val) => {
+          if (typeof val === 'string') return resolveTemplate(val, { ...vars, providerName });
+          return val;
+        });
+        if (resolvedOp.backupTo) {
+          const val = provider[resolvedOp.path];
+          if (val !== undefined && provider[resolvedOp.backupTo] === undefined) {
+            provider[resolvedOp.backupTo] = JSON.parse(JSON.stringify(val));
+          }
+        } else if (resolvedOp.restoreFrom) {
+          const val = provider[resolvedOp.restoreFrom];
+          if (val !== undefined) {
+            provider[resolvedOp.path] = val;
+          }
+        } else if (resolvedOp.ifValue !== undefined) {
+          if (provider[resolvedOp.path] === resolvedOp.ifValue) {
+            delete provider[resolvedOp.path];
+          }
+        } else if (resolvedOp.op) {
+          const resolvedRule = { op: resolvedOp.op };
+          if ('value' in resolvedOp) resolvedRule.value = resolvedOp.value;
+          applyRuleOp(provider, resolvedOp.path, resolvedRule);
+        } else if (resolvedOp[Object.keys(resolvedOp)[0]] === null) {
+          const targetPath = Object.keys(resolvedOp)[0];
+          deleteValueAtPath(provider, targetPath);
+        }
+      }
+    }
+  }
+
+  if (rules.removeEmptyProviders && result.models?.providers) {
+    const toRemove = [];
+    for (const [name, prov] of Object.entries(result.models.providers)) {
+      if (prov && typeof prov === 'object') {
+        const remaining = Object.keys(prov).filter(k => prov[k] !== undefined && prov[k] !== null && prov[k] !== '');
+        if (remaining.length === 0) toRemove.push(name);
+      }
+    }
+    for (const id of toRemove) {
+      delete result.models.providers[id];
+      addLog('INFO', `[proxy] 删除空壳 provider: ${id}`);
+    }
+  }
+
+  return result;
+}
+
+function applyAuthProfilesRules(authData, rules, vars, providerNames) {
+  if (!authData || typeof authData !== 'object') return authData;
+  const result = JSON.parse(JSON.stringify(authData));
+
+  const authRules = rules.authProfiles;
+  if (authRules && typeof authRules === 'object') {
+    for (const [path, rule] of Object.entries(authRules)) {
+      applyRuleOp(result, path, rule);
+    }
+  }
+
+  if (rules.authProfileKey && result.profiles) {
+    const keyRule = rules.authProfileKey;
+    for (const providerName of providerNames) {
+      const profileKey = `${providerName}:default`;
+      if (result.profiles[profileKey]) {
+        if (keyRule.op === 'value') {
+          result.profiles[profileKey].key = resolveTemplate(String(keyRule.value), vars);
+          result.profiles[profileKey].type = 'api_key';
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
+function applyAgentModelsRules(modelsData, rules, vars, providerNames) {
+  if (!modelsData || typeof modelsData !== 'object') return modelsData;
+  const result = JSON.parse(JSON.stringify(modelsData));
+
+  const modelRules = rules.agentModels;
+  if (modelRules && typeof modelRules === 'object') {
+    for (const [path, rule] of Object.entries(modelRules)) {
+      applyRuleOp(result, path, rule);
+    }
+  }
+
+  if (rules.providerOps && result.providers) {
+    for (const providerName of providerNames) {
+      const provider = result.providers[providerName];
+      if (!provider) continue;
+      for (const opDef of rules.providerOps) {
+        if (opDef.backupTo) {
+          const val = provider[opDef.path];
+          if (val !== undefined && provider[opDef.backupTo] === undefined) {
+            provider[opDef.backupTo] = JSON.parse(JSON.stringify(val));
+          }
+        } else if (opDef.restoreFrom) {
+          const val = provider[opDef.restoreFrom];
+          if (val !== undefined) {
+            provider[opDef.path] = val;
+          }
+        } else if (opDef.op === 'value' && opDef.path) {
+          provider[opDef.path] = resolveTemplate(String(opDef.value), { ...vars, providerName });
+        } else if (opDef.op === 'delete') {
+          delete provider[opDef.path];
+        }
+      }
+    }
+  }
+
+  return result;
 }
 
 app.post('/config/import', (req, res) => {
@@ -2487,159 +2828,63 @@ app.post('/config/proxy', (req, res) => {
     }
 
     const config = JSON.parse(readFileSync(OPENCLAW_CONFIG_FILE, 'utf-8'));
-
     if (!config.models) config.models = {};
     if (!config.models.providers) config.models.providers = {};
 
-    const proxyProviders = ['volcengine', 'openai', 'anthropic', 'google'];
+    const providerNames = PROXY_RULES.providers;
+    const rules = enabled ? PROXY_RULES.enable : PROXY_RULES.disable;
+    const vars = { serverUrl, userToken: userToken || 'proxy', _providers: providerNames };
+
+    if (enabled && !serverUrl) {
+      return res.json({ success: false, error: '启用代理需要提供 serverUrl' });
+    }
 
     if (enabled) {
-      if (!serverUrl) {
-        return res.json({ success: false, error: '启用代理需要提供 serverUrl' });
-      }
-
-      for (const providerName of proxyProviders) {
+      for (const providerName of providerNames) {
         if (!config.models.providers[providerName]) {
           config.models.providers[providerName] = {};
         }
-        const provider = config.models.providers[providerName];
-
-        if (!provider._originalBaseUrl) {
-          provider._originalBaseUrl = provider.baseUrl || '';
-        }
-        if (!provider._originalApiKey) {
-          provider._originalApiKey = provider.apiKey || '';
-        }
-
-        provider.baseUrl = `${serverUrl}/api/proxy/${providerName}`;
-        provider.apiKey = userToken || 'proxy';
-        provider.api = 'openai-completions';
       }
-
-      config.models.useProxy = true;
-      addLog('INFO', `代理已启用: baseUrl 指向 ${serverUrl}/api/proxy/`);
-    } else {
-      const providersToRemove = [];
-      for (const providerName of proxyProviders) {
-        const provider = config.models.providers[providerName];
-        if (provider) {
-          if (provider._originalBaseUrl !== undefined) {
-            provider.baseUrl = provider._originalBaseUrl || undefined;
-            delete provider._originalBaseUrl;
-          }
-          if (provider._originalApiKey !== undefined) {
-            provider.apiKey = provider._originalApiKey || undefined;
-            delete provider._originalApiKey;
-          }
-          if (provider.baseUrl === undefined) delete provider.baseUrl;
-          if (provider.apiKey === undefined) delete provider.apiKey;
-          if (provider.api === 'openai-completions') delete provider.api;
-          const remainingKeys = Object.keys(provider).filter(k => provider[k] !== undefined && provider[k] !== null && provider[k] !== '');
-          if (remainingKeys.length === 0) {
-            providersToRemove.push(providerName);
-          }
-        }
-      }
-      for (const id of providersToRemove) {
-        delete config.models.providers[id];
-        addLog('INFO', `代理已关闭: 删除空壳 provider ${id}`);
-      }
-
-      if (config.models.useProxy !== undefined) delete config.models.useProxy;
-      addLog('INFO', '代理已关闭: 已恢复原始 provider 配置');
     }
 
-    writeFileSync(OPENCLAW_CONFIG_FILE, JSON.stringify(config, null, 2), 'utf-8');
+    const newConfig = applyProxyRules(config, rules, vars, 'openclaw.json');
+    writeFileSync(OPENCLAW_CONFIG_FILE, JSON.stringify(newConfig, null, 2), 'utf-8');
+    addLog('INFO', enabled ? `代理已启用: baseUrl 指向 ${serverUrl}/api/proxy/` : '代理已关闭: 已恢复原始 provider 配置');
 
     const agentIds = [];
-    if (config.agents?.list && Array.isArray(config.agents.list)) {
-      for (const agent of config.agents.list) {
+    if (newConfig.agents?.list && Array.isArray(newConfig.agents.list)) {
+      for (const agent of newConfig.agents.list) {
         if (agent.id) agentIds.push(agent.id);
       }
     }
 
     for (const agentId of agentIds) {
       const authProfilesPath = join(OPENCLAW_CONFIG_DIR, 'agents', agentId, 'agent', 'auth-profiles.json');
-      if (!existsSync(authProfilesPath)) continue;
-
-      try {
-        const authData = JSON.parse(readFileSync(authProfilesPath, 'utf-8'));
-        if (!authData.profiles) continue;
-
-        if (enabled) {
-          if (!authData._originalProfiles) {
-            authData._originalProfiles = JSON.parse(JSON.stringify(authData.profiles));
+      if (existsSync(authProfilesPath)) {
+        try {
+          const authData = JSON.parse(readFileSync(authProfilesPath, 'utf-8'));
+          if (authData.profiles) {
+            const newAuthData = applyAuthProfilesRules(authData, rules, vars, providerNames);
+            writeFileSync(authProfilesPath, JSON.stringify(newAuthData, null, 2), 'utf-8');
+            addLog('INFO', `代理${enabled ? '启用' : '关闭'}: Agent [${agentId}] auth-profiles.json 已${enabled ? '更新' : '恢复'}`);
           }
-          for (const providerName of proxyProviders) {
-            const profileKey = `${providerName}:default`;
-            if (authData.profiles[profileKey]) {
-              authData.profiles[profileKey].key = userToken || 'proxy';
-              authData.profiles[profileKey].type = 'api_key';
-            }
-          }
-          addLog('INFO', `代理已启用: Agent [${agentId}] auth-profiles.json 已更新`);
-        } else {
-          if (authData._originalProfiles) {
-            authData.profiles = authData._originalProfiles;
-            delete authData._originalProfiles;
-            addLog('INFO', `代理已关闭: Agent [${agentId}] auth-profiles.json 已恢复`);
-          }
+        } catch (e) {
+          addLog('WARN', `Agent [${agentId}] auth-profiles.json 更新失败: ${e.message}`);
         }
-
-        writeFileSync(authProfilesPath, JSON.stringify(authData, null, 2), 'utf-8');
-      } catch (e) {
-        addLog('WARN', `Agent [${agentId}] auth-profiles.json 更新失败: ${e.message}`);
       }
 
       const modelsJsonPath = join(OPENCLAW_CONFIG_DIR, 'agents', agentId, 'agent', 'models.json');
-      if (!existsSync(modelsJsonPath)) continue;
-
-      try {
-        const modelsData = JSON.parse(readFileSync(modelsJsonPath, 'utf-8'));
-        if (!modelsData.providers) continue;
-
-        if (enabled) {
-          if (!modelsData._originalProviders) {
-            modelsData._originalProviders = JSON.parse(JSON.stringify(modelsData.providers));
+      if (existsSync(modelsJsonPath)) {
+        try {
+          const modelsData = JSON.parse(readFileSync(modelsJsonPath, 'utf-8'));
+          if (modelsData.providers) {
+            const newModelsData = applyAgentModelsRules(modelsData, rules, vars, providerNames);
+            writeFileSync(modelsJsonPath, JSON.stringify(newModelsData, null, 2), 'utf-8');
+            addLog('INFO', `代理${enabled ? '启用' : '关闭'}: Agent [${agentId}] models.json 已${enabled ? '更新' : '恢复'}`);
           }
-          for (const providerName of proxyProviders) {
-            if (modelsData.providers[providerName]) {
-              if (!modelsData.providers[providerName]._originalBaseUrl) {
-                modelsData.providers[providerName]._originalBaseUrl = modelsData.providers[providerName].baseUrl || '';
-              }
-              if (!modelsData.providers[providerName]._originalApiKey) {
-                modelsData.providers[providerName]._originalApiKey = modelsData.providers[providerName].apiKey || '';
-              }
-              modelsData.providers[providerName].baseUrl = `${serverUrl}/api/proxy/${providerName}`;
-              modelsData.providers[providerName].apiKey = userToken || 'proxy';
-            }
-          }
-          addLog('INFO', `代理已启用: Agent [${agentId}] models.json 已更新`);
-        } else {
-          if (modelsData._originalProviders) {
-            modelsData.providers = modelsData._originalProviders;
-            delete modelsData._originalProviders;
-            addLog('INFO', `代理已关闭: Agent [${agentId}] models.json 已恢复`);
-          } else {
-            for (const providerName of proxyProviders) {
-              if (modelsData.providers[providerName]) {
-                const p = modelsData.providers[providerName];
-                if (p._originalBaseUrl !== undefined) {
-                  p.baseUrl = p._originalBaseUrl || undefined;
-                  delete p._originalBaseUrl;
-                }
-                if (p._originalApiKey !== undefined) {
-                  p.apiKey = p._originalApiKey || undefined;
-                  delete p._originalApiKey;
-                }
-              }
-            }
-          }
+        } catch (e) {
+          addLog('WARN', `Agent [${agentId}] models.json 更新失败: ${e.message}`);
         }
-
-        writeFileSync(modelsJsonPath, JSON.stringify(modelsData, null, 2), 'utf-8');
-      } catch (e) {
-        addLog('WARN', `Agent [${agentId}] models.json 更新失败: ${e.message}`);
       }
     }
 
