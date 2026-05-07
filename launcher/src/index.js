@@ -912,66 +912,97 @@ function hydrateConfigPathsForImport(config, configDir) {
   return hydrated;
 }
 
-const SENSITIVE_FIELDS = ['apiKey', 'api_key', 'token', 'secret', 'password', 'privateKey'];
-const PATH_FIELDS = ['workspace', 'agentDir', 'path', 'dir', 'logging.file']; // Changed to logging.file
-const KEEP_EXISTING_FIELDS = ['models', 'agents'];
+const PATH_ADAPTATION_RULES = {
+  pathFields: ['workspace', 'agentDir', 'path', 'dir', 'logging.file'],
+  sensitiveFields: ['apiKey', 'api_key', 'token', 'secret', 'password', 'privateKey'],
+  keepExistingFields: ['models', 'agents'],
+  mappings: {
+    'workspace': { target: 'joinConfigDir', args: ['workspace'] },
+    'logging.file': { target: 'joinConfigDir', args: ['logs', 'openclaw.log'] },
+    '_default': { target: 'joinConfigDir' },
+  },
+};
 
-function isSensitiveField(key) {
-  return SENSITIVE_FIELDS.some(f => key.toLowerCase().includes(f.toLowerCase()));
+function isPathField(key, rules) {
+  const fields = rules?.pathFields || PATH_ADAPTATION_RULES.pathFields;
+  return fields.includes(key);
+}
+
+function isSensitiveField(key, rules) {
+  const fields = rules?.sensitiveFields || PATH_ADAPTATION_RULES.sensitiveFields;
+  return fields.some(f => key.toLowerCase().includes(f.toLowerCase()));
+}
+
+function isKeepExistingField(key, rules) {
+  const fields = rules?.keepExistingFields || PATH_ADAPTATION_RULES.keepExistingFields;
+  return fields.includes(key);
 }
 
 function isAbsolutePathWithDriveLetter(path) {
   return /^[a-zA-Z]:\\/.test(path) || /^[a-zA-Z]:\//.test(path);
 }
 
-function adaptPath(templatePath, existingPath, key) {
+function isPathProblematic(pathToCheck) {
+  return isAbsolutePathWithDriveLetter(pathToCheck) || (pathToCheck.startsWith('/') && process.platform === 'win32');
+}
+
+function resolvePathTarget(key, templatePath, rules) {
+  const mappings = rules?.mappings || PATH_ADAPTATION_RULES.mappings;
+  const mapping = mappings[key] || mappings['_default'];
+  if (!mapping) return templatePath;
+
+  const configDir = OPENCLAW_CONFIG_DIR;
+
+  switch (mapping.target) {
+    case 'joinConfigDir': {
+      const subParts = mapping.args || [];
+      if (subParts.length > 0) {
+        return join(configDir, ...subParts);
+      }
+      if (templatePath && typeof templatePath === 'string') {
+        const cleaned = templatePath.replace(/^[a-zA-Z]:(\\|\/)/, '').replace(/^\//, '');
+        return join(configDir, cleaned);
+      }
+      return join(configDir);
+    }
+    case 'relative': {
+      if (!templatePath || typeof templatePath !== 'string') return templatePath;
+      return templatePath.replace(/^[a-zA-Z]:(\\|\/)/, '').replace(/^\//, '');
+    }
+    case 'absolute': {
+      if (mapping.value) return mapping.value;
+      return templatePath;
+    }
+    default:
+      return templatePath;
+  }
+}
+
+function adaptPath(templatePath, existingPath, key, rules) {
   if (!templatePath) return templatePath;
+  const pathRules = rules || PATH_ADAPTATION_RULES;
 
-  const openclawConfigDir = OPENCLAW_CONFIG_DIR;
-  const isPathProblematic = (pathToCheck) => isAbsolutePathWithDriveLetter(pathToCheck) || (pathToCheck.startsWith('/') && process.platform === 'win32');
-
-  // 1. Prioritize adapting problematic template paths
   if (isPathProblematic(templatePath)) {
-      if (key === 'workspace') {
-          return join(openclawConfigDir, 'workspace');
-      } else if (key === 'logging.file') {
-          return join(openclawConfigDir, 'logs', 'openclaw.log');
-      } else {
-          // For other problematic paths, try to make them relative to .openclaw config dir
-          const cleanedRelativePath = templatePath.replace(/^[a-zA-Z]:(\\|\/)/, '').replace(/^\//, '');
-          return join(openclawConfigDir, cleanedRelativePath);
-      }
+    return resolvePathTarget(key, templatePath, pathRules);
   }
 
-  // 2. If templatePath is NOT problematic, but existingPath IS problematic, then adapt existingPath
-  // This covers cases where user might have manually edited openclaw.json with a problematic path
-  // AND then applied a template that has a non-problematic (e.g. relative) path for the same key.
-  if (PATH_FIELDS.includes(key) && existingPath && existingPath !== templatePath && isPathProblematic(existingPath)) {
-      if (key === 'workspace') {
-          return join(openclawConfigDir, 'workspace');
-      } else if (key === 'logging.file') {
-          return join(openclawConfigDir, 'logs', 'openclaw.log');
-      } else {
-          const cleanedRelativePath = existingPath.replace(/^[a-zA-Z]:(\\|\/)/, '').replace(/^\//, '');
-          return join(openclawConfigDir, cleanedRelativePath);
-      }
+  if (isPathField(key, pathRules) && existingPath && existingPath !== templatePath && isPathProblematic(existingPath)) {
+    return resolvePathTarget(key, existingPath, pathRules);
   }
 
-  // 3. If neither is problematic, and existingPath is different from templatePath for a PATH_FIELD, prefer existingPath.
-  // This is the "user_maintained_config" scenario, where existing config is valid and different from template.
-  if (PATH_FIELDS.includes(key) && existingPath && existingPath !== templatePath) {
-    return existingPath; 
+  if (isPathField(key, pathRules) && existingPath && existingPath !== templatePath) {
+    return existingPath;
   }
 
-  // Default: no adaptation needed or templatePath is fine, or existingPath is not found/same as templatePath.
   return templatePath;
 }
 
-function mergeConfigRecursive(existing, template, conflicts = [], path = '') {
+function mergeConfigRecursive(existing, template, conflicts = [], path = '', pathRules) {
   if (!template || typeof template !== 'object') {
     return template;
   }
 
+  const rules = pathRules || PATH_ADAPTATION_RULES;
   const result = Array.isArray(template) ? [...template] : { ...existing };
 
   for (const [key, templateValue] of Object.entries(template)) {
@@ -979,8 +1010,8 @@ function mergeConfigRecursive(existing, template, conflicts = [], path = '') {
     const existingValue = existing?.[key];
 
     if (existingValue === undefined || existingValue === null) {
-      if (PATH_FIELDS.includes(key) && typeof templateValue === 'string') {
-        const adaptedPath = adaptPath(templateValue, null, key);
+      if (isPathField(key, rules) && typeof templateValue === 'string') {
+        const adaptedPath = adaptPath(templateValue, null, key, rules);
         if (adaptedPath !== templateValue) {
           conflicts.push({ field: currentPath, action: 'adapted_path', from: templateValue, to: adaptedPath, reason: 'platform_adaptation' });
         }
@@ -991,7 +1022,7 @@ function mergeConfigRecursive(existing, template, conflicts = [], path = '') {
       continue;
     }
 
-    if (isSensitiveField(key)) {
+    if (isSensitiveField(key, rules)) {
       if (existingValue && existingValue !== templateValue) {
         conflicts.push({ field: currentPath, action: 'kept_existing', reason: 'sensitive_data' });
         result[key] = existingValue;
@@ -1001,17 +1032,14 @@ function mergeConfigRecursive(existing, template, conflicts = [], path = '') {
       continue;
     }
 
-    if (PATH_FIELDS.includes(key) && typeof templateValue === 'string') {
-      // Only adapt if the existing path is also problematic, or if the template path is specifically problematic.
-      // Otherwise, we primarily keep the existing path if it's valid.
+    if (isPathField(key, rules) && typeof templateValue === 'string') {
       const shouldAdapt = isAbsolutePathWithDriveLetter(templateValue) || (templateValue.startsWith('/') && process.platform === 'win32');
-      if (shouldAdapt || (existingValue && existingValue !== templateValue && PATH_FIELDS.includes(key))) {
-        const adaptedPath = adaptPath(templateValue, existingValue, key);
+      if (shouldAdapt || (existingValue && existingValue !== templateValue && isPathField(key, rules))) {
+        const adaptedPath = adaptPath(templateValue, existingValue, key, rules);
         if (adaptedPath !== templateValue) {
           conflicts.push({ field: currentPath, action: 'adapted_path', from: templateValue, to: adaptedPath, reason: 'path_compatibility' });
           result[key] = adaptedPath;
         } else if (existingValue && existingValue !== templateValue) {
-          // If templateValue is also a path field and different from existingValue, and no adaptation happened, keep existing
           conflicts.push({ field: currentPath, action: 'kept_existing', reason: 'user_maintained_config' });
           result[key] = existingValue;
         } else {
@@ -1023,14 +1051,14 @@ function mergeConfigRecursive(existing, template, conflicts = [], path = '') {
       continue;
     }
 
-    if (KEEP_EXISTING_FIELDS.includes(key)) {
+    if (isKeepExistingField(key, rules)) {
       conflicts.push({ field: currentPath, action: 'kept_existing', reason: 'user_maintained_config' });
       result[key] = existingValue;
       continue;
     }
 
     if (typeof templateValue === 'object' && templateValue !== null && !Array.isArray(templateValue)) {
-      result[key] = mergeConfigRecursive(existingValue, templateValue, conflicts, currentPath);
+      result[key] = mergeConfigRecursive(existingValue, templateValue, conflicts, currentPath, rules);
     } else if (Array.isArray(templateValue)) {
       result[key] = templateValue;
     } else {
@@ -1508,6 +1536,7 @@ app.post('/config/import', (req, res) => {
   try {
     addLog('INFO', '========== 开始应用模板配置 ==========');
     const { config, env, mergeStrategy, fileContents, applyOptions, configMigration } = req.body;
+    const pathRules = configMigration?.pathAdaptation || PATH_ADAPTATION_RULES;
 
     // Determine which directories to actually write based on applyOptions
     // If not provided, fallback to the full list defined in the manifest
@@ -1540,7 +1569,7 @@ app.post('/config/import', (req, res) => {
           conflicts.push({ field: 'root', action: 'force_replaced', reason: 'force_mode' });
           addLog('WARN', '采用强制覆盖模式 (force merge)');
         } else {
-          finalConfig = mergeConfigRecursive(existingConfig, sanitizedConfig, conflicts);
+          finalConfig = mergeConfigRecursive(existingConfig, sanitizedConfig, conflicts, '', pathRules);
           addLog('INFO', `合并完成，检测到 ${conflicts.length} 处冲突/调整`);
         }
       } catch (e) {
@@ -2460,6 +2489,7 @@ app.post('/template/apply', async (req, res) => {
     const fileContents = templateData.fileContents || templateData.filePayload || {};
     const templateConfig = templateData.config;
     const configMigration = templateData.configMigration;
+    const pathRules = configMigration?.pathAdaptation || PATH_ADAPTATION_RULES;
 
     const { snapshot, snapshotPath } = createApplySnapshot(
       OPENCLAW_CONFIG_DIR,
@@ -2479,7 +2509,7 @@ app.post('/template/apply', async (req, res) => {
       if (existsSync(OPENCLAW_CONFIG_FILE)) {
         try {
           const existingConfig = JSON.parse(readFileSync(OPENCLAW_CONFIG_FILE, 'utf-8'));
-          finalConfig = mergeConfigRecursive(existingConfig, sanitizedConfig, configConflicts);
+          finalConfig = mergeConfigRecursive(existingConfig, sanitizedConfig, configConflicts, '', pathRules);
           addTaggedLog('INFO', '[APPLY]', `配置合并完成: ${configConflicts.length} 处冲突/调整`);
         } catch (e) {
           finalConfig = sanitizedConfig;
