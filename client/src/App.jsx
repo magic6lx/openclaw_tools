@@ -12,6 +12,7 @@ import Dashboard from './pages/Dashboard';
 import Clients from './pages/Clients';
 import Login from './pages/Login';
 import Templates from './pages/admin/Templates';
+import SystemConfig from './pages/admin/SystemConfig';
 import Logs from './pages/admin/Logs';
 import Invitations from './pages/admin/Invitations';
 import Statistics from './pages/admin/Statistics';
@@ -102,6 +103,7 @@ function AppRoutes() {
      
       <Route path="/clients" element={<AdminRoute><MainLayout><Clients /></MainLayout></AdminRoute>} />
       <Route path="/admin/templates" element={<AdminRoute><MainLayout><Templates /></MainLayout></AdminRoute>} />
+      <Route path="/admin/system-config" element={<AdminRoute><MainLayout><SystemConfig /></MainLayout></AdminRoute>} />
       <Route path="/admin/logs" element={<AdminRoute><MainLayout><Logs /></MainLayout></AdminRoute>} />
       <Route path="/admin/invitations" element={<AdminRoute><MainLayout><Invitations /></MainLayout></AdminRoute>} />
       <Route path="/admin/statistics" element={<AdminRoute><MainLayout><Statistics /></MainLayout></AdminRoute>} />

@@ -176,8 +176,162 @@ async function initSchema() {
       await pool.execute(`ALTER TABLE devices ADD COLUMN last_seen DATETIME DEFAULT CURRENT_TIMESTAMP`);
       console.log('✅ Schema updated: last_seen column added to devices table');
     }
+
+    // Create system_config table if it doesn't exist
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS system_config (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        category VARCHAR(64) NOT NULL COMMENT '规则分类：manifest/migration/system',
+        name VARCHAR(128) NOT NULL COMMENT '规则名称',
+        value JSON NOT NULL COMMENT '规则内容',
+        description VARCHAR(512) DEFAULT NULL COMMENT '规则说明',
+        is_active BOOLEAN DEFAULT TRUE,
+        version VARCHAR(32) DEFAULT '1.0',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_category_name (category, name)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    console.log('✅ Schema initialized: system_config table ensured');
+
+    // Seed default rules if table is empty
+    const [existingRules] = await pool.execute('SELECT COUNT(*) as cnt FROM system_config');
+    if (existingRules[0].cnt === 0) {
+      await seedSystemConfig(pool);
+      console.log('✅ System config rules seeded');
+    }
   } catch (err) {
     console.error('❌ Schema init failed:', err.message);
+  }
+}
+
+async function seedSystemConfig(pool) {
+  const defaults = [
+    // manifest 层规则
+    {
+      category: 'manifest',
+      name: 'DEFAULT_TEMPLATE_MANIFEST',
+      value: {
+        bundleDirs: ['workspace', 'skills'],
+        normalizePaths: {
+          'agents.defaults.workspace': 'workspace',
+          'logging.file': 'logs/openclaw.log'
+        }
+      },
+      description: '默认 Manifest 模板，用于模板导出时的同步清单生成基准'
+    },
+    {
+      category: 'manifest',
+      name: 'EXCLUDED_PATTERNS',
+      value: ['.git', '.gitignore', '.gitattributes', 'node_modules', '.DS_Store', 'Thumbs.db', 'sessions', '.jsonl', '.deleted.', '.session', '.bak', '.bak.', '.clobbered.', '.fixed', '手动备份'],
+      description: '文件发现时排除的文件名模式'
+    },
+    {
+      category: 'manifest',
+      name: 'DEFAULT_EXCLUDED_DIRS',
+      value: ['credentials', 'logs', 'bin', 'tools', 'private_templates', 'manifests', 'snapshots', 'apply_records'],
+      description: '文件发现时默认排除的目录名'
+    },
+    {
+      category: 'manifest',
+      name: 'FORCE_EXCLUDED_DIRS',
+      value: ['credentials'],
+      description: '强制排除的目录名，无论如何都不参与同步'
+    },
+
+    // migration 层规则
+    {
+      category: 'migration',
+      name: 'PATH_ADAPTATION_RULES',
+      value: {
+        pathFields: ['workspace', 'agentDir', 'path', 'dir', 'logging.file'],
+        sensitiveFields: ['apiKey', 'api_key', 'token', 'secret', 'password', 'privateKey'],
+        keepExistingFields: ['models', 'agents'],
+        mappings: {
+          'workspace': { target: 'joinConfigDir', args: ['workspace'] },
+          'logging.file': { target: 'joinConfigDir', args: ['logs', 'openclaw.log'] },
+          '_default': { target: 'joinConfigDir' }
+        }
+      },
+      description: '路径适配规则，决定哪些字段作为路径处理及如何水合'
+    },
+    {
+      category: 'migration',
+      name: 'PROXY_RULES',
+      value: {
+        providers: ['volcengine', 'openai', 'anthropic', 'google'],
+        enable: {
+          openclawJson: { 'models.useProxy': { op: 'value', value: true } },
+          providerOps: [
+            { path: 'baseUrl', backupTo: '_originalBaseUrl' },
+            { path: 'apiKey', backupTo: '_originalApiKey' },
+            { path: 'baseUrl', op: 'value', value: '{{serverUrl}}/api/proxy/{{providerName}}' },
+            { path: 'apiKey', op: 'value', value: '{{userToken}}' },
+            { path: 'api', op: 'value', value: 'openai-completions' }
+          ],
+          authProfiles: { 'profiles': { op: 'backup', to: '_originalProfiles' } },
+          authProfileKey: { op: 'value', value: '{{userToken}}' },
+          agentModels: { 'providers': { op: 'backup', to: '_originalProviders' } }
+        },
+        disable: {
+          openclawJson: { 'models.useProxy': null },
+          providerOps: [
+            { path: 'baseUrl', restoreFrom: '_originalBaseUrl' },
+            { path: 'apiKey', restoreFrom: '_originalApiKey' },
+            { path: '_originalBaseUrl', op: 'delete' },
+            { path: '_originalApiKey', op: 'delete' },
+            { path: 'api', op: 'delete', ifValue: 'openai-completions' }
+          ],
+          removeEmptyProviders: true,
+          authProfiles: { 'profiles': { op: 'restore', from: '_originalProfiles' }, '_originalProfiles': null },
+          agentModels: { 'providers': { op: 'restore', from: '_originalProviders' }, '_originalProviders': null }
+        }
+      },
+      description: '代理开关规则，定义启用/关闭代理时的配置变换操作'
+    },
+    {
+      category: 'migration',
+      name: 'MODEL_PROVIDER_MAP',
+      value: {
+        'gpt-4': 'openai', 'gpt-4-turbo': 'openai', 'gpt-4o': 'openai', 'gpt-3.5-turbo': 'openai',
+        'claude-3-opus': 'anthropic', 'claude-3-sonnet': 'anthropic', 'claude-3-haiku': 'anthropic', 'claude-2': 'anthropic',
+        'gemini-pro': 'google', 'gemini-1.5-pro': 'google',
+        'doubao': 'volcengine', 'doubao-seed': 'volcengine'
+      },
+      description: '模型名到 provider 名的映射，用于代理时查找对应配置'
+    },
+    {
+      category: 'migration',
+      name: 'PROVIDER_API_BASE',
+      value: {
+        'openai': 'https://api.openai.com/v1',
+        'anthropic': 'https://api.anthropic.com/v1',
+        'google': 'https://generativelanguage.googleapis.com/v1beta',
+        'volcengine': 'https://ark.cn-beijing.volces.com/api/v3'
+      },
+      description: '各 provider 的原始 API 端点，关闭代理时恢复用'
+    },
+    {
+      category: 'migration',
+      name: 'CUSTOM_TRANSFORMS',
+      value: {},
+      description: '自定义变换函数（JSON 格式），键为函数名，值为函数体字符串'
+    },
+
+    // system 层规则
+    {
+      category: 'system',
+      name: 'ALLOWED_CLI_COMMANDS',
+      value: ['openclaw channels login --channel feishu', 'openclaw devices approve', 'openclaw doctor'],
+      description: '允许客户端执行的 openclaw CLI 命令'
+    }
+  ];
+
+  for (const rule of defaults) {
+    await pool.execute(
+      'INSERT INTO system_config (category, name, value, description) VALUES (?, ?, ?, ?)',
+      [rule.category, rule.name, JSON.stringify(rule.value), rule.description]
+    );
   }
 }
 

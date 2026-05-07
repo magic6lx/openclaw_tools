@@ -76,6 +76,82 @@ const DEFAULT_TEMPLATE_MANIFEST = {
   }
 };
 
+let SYSTEM_CONFIG_CACHE = {};
+let SYSTEM_CONFIG_FETCHED = false;
+
+async function fetchSystemConfigFromServer() {
+  const serverUrl = getServerUrl();
+  addLog('INFO', `[system_config] 正在从 ${serverUrl} 拉取 manifest 规则...`);
+  const response = await fetch(`${serverUrl}/api/system-config?category=manifest`);
+  if (!response.ok) {
+    throw new Error(`[system_config] 获取 manifest 规则失败: HTTP ${response.status} (${serverUrl})`);
+  }
+  const json = await response.json();
+  if (!json.success || !Array.isArray(json.data)) {
+    throw new Error(`[system_config] 获取 manifest 规则返回格式错误`);
+  }
+  const manifestRules = {};
+  for (const r of json.data) {
+    if (r.is_active) {
+      manifestRules[r.name] = r.value;
+    }
+  }
+  SYSTEM_CONFIG_CACHE = { ...SYSTEM_CONFIG_CACHE, ...manifestRules };
+  addLog('INFO', `[system_config] 已从服务端拉取 manifest 规则，当前缓存: ${Object.keys(SYSTEM_CONFIG_CACHE).join(', ')}`);
+}
+
+async function fetchMigrationRulesFromServer() {
+  const serverUrl = getServerUrl();
+  addLog('INFO', `[system_config] 正在从 ${serverUrl} 拉取 migration 规则...`);
+  const response = await fetch(`${serverUrl}/api/system-config?category=migration`);
+  if (!response.ok) {
+    throw new Error(`[system_config] 获取 migration 规则失败: HTTP ${response.status} (${serverUrl})`);
+  }
+  const json = await response.json();
+  if (!json.success || !Array.isArray(json.data)) {
+    throw new Error(`[system_config] 获取 migration 规则返回格式错误`);
+  }
+  const migrationRules = {};
+  for (const r of json.data) {
+    if (r.is_active) {
+      migrationRules[r.name] = r.value;
+    }
+  }
+  SYSTEM_CONFIG_CACHE = { ...SYSTEM_CONFIG_CACHE, ...migrationRules };
+  addLog('INFO', `[system_config] 已从服务端拉取 migration 规则`);
+}
+
+async function fetchSystemRulesFromServer() {
+  const serverUrl = getServerUrl();
+  addLog('INFO', `[system_config] 正在从 ${serverUrl} 拉取 system 规则...`);
+  const response = await fetch(`${serverUrl}/api/system-config?category=system`);
+  if (!response.ok) {
+    throw new Error(`[system_config] 获取 system 规则失败: HTTP ${response.status} (${serverUrl})`);
+  }
+  const json = await response.json();
+  if (!json.success || !Array.isArray(json.data)) {
+    throw new Error(`[system_config] 获取 system 规则返回格式错误`);
+  }
+  const systemRules = {};
+  for (const r of json.data) {
+    if (r.is_active) {
+      systemRules[r.name] = r.value;
+    }
+  }
+  SYSTEM_CONFIG_CACHE = { ...SYSTEM_CONFIG_CACHE, ...systemRules };
+  addLog('INFO', `[system_config] 已从服务端拉取 system 规则`);
+}
+
+function getCachedRule(name, fallback) {
+  if (SYSTEM_CONFIG_CACHE[name] !== undefined) {
+    return SYSTEM_CONFIG_CACHE[name];
+  }
+  if (fallback !== undefined) {
+    return fallback;
+  }
+  throw new Error(`[system_config] 规则 "${name}" 未在缓存中且无内置默认值，请确保服务端规则已成功加载`);
+}
+
 let LAUNCHER_CONFIG = { serverUrl: null, templateManifest: DEFAULT_TEMPLATE_MANIFEST };
 try {
   const CONFIG_DIR = join(__dirname, '..', 'config'); // Assuming a config folder exists next to src
@@ -122,6 +198,13 @@ function addLog(level, message, invitationId = null, deviceIdToUse = globalDevic
       logs: [logEntry]
     })
   }).catch(() => {});
+
+  try {
+    if (!existsSync(dirname(LAUNCHER_JSONL_LOG))) {
+      mkdirSync(dirname(LAUNCHER_JSONL_LOG), { recursive: true });
+    }
+    appendFileSync(LAUNCHER_JSONL_LOG, JSON.stringify(logEntry) + '\n', 'utf-8');
+  } catch (e) {}
 }
 
 function addTaggedLog(level, tag, message, templateId = null) {
@@ -743,12 +826,13 @@ app.post('/config/export', (req, res) => {
     }
 
     const filesToBundle = {};
+    const cachedExcludedPatterns = getCachedRule('EXCLUDED_PATTERNS', excludedPatterns);
 
     function readAndEncodeFilesFromDir(baseDir, relativePath = '') {
       if (!existsSync(baseDir)) return;
       const entries = readdirSync(baseDir, { withFileTypes: true });
       for (const entry of entries) {
-        if (excludedPatterns.includes(entry.name)) continue;
+        if (cachedExcludedPatterns.includes(entry.name)) continue;
         const fullPath = join(baseDir, entry.name);
         const currentRelativePath = join(relativePath, entry.name);
         if (entry.isFile()) {
@@ -806,19 +890,19 @@ app.post('/config/export', (req, res) => {
 });
 
 // Normalize paths for EXPORT (convert absolute paths to relative logical paths)
-function normalizeConfigPathsForExport(config, configDir) {
+function normalizeConfigPathsForExport(config, configDir, normalizePaths) {
   if (!config) return config;
   const normalized = JSON.parse(JSON.stringify(config)); // Deep copy
 
-  // Fields that might contain paths that need normalization
-  const pathFields = {
+  const cachedRules = getCachedRule('PATH_ADAPTATION_RULES', PATH_ADAPTATION_RULES);
+  const pathFieldMap = normalizePaths || cachedRules.pathFieldMap || {
     'agents.defaults.workspace': 'workspace',
     'logging.file': 'logs/openclaw.log'
   };
 
   const isPathProblematic = (pathToCheck) => /^[a-zA-Z]:(\\|\/)/.test(pathToCheck) || (pathToCheck.startsWith('/') && process.platform === 'win32');
 
-  for (const [dotPath, defaultRelativePath] of Object.entries(pathFields)) {
+  for (const [dotPath, defaultRelativePath] of Object.entries(pathFieldMap)) {
     const parts = dotPath.split('.');
     let current = normalized;
     let found = true;
@@ -830,15 +914,11 @@ function normalizeConfigPathsForExport(config, configDir) {
         break;
       }
     }
-    
+
     if (found && current[parts[parts.length - 1]]) {
       const originalPath = current[parts[parts.length - 1]];
-      // If it's already a relative-looking path without drive letters or root slashes, leave it
       if (!isPathProblematic(originalPath)) {
-        // We could theoretically check if it starts with configDir and strip it, 
-        // but for safety, we'll assume non-problematic paths are already relative or valid.
       } else {
-        // It's an absolute path. We force it to be the standard relative path for the template.
         current[parts[parts.length - 1]] = defaultRelativePath;
         addLog('INFO', `导出模板：路径 [${dotPath}] 已从硬编码绝对路径 [${originalPath}] 归一化为相对逻辑路径 [${defaultRelativePath}]`);
       }
@@ -848,18 +928,19 @@ function normalizeConfigPathsForExport(config, configDir) {
 }
 
 // Hydrate paths for IMPORT (convert relative logical paths to absolute paths for the current machine)
-function hydrateConfigPathsForImport(config, configDir) {
+function hydrateConfigPathsForImport(config, configDir, normalizePaths) {
   if (!config) return config;
   const hydrated = JSON.parse(JSON.stringify(config));
 
-  const pathFields = {
+  const cachedRules = getCachedRule('PATH_ADAPTATION_RULES', PATH_ADAPTATION_RULES);
+  const pathFieldMap = normalizePaths || cachedRules.pathFieldMap || {
     'agents.defaults.workspace': 'workspace',
     'logging.file': 'logs/openclaw.log'
   };
 
   const isPathProblematic = (pathToCheck) => /^[a-zA-Z]:(\\|\/)/.test(pathToCheck) || (pathToCheck.startsWith('/') && process.platform === 'win32');
 
-  for (const [dotPath, defaultRelativePath] of Object.entries(pathFields)) {
+  for (const [dotPath, defaultRelativePath] of Object.entries(pathFieldMap)) {
     const parts = dotPath.split('.');
     let current = hydrated;
     let found = true;
@@ -893,13 +974,15 @@ function hydrateConfigPathsForImport(config, configDir) {
 
   if (hydrated.agents?.list && Array.isArray(hydrated.agents.list)) {
     for (const agent of hydrated.agents.list) {
+      const agentWorkspaceRule = pathFieldMap['agents.list[].workspace'] || 'workspace-{agentId}';
+      const agentDefaultWs = agent.id ? agentWorkspaceRule.replace('{agentId}', agent.id) : 'workspace';
       if (!agent.workspace && agent.id) {
-        agent.workspace = join(configDir, `workspace-${agent.id}`).replace(/\\/g, '/');
+        agent.workspace = join(configDir, agentDefaultWs).replace(/\\/g, '/');
         addLog('INFO', `导入模板：为 Agent [${agent.id}] 自动设置 workspace: ${agent.workspace}`);
       } else if (agent.workspace) {
         const originalPath = agent.workspace;
         if (isPathProblematic(originalPath)) {
-          agent.workspace = join(configDir, `workspace-${agent.id}`).replace(/\\/g, '/');
+          agent.workspace = join(configDir, agentDefaultWs).replace(/\\/g, '/');
           addLog('INFO', `导入模板：Agent [${agent.id}] 硬编码路径 [${originalPath}]，已水合为 [${agent.workspace}]`);
         } else if (!originalPath.startsWith(configDir)) {
           agent.workspace = join(configDir, originalPath).replace(/\\/g, '/');
@@ -947,7 +1030,8 @@ function isPathProblematic(pathToCheck) {
 }
 
 function resolvePathTarget(key, templatePath, rules) {
-  const mappings = rules?.mappings || PATH_ADAPTATION_RULES.mappings;
+  const cachedRules = getCachedRule('PATH_ADAPTATION_RULES', PATH_ADAPTATION_RULES);
+  const mappings = rules?.mappings || cachedRules.mappings;
   const mapping = mappings[key] || mappings['_default'];
   if (!mapping) return templatePath;
 
@@ -980,7 +1064,7 @@ function resolvePathTarget(key, templatePath, rules) {
 
 function adaptPath(templatePath, existingPath, key, rules) {
   if (!templatePath) return templatePath;
-  const pathRules = rules || PATH_ADAPTATION_RULES;
+  const pathRules = rules || getCachedRule('PATH_ADAPTATION_RULES', PATH_ADAPTATION_RULES);
 
   if (isPathProblematic(templatePath)) {
     return resolvePathTarget(key, templatePath, pathRules);
@@ -1002,7 +1086,7 @@ function mergeConfigRecursive(existing, template, conflicts = [], path = '', pat
     return template;
   }
 
-  const rules = pathRules || PATH_ADAPTATION_RULES;
+  const rules = pathRules || getCachedRule('PATH_ADAPTATION_RULES', PATH_ADAPTATION_RULES);
   const result = Array.isArray(template) ? [...template] : { ...existing };
 
   for (const [key, templateValue] of Object.entries(template)) {
@@ -1378,8 +1462,8 @@ const PROXY_RULES = {
     providerOps: [
       { path: 'baseUrl', restoreFrom: '_originalBaseUrl' },
       { path: 'apiKey', restoreFrom: '_originalApiKey' },
-      { path: '_originalBaseUrl': null },
-      { path: '_originalApiKey': null },
+      { path: '_originalBaseUrl', op: 'delete' },
+      { path: '_originalApiKey', op: 'delete' },
       { path: 'api', op: 'delete', ifValue: 'openai-completions' },
     ],
     removeEmptyProviders: true,
@@ -1536,7 +1620,7 @@ app.post('/config/import', (req, res) => {
   try {
     addLog('INFO', '========== 开始应用模板配置 ==========');
     const { config, env, mergeStrategy, fileContents, applyOptions, configMigration } = req.body;
-    const pathRules = configMigration?.pathAdaptation || PATH_ADAPTATION_RULES;
+    const pathRules = configMigration?.pathAdaptation || getCachedRule('PATH_ADAPTATION_RULES', PATH_ADAPTATION_RULES);
 
     // Determine which directories to actually write based on applyOptions
     // If not provided, fallback to the full list defined in the manifest
@@ -1775,7 +1859,13 @@ const FORCE_EXCLUDED_DIRS = ['credentials'];
 function discoverCategories(stateDir, config, baseManifest) {
   addTaggedLog('INFO', '[DISCOVER]', `开始扫描状态目录: ${stateDir}`);
 
-  const excludedDirs = [...DEFAULT_EXCLUDED_DIRS];
+  const cachedDefaultExcludedDirs = getCachedRule('DEFAULT_EXCLUDED_DIRS', DEFAULT_EXCLUDED_DIRS);
+  const cachedForceExcludedDirs = getCachedRule('FORCE_EXCLUDED_DIRS', FORCE_EXCLUDED_DIRS);
+  const cachedDefaultManifest = getCachedRule('DEFAULT_TEMPLATE_MANIFEST', DEFAULT_TEMPLATE_MANIFEST);
+  const cachedNormalizePaths = cachedDefaultManifest.normalizePaths || {};
+
+  const excludedDirs = [...cachedDefaultExcludedDirs];
+  const excludedSet = new Set(cachedForceExcludedDirs);
   if (baseManifest?.excludedDirs) {
     for (const d of baseManifest.excludedDirs) {
       if (!excludedDirs.includes(d)) excludedDirs.push(d);
@@ -1783,12 +1873,7 @@ function discoverCategories(stateDir, config, baseManifest) {
   }
 
   const categories = [];
-  const normalizePaths = {
-    'agents.defaults.workspace': 'workspace',
-    'agents.list[].workspace': 'workspace-{agentId}',
-    'session.store': 'agents/{agentId}/sessions/sessions.json',
-    'logging.file': 'logs/openclaw.log'
-  };
+  const normalizePaths = { ...cachedNormalizePaths };
   if (baseManifest?.normalizePaths) {
     Object.assign(normalizePaths, baseManifest.normalizePaths);
   }
@@ -1851,7 +1936,7 @@ function discoverCategories(stateDir, config, baseManifest) {
       for (const entry of entries) {
         if (entry.isDirectory()) {
           totalDirs++;
-          if (!excludedDirs.includes(entry.name) && !associatedDirs.has(entry.name)) {
+          if (!excludedDirs.includes(entry.name) && !excludedSet.has(entry.name) && !associatedDirs.has(entry.name)) {
             categories.push({
               name: entry.name,
               label: `自定义目录: ${entry.name}`,
@@ -1933,7 +2018,7 @@ function bundleFiles(stateDir, categories, selectedCategories) {
   const fileContents = {};
   const fileList = {};
   const selectedSet = selectedCategories ? new Set(selectedCategories) : null;
-  const excludedPatterns = ['.git', '.gitignore', '.gitattributes', 'node_modules', '.DS_Store', 'Thumbs.db', 'sessions', '.jsonl', '.deleted.', '.session', '.bak', '.bak.', '.clobbered.', '.fixed', '手动备份'];
+  const cachedExcludedPatterns = getCachedRule('EXCLUDED_PATTERNS', excludedPatterns);
 
   for (const cat of categories) {
     if (selectedSet && !selectedSet.has(cat.name)) continue;
@@ -1947,7 +2032,7 @@ function bundleFiles(stateDir, categories, selectedCategories) {
         if (!existsSync(baseDir)) return;
         const entries = readdirSync(baseDir, { withFileTypes: true });
         for (const entry of entries) {
-          if (excludedPatterns.includes(entry.name)) continue;
+          if (cachedExcludedPatterns.includes(entry.name)) continue;
           const entryFullPath = join(baseDir, entry.name);
           const entryRelPath = join(currentRelPath, entry.name);
           if (entry.isFile()) {
@@ -2391,18 +2476,19 @@ app.post('/template/export', (req, res) => {
         manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'));
       }
     } else if (categories && Array.isArray(categories)) {
+      const cachedManifest = getCachedRule('DEFAULT_TEMPLATE_MANIFEST', DEFAULT_TEMPLATE_MANIFEST);
       manifest = {
         templateManifest: {
           name: 'temp-export',
           isDefault: false,
           categories,
-          normalizePaths: {
+          normalizePaths: cachedManifest.normalizePaths || {
             'agents.defaults.workspace': 'workspace',
             'agents.list[].workspace': 'workspace-{agentId}',
             'session.store': 'agents/{agentId}/sessions/sessions.json',
             'logging.file': 'logs/openclaw.log'
           },
-          excludedDirs: ['credentials', 'logs', 'bin', 'tools', 'private_templates', 'manifests', 'snapshots', 'apply_records']
+          excludedDirs: cachedManifest.excludedDirs || ['credentials', 'logs', 'bin', 'tools', 'private_templates', 'manifests', 'snapshots', 'apply_records']
         }
       };
     }
@@ -2428,7 +2514,7 @@ app.post('/template/export', (req, res) => {
     let config = null;
     if (existsSync(OPENCLAW_CONFIG_FILE)) {
       config = JSON.parse(readFileSync(OPENCLAW_CONFIG_FILE, 'utf-8'));
-      config = normalizeConfigPathsForExport(config, OPENCLAW_CONFIG_DIR);
+      config = normalizeConfigPathsForExport(config, OPENCLAW_CONFIG_DIR, tm.normalizePaths);
       config = redactSensitiveFields(config);
       addTaggedLog('INFO', '[EXPORT]', '配置已归一化并脱敏');
     }
@@ -2489,7 +2575,7 @@ app.post('/template/apply', async (req, res) => {
     const fileContents = templateData.fileContents || templateData.filePayload || {};
     const templateConfig = templateData.config;
     const configMigration = templateData.configMigration;
-    const pathRules = configMigration?.pathAdaptation || PATH_ADAPTATION_RULES;
+    const pathRules = configMigration?.pathAdaptation || getCachedRule('PATH_ADAPTATION_RULES', PATH_ADAPTATION_RULES);
 
     const { snapshot, snapshotPath } = createApplySnapshot(
       OPENCLAW_CONFIG_DIR,
@@ -2861,8 +2947,9 @@ app.post('/config/proxy', (req, res) => {
     if (!config.models) config.models = {};
     if (!config.models.providers) config.models.providers = {};
 
-    const providerNames = PROXY_RULES.providers;
-    const rules = enabled ? PROXY_RULES.enable : PROXY_RULES.disable;
+    const proxyRules = getCachedRule('PROXY_RULES', PROXY_RULES);
+    const providerNames = proxyRules.providers;
+    const rules = enabled ? proxyRules.enable : proxyRules.disable;
     const vars = { serverUrl, userToken: userToken || 'proxy', _providers: providerNames };
 
     if (enabled && !serverUrl) {
@@ -2938,6 +3025,15 @@ app.get('/config/proxy', (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`OpenClaw Launcher running on port ${PORT}`);
+  try {
+    await fetchSystemConfigFromServer();
+    await fetchMigrationRulesFromServer();
+    await fetchSystemRulesFromServer();
+    addLog('INFO', `[system_config] 规则加载完成，共缓存 ${Object.keys(SYSTEM_CONFIG_CACHE).length} 条规则`);
+  } catch (err) {
+    addLog('ERROR', `[system_config] 启动失败: ${err.message}`);
+    process.exit(1);
+  }
 });

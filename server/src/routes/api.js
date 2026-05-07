@@ -927,6 +927,129 @@ router.post('/config/cli/all', authMiddleware, async (req, res) => {
   }
 });
 
+router.get('/system-config', async (req, res) => {
+  try {
+    const db = require('../db');
+    const { category } = req.query;
+    let sql = 'SELECT id, category, name, value, description, is_active, version, updated_at FROM system_config';
+    const params = [];
+    if (category) {
+      sql += ' WHERE category = ?';
+      params.push(category);
+    }
+    sql += ' ORDER BY category, name';
+    const rows = await db.query(sql, params);
+    const result = rows.map(r => ({
+      ...r,
+      value: typeof r.value === 'string' ? JSON.parse(r.value) : r.value
+    }));
+    res.json({ success: true, data: result });
+  } catch (err) {
+    console.error('获取系统配置失败:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.get('/system-config/:category/:name', async (req, res) => {
+  try {
+    const db = require('../db');
+    const { category, name } = req.params;
+    const [row] = await db.query(
+      'SELECT id, category, name, value, description, is_active, version, updated_at FROM system_config WHERE category = ? AND name = ?',
+      [category, name]
+    );
+    if (!row) {
+      return res.status(404).json({ success: false, error: '规则不存在' });
+    }
+    res.json({
+      success: true,
+      data: {
+        ...row,
+        value: typeof row.value === 'string' ? JSON.parse(row.value) : row.value
+      }
+    });
+  } catch (err) {
+    console.error('获取系统配置详情失败:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.put('/system-config/:category/:name', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const db = require('../db');
+    const { category, name } = req.params;
+    const { value, description, is_active, version } = req.body;
+    const [existing] = await db.query(
+      'SELECT id FROM system_config WHERE category = ? AND name = ?',
+      [category, name]
+    );
+    if (!existing) {
+      return res.status(404).json({ success: false, error: '规则不存在' });
+    }
+    const valueJson = (value !== undefined) ? JSON.stringify(value) : undefined;
+    const descriptionStr = description !== undefined ? description : null;
+    const isActiveVal = is_active !== undefined ? (is_active ? 1 : 0) : undefined;
+    const versionVal = version !== undefined ? version : undefined;
+
+    const updates = [];
+    const params = [];
+    if (valueJson !== undefined) { updates.push('value = ?'); params.push(valueJson); }
+    if (descriptionStr !== undefined) { updates.push('description = ?'); params.push(descriptionStr); }
+    if (isActiveVal !== undefined) { updates.push('is_active = ?'); params.push(isActiveVal); }
+    if (versionVal !== undefined) { updates.push('version = ?'); params.push(versionVal); }
+
+    if (updates.length > 0) {
+      params.push(category, name);
+      await db.query(`UPDATE system_config SET ${updates.join(', ')} WHERE category = ? AND name = ?`, params);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('更新系统配置失败:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.post('/system-config', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const db = require('../db');
+    const { category, name, value, description } = req.body;
+    if (!category || !name || value === undefined) {
+      return res.status(400).json({ success: false, error: 'category、name、value 为必填项' });
+    }
+    const valueJson = JSON.stringify(value);
+    await db.query(
+      'INSERT INTO system_config (category, name, value, description) VALUES (?, ?, ?, ?)',
+      [category, name, valueJson, description || null]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ success: false, error: '规则已存在' });
+    }
+    console.error('创建系统配置失败:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.delete('/system-config/:category/:name', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const db = require('../db');
+    const { category, name } = req.params;
+    const [existing] = await db.query(
+      'SELECT id FROM system_config WHERE category = ? AND name = ?',
+      [category, name]
+    );
+    if (!existing) {
+      return res.status(404).json({ success: false, error: '规则不存在' });
+    }
+    await db.query('DELETE FROM system_config WHERE category = ? AND name = ?', [category, name]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('删除系统配置失败:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 const ALLOWED_CLI_COMMANDS = [
   'openclaw channels login',
   'openclaw channels status',

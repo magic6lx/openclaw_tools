@@ -79,6 +79,11 @@ const MainLayout = ({ children }) => {
       label: '模板配置',
     },
     {
+      key: '/admin/system-config',
+      icon: <AppstoreOutlined />,
+      label: '规则配置',
+    },
+    {
       key: '/clients',
       icon: <DesktopOutlined />,
       label: '客户端管理',
