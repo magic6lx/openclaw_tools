@@ -435,7 +435,7 @@ function Templates() {
         const sourceInfo = data.manifestName ? `Manifest[${data.manifestName}]` : '默认';
         message.success(`本地配置已加载（${sourceInfo}，${Object.keys(data.fileContents || {}).length}个文件）`);
       } else {
-        message.warning(data.message || '本地配置文件不存在');
+        message.warning(data.error || '本地配置文件不存在');
       }
     } catch (err) {
       message.error(`加载本地配置失败: ${err.message}`);
