@@ -798,7 +798,7 @@ app.get('/config/export', (req, res) => {
 
     res.json(result);
   } catch (err) {
-    res.json({ success: false, error: `${err.message} (${err.stack})` });
+    res.json({ success: false, error: String(err.message) + ' :: ' + String(err.stack) });
   }
 });
 
