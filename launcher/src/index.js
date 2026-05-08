@@ -837,12 +837,14 @@ app.post('/config/export', (req, res) => {
 
     const filesToBundle = {};
     const cachedExcludedPatterns = getCachedRule('EXCLUDED_PATTERNS', excludedPatterns);
+    const cachedDefaultExcludedDirs = getCachedRule('DEFAULT_EXCLUDED_DIRS', DEFAULT_EXCLUDED_DIRS);
+    const allExcludedNames = new Set([...cachedExcludedPatterns, ...cachedDefaultExcludedDirs]);
 
     function readAndEncodeFilesFromDir(baseDir, relativePath = '') {
       if (!existsSync(baseDir)) return;
       const entries = readdirSync(baseDir, { withFileTypes: true });
       for (const entry of entries) {
-        if (cachedExcludedPatterns.includes(entry.name)) continue;
+        if (allExcludedNames.has(entry.name)) continue;
         const fullPath = join(baseDir, entry.name);
         const currentRelativePath = join(relativePath, entry.name);
         if (entry.isFile()) {
@@ -2029,6 +2031,8 @@ function bundleFiles(stateDir, categories, selectedCategories) {
   const fileList = {};
   const selectedSet = selectedCategories ? new Set(selectedCategories) : null;
   const cachedExcludedPatterns = getCachedRule('EXCLUDED_PATTERNS', excludedPatterns);
+  const cachedDefaultExcludedDirs = getCachedRule('DEFAULT_EXCLUDED_DIRS', DEFAULT_EXCLUDED_DIRS);
+  const allExcludedNames = new Set([...cachedExcludedPatterns, ...cachedDefaultExcludedDirs]);
 
   for (const cat of categories) {
     if (selectedSet && !selectedSet.has(cat.name)) continue;
@@ -2042,7 +2046,7 @@ function bundleFiles(stateDir, categories, selectedCategories) {
         if (!existsSync(baseDir)) return;
         const entries = readdirSync(baseDir, { withFileTypes: true });
         for (const entry of entries) {
-          if (cachedExcludedPatterns.includes(entry.name)) continue;
+          if (allExcludedNames.has(entry.name)) continue;
           const entryFullPath = join(baseDir, entry.name);
           const entryRelPath = join(currentRelPath, entry.name);
           if (entry.isFile()) {
