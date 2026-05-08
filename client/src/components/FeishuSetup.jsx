@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Steps, Button, Input, Select, Switch, Space, Typography, Alert, Divider, message, Tag, Result, Descriptions, Spin, Row, Col } from 'antd';
 import { CheckCircleOutlined, RightOutlined, LinkOutlined, CopyOutlined, QrcodeOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { LAUNCHER_API, launcherFetch } from '../utils/launcher';
 
 const { Title, Text, Paragraph } = Typography;
 const { Option } = Select;
-const LAUNCHER_API = 'http://127.0.0.1:3003';
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
 const FEISHU_DOCS_URL = 'https://docs.openclaw.ai/zh-CN/channels/feishu';
@@ -72,7 +72,7 @@ function FeishuSetup({ currentConfig, onConfigSaved }) {
         channels: newChannels
       };
 
-      const res = await fetch(`${LAUNCHER_API}/config/import`, {
+      const res = await launcherFetch('/config/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ config: partialConfig })
@@ -100,7 +100,7 @@ function FeishuSetup({ currentConfig, onConfigSaved }) {
       const headers = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const res = await fetch(`${LAUNCHER_API}/api/cli/exec`, {
+      const res = await launcherFetch('/api/cli/exec', {
         method: 'POST',
         headers,
         body: JSON.stringify({ command: 'openclaw channels login --channel feishu' })

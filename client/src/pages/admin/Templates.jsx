@@ -8,7 +8,7 @@ import { useConfig, mergeWithDefaults } from '../../hooks/useConfig';
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
-const LAUNCHER_API = 'http://127.0.0.1:3003';
+import { LAUNCHER_API, launcherFetch } from '../../utils/launcher';
 
 function Templates() {
   const { user } = useAuth();
@@ -68,7 +68,7 @@ function Templates() {
 
   const fetchManifests = async () => {
     try {
-      const res = await fetch(`${LAUNCHER_API}/template/manifests`);
+      const res = await launcherFetch('/template/manifests');
       const data = await res.json();
       if (data.success) {
         setManifests(data.manifests || []);
@@ -77,7 +77,7 @@ function Templates() {
         console.warn('[Manifest] 获取列表失败:', data.error);
       }
     } catch (err) {
-      console.error('[Manifest] 获取列表失败:', err);
+      console.warn('[Manifest] 获取列表跳过:', err.message);
     }
   };
 
@@ -85,7 +85,7 @@ function Templates() {
     setDiscovering(true);
     setDiscoverModalVisible(true);
     try {
-      const res = await fetch(`${LAUNCHER_API}/template/discover`, {
+      const res = await launcherFetch('/template/discover', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({})
@@ -155,7 +155,7 @@ function Templates() {
           excludedDirs: ['credentials', 'logs', 'bin', 'tools', 'private_templates', 'manifests', 'snapshots', 'apply_records']
         }
       };
-      const res = await fetch(`${LAUNCHER_API}/template/manifest/save`, {
+      const res = await launcherFetch('/template/manifest/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ manifest })
@@ -174,7 +174,7 @@ function Templates() {
 
   const handleDeleteManifest = async (name) => {
     try {
-      const res = await fetch(`${LAUNCHER_API}/template/manifest/${name}`, {
+      const res = await launcherFetch(`/template/manifest/${name}`, {
         method: 'DELETE'
       });
       const data = await res.json();
@@ -191,7 +191,7 @@ function Templates() {
 
   const handleViewManifest = async (name) => {
     try {
-      const res = await fetch(`${LAUNCHER_API}/template/manifest/${name}`);
+      const res = await launcherFetch(`/template/manifest/${name}`);
       const data = await res.json();
       if (data.success && data.manifest) {
         setViewManifestData(data.manifest);
@@ -207,7 +207,7 @@ function Templates() {
   const handleExportTemplate = async (manifestNameToUse) => {
     setExporting(true);
     try {
-      const res = await fetch(`${LAUNCHER_API}/template/export`, {
+      const res = await launcherFetch('/template/export', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ manifestName: manifestNameToUse || undefined })
@@ -421,7 +421,7 @@ function Templates() {
   const handleLoadLauncherConfig = async () => {
     setLauncherConfigLoading(true);
     try {
-      const res = await fetch(`${LAUNCHER_API}/config/export`, {
+      const res = await launcherFetch('/config/export', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ manifestName: selectedManifestForTemplate || undefined })
@@ -457,7 +457,7 @@ function Templates() {
         const token = localStorage.getItem('token');
   
         // Step 1: Get complete config from launcher, including fileContents
-        const launcherExportRes = await fetch(`${LAUNCHER_API}/config/export`, {
+        const launcherExportRes = await launcherFetch('/config/export', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ manifestName: selectedManifestForTemplate || undefined })
@@ -514,7 +514,7 @@ function Templates() {
           env: currentEnv ? JSON.stringify(cleanObj(currentEnv)) : null,
           filePayload: cleanedFileContents ? JSON.stringify(cleanedFileContents) : null,
           manifest: selectedManifestForTemplate ? (async () => {
-            const manifestRes = await fetch(`${LAUNCHER_API}/template/manifest/${encodeURIComponent(selectedManifestForTemplate)}`);
+            const manifestRes = await launcherFetch(`/template/manifest/${encodeURIComponent(selectedManifestForTemplate)}`);
             const manifestData = await manifestRes.json();
             if (manifestData.success && manifestData.manifest) {
               return JSON.stringify(manifestData.manifest);

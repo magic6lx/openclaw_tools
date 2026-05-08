@@ -4,7 +4,7 @@ import { DownloadOutlined, SettingOutlined, PlayCircleOutlined, CheckCircleOutli
 import { Link, useNavigate } from 'react-router-dom';
 
 const { Title, Text, Paragraph } = Typography;
-const LAUNCHER_API = 'http://127.0.0.1:3003';
+import { LAUNCHER_API, launcherFetch } from '../utils/launcher';
 const LAUNCHER_LAUNCH_URL = 'openclaw://launch';
 const LAUNCHER_INSTALL_PATH = 'C:\\Program Files\\OpenClaw\\launcher.exe';
 
@@ -23,7 +23,7 @@ function Home() {
 
   const checkLauncherStatus = async () => {
     try {
-      const res = await fetch(`${LAUNCHER_API}/status`, { timeout: 3000 });
+      const res = await launcherFetch('/status');
       if (res.ok) {
         const data = await res.json();
         setLauncherStatus('online');

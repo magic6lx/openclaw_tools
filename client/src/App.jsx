@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { launcherFetch } from './utils/launcher';
 import Home from './pages/Home';
 import Install from './pages/Install';
 import Operations from './pages/Operations';
@@ -53,14 +54,13 @@ function AppRoutes() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
 
-  // Register device when user logs in
   useEffect(() => {
     const registerDevice = async () => {
       if (user) {
         try {
-          const launcherStatusRes = await fetch(`http://127.0.0.1:3003/status`);
-          const launcherStatus = await launcherStatusRes.json();
-          const deviceId = launcherStatus.deviceId; // Assuming deviceId is available in launcher status
+          const launcherStatus = await launcherFetch('/status');
+          const launcherData = await launcherStatus.json();
+          const deviceId = launcherData.deviceId;
           console.log('从Launcher获取到设备ID:', deviceId);
           
           if (deviceId) {
@@ -81,7 +81,7 @@ function AppRoutes() {
             }
           }
         } catch (error) {
-          console.error('设备注册/更新失败:', error);
+          console.warn('设备注册跳过:', error.message);
         }
       }
     };

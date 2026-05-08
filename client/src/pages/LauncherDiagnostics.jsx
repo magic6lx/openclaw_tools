@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { Card, Typography, Button, Space, Tag, message, Descriptions, Alert, Divider, List } from 'antd';
 import { BugOutlined, CheckCircleOutlined, CloseCircleOutlined, RocketOutlined, FileTextOutlined } from '@ant-design/icons';
+import { LAUNCHER_API, launcherFetch } from '../utils/launcher';
 
 const { Title, Text, Paragraph } = Typography;
 
 const LAUNCHER_ENDPOINTS = [
-  { url: 'http://127.0.0.1:3003/status', name: '127.0.0.1:3003/status' },
-  { url: 'http://localhost:3003/status', name: 'localhost:3003/status' },
+  { url: `${LAUNCHER_API.replace(/\/$/, '')}/status`, name: `${new URL(LAUNCHER_API).host}/status` },
   { url: 'http://127.0.0.1:18789/status', name: '127.0.0.1:18789/status' },
   { url: 'http://localhost:18789/status', name: 'localhost:18789/status' },
 ];
@@ -73,14 +73,7 @@ function LauncherDiagnostics() {
   const fetchLogs = async () => {
     setLoadingLogs(true);
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-      const res = await fetch('http://127.0.0.1:3003/logs?limit=50', {
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
-
+      const res = await launcherFetch('/logs?limit=50');
       if (res.ok) {
         const data = await res.json();
         setLogs(data.logs || []);

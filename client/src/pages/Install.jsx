@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Typography, Button, Space, Tag, message, Steps, Spin, Descriptions, Divider, Progress } from 'antd';
 import { SyncOutlined, CheckCircleOutlined, LoadingOutlined, RocketOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import { launcherFetch } from '../utils/launcher';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -12,8 +13,6 @@ function Install() {
   const [versionInfo, setVersionInfo] = useState(null);
   const [statusInterval, setStatusInterval] = useState(null);
 
-  const LAUNCHER_API = 'http://127.0.0.1:3003';
-
   const addLog = (level, msg) => {
     const time = new Date().toLocaleTimeString();
     setLogs(prev => [...prev, { time, level, msg }]);
@@ -21,7 +20,7 @@ function Install() {
 
   const fetchInstallStatus = async () => {
     try {
-      const res = await fetch(`${LAUNCHER_API}/install/status`);
+      const res = await launcherFetch('/install/status');
       const data = await res.json();
       if (data.logs && data.logs.length > 0) {
         setLogs(data.logs.map(l => ({
@@ -51,7 +50,7 @@ function Install() {
     addLog('INFO', '正在检测 OpenClaw 版本...');
 
     try {
-      const res = await fetch(`${LAUNCHER_API}/version`);
+      const res = await launcherFetch('/version');
       const data = await res.json();
 
       if (data.installed) {
@@ -90,7 +89,7 @@ function Install() {
     addLog('INFO', '正在连接 Launcher...');
 
     try {
-      const res = await fetch(`${LAUNCHER_API}/install/start`, { method: 'POST' });
+      const res = await launcherFetch('/install/start', { method: 'POST' });
       const data = await res.json();
 
       if (!data.success && data.message === '安装已在进行中') {

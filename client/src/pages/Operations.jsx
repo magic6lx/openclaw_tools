@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, Typography, Row, Col, Button, Space, Tag, message, Modal, Spin } from 'antd';
 import { PlayCircleOutlined, StopOutlined, SyncOutlined, ExclamationCircleOutlined, DeleteOutlined } from '@ant-design/icons';
+import { LAUNCHER_API, launcherFetch } from '../utils/launcher';
 
 const { Title, Text, Paragraph } = Typography;
-const LAUNCHER_API = 'http://127.0.0.1:3003';
 
 function Operations() {
   const [gatewayStatus, setGatewayStatus] = useState('stopped');
@@ -19,16 +19,7 @@ function Operations() {
   const checkLauncherStatus = useCallback(async () => {
     setLoading(true);
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
-
-      const res = await fetch(`${LAUNCHER_API}/status`, {
-        signal: controller.signal,
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' }
-      });
-
-      clearTimeout(timeoutId);
+      const res = await launcherFetch('/status');
 
       if (res.ok) {
         const data = await res.json();
@@ -54,7 +45,7 @@ function Operations() {
 
   const fetchLogs = useCallback(async () => {
     try {
-      const res = await fetch(`${LAUNCHER_API}/logs?limit=50`);
+      const res = await launcherFetch('/logs?limit=50');
       const data = await res.json();
       if (data.logs && data.logs.length > 0) {
         setLogs(data.logs.reverse());
@@ -98,7 +89,7 @@ function Operations() {
 
     try {
       const endpoint = action === 'start' ? '/gateway/start' : action === 'stop' ? '/gateway/stop' : '/gateway/restart';
-      const res = await fetch(`${LAUNCHER_API}${endpoint}`, { method: 'POST' });
+      const res = await launcherFetch(endpoint, { method: 'POST' });
       const data = await res.json();
 
       if (data.success) {

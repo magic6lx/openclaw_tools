@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { CONFIG_SCHEMA } from '../config/schema';
+import { LAUNCHER_API, launcherFetch } from '../utils/launcher';
 
-const LAUNCHER_API = 'http://127.0.0.1:3003';
 const SERVER_API = import.meta.env.VITE_API_BASE_URL || '';
 
 export function getDefaultConfig() {
@@ -109,7 +109,7 @@ export function useConfig() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${LAUNCHER_API}/config/export`);
+      const res = await launcherFetch('/config/export');
       const data = await res.json();
       if (data.success) {
         const configData = data.config?.config || data.data?.config || data.config;

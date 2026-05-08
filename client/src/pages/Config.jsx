@@ -5,7 +5,7 @@ import QuickSettings from '../components/QuickSettings';
 import { useConfig } from '../hooks/useConfig';
 
 const { Title, Text, Paragraph } = Typography;
-const LAUNCHER_API = 'http://127.0.0.1:3003';
+import { LAUNCHER_API, launcherFetch } from '../utils/launcher';
 const SERVER_API = import.meta.env.VITE_API_BASE_URL || '';
 
 function Config() {
@@ -62,7 +62,7 @@ function Config() {
     }
 
     try {
-      const launcherRes = await fetch(`${LAUNCHER_API}/config/proxy`);
+      const launcherRes = await launcherFetch(`/config/proxy`);
       const launcherData = await launcherRes.json();
       if (launcherData.success && launcherData.enabled !== serverEnabled) {
         setProxyEnabled(launcherData.enabled);
@@ -94,7 +94,7 @@ function Config() {
       const data = await res.json();
       if (data.success) {
         try {
-          const launcherRes = await fetch(`${LAUNCHER_API}/config/proxy`, {
+          const launcherRes = await launcherFetch(`/config/proxy`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -124,7 +124,7 @@ function Config() {
   const handleSanitizeConfig = async () => {
     setSanitizing(true);
     try {
-      const res = await fetch(`${LAUNCHER_API}/api/cli/exec`, {
+      const res = await launcherFetch(`/api/cli/exec`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ command: 'openclaw doctor --fix --non-interactive' })
@@ -178,7 +178,7 @@ function Config() {
 
   const fetchPrivateTemplates = async () => {
     try {
-      const res = await fetch(`${LAUNCHER_API}/config/private-templates`);
+      const res = await launcherFetch(`/config/private-templates`);
       const data = await res.json();
       if (data.success && data.templates) {
         setPrivateTemplates(data.templates);
@@ -203,7 +203,7 @@ function Config() {
 
   const fetchSnapshots = async () => {
     try {
-      const res = await fetch(`${LAUNCHER_API}/template/snapshots`);
+      const res = await launcherFetch(`/template/snapshots`);
       const data = await res.json();
       if (data.success) {
         setSnapshots(data.snapshots || []);
@@ -215,7 +215,7 @@ function Config() {
 
   const fetchApplyRecords = async () => {
     try {
-      const res = await fetch(`${LAUNCHER_API}/template/apply-records`);
+      const res = await launcherFetch(`/template/apply-records`);
       const data = await res.json();
       if (data.success) {
         setApplyRecords(data.records || []);
@@ -273,7 +273,7 @@ function Config() {
         setApplyingWithCategories(true);
         try {
           const token = localStorage.getItem('token');
-          const res = await fetch(`${LAUNCHER_API}/template/apply`, {
+          const res = await launcherFetch(`/template/apply`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -337,7 +337,7 @@ function Config() {
       onOk: async () => {
         setRollingBack(true);
         try {
-          const res = await fetch(`${LAUNCHER_API}/template/snapshot/${snapshotId}/rollback`, {
+          const res = await launcherFetch(`/template/snapshot/${snapshotId}/rollback`, {
             method: 'POST'
           });
           const data = await res.json();
@@ -358,7 +358,7 @@ function Config() {
 
   const handleDeleteSnapshot = async (snapshotId) => {
     try {
-      const res = await fetch(`${LAUNCHER_API}/template/snapshot/${snapshotId}`, {
+      const res = await launcherFetch(`/template/snapshot/${snapshotId}`, {
         method: 'DELETE'
       });
       const data = await res.json();
@@ -393,7 +393,7 @@ function Config() {
       onOk: async () => {
         setSyncing(true);
         try {
-          const res = await fetch(`${LAUNCHER_API}/config/private-template`, {
+          const res = await launcherFetch(`/config/private-template`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -440,7 +440,7 @@ function Config() {
       onOk: async () => {
         setApplying(true);
         try {
-          const res = await fetch(`${LAUNCHER_API}/config/import`, {
+          const res = await launcherFetch(`/config/import`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ config: selectedPrivateTemplate.config, env: selectedPrivateTemplate.env, fileContents: selectedPrivateTemplate.filePayload })
@@ -467,7 +467,7 @@ function Config() {
       content: '确定要删除私有模板吗？删除后无法恢复。',
       onOk: async () => {
         try {
-          const res = await fetch(`${LAUNCHER_API}/config/private-template/${id}`, {
+          const res = await launcherFetch(`/config/private-template/${id}`, {
             method: 'DELETE'
           });
           const data = await res.json();
@@ -529,7 +529,7 @@ function Config() {
         setApplying(true);
         try {
           if (localConfig) {
-            await fetch(`${LAUNCHER_API}/config/private-template`, {
+            await launcherFetch(`/config/private-template`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -540,7 +540,7 @@ function Config() {
               })
             });
           }
-          const res = await fetch(`${LAUNCHER_API}/config/import`, {
+          const res = await launcherFetch(`/config/import`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ config: partialConfig, env: template.env, fileContents: template.filePayload })
