@@ -670,6 +670,10 @@ app.get('/config/export', (req, res) => {
     };
 
     if (existsSync(OPENCLAW_CONFIG_FILE)) {
+      const stat = statSync(OPENCLAW_CONFIG_FILE);
+      if (stat.size > 10 * 1024 * 1024) {
+        return res.json({ success: false, error: '[GET /config/export] 配置文件过大: ' + stat.size + ' bytes，最大允许 10MB' });
+      }
       result.config = JSON.parse(readFileSync(OPENCLAW_CONFIG_FILE, 'utf-8'));
       result.source = 'openclaw';
     }
@@ -798,7 +802,9 @@ app.get('/config/export', (req, res) => {
 
     res.json(result);
   } catch (err) {
-    res.json({ success: false, error: String(err.message) + ' :: ' + String(err.stack) });
+    const msg = err.message ? String(err.message).substring(0, 500) : 'unknown';
+    const stack = err.stack ? String(err.stack).substring(0, 1000) : '';
+    res.json({ success: false, error: '[POST /config/export] ' + msg + (stack ? ' :: ' + stack : '') });
   }
 });
 
@@ -817,6 +823,10 @@ app.post('/config/export', (req, res) => {
     };
 
     if (existsSync(OPENCLAW_CONFIG_FILE)) {
+      const stat = statSync(OPENCLAW_CONFIG_FILE);
+      if (stat.size > 10 * 1024 * 1024) {
+        return res.json({ success: false, error: '[POST /config/export] 配置文件过大: ' + stat.size + ' bytes，最大允许 10MB' });
+      }
       result.config = JSON.parse(readFileSync(OPENCLAW_CONFIG_FILE, 'utf-8'));
       result.source = 'openclaw';
     }
