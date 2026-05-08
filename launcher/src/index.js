@@ -845,6 +845,10 @@ app.post('/config/export', (req, res) => {
         if (cachedExcludedPatterns.includes(entry.name)) continue;
         const fullPath = join(baseDir, entry.name);
         const currentRelativePath = join(relativePath, entry.name);
+        if (currentRelativePath.length > 200) {
+          addTaggedLog('WARN', '[EXPORT]', `跳过过长路径: ${currentRelativePath.substring(0, 80)}...`);
+          continue;
+        }
         if (entry.isFile()) {
           try {
             const stat = statSync(fullPath);
@@ -1862,7 +1866,7 @@ app.delete('/config/private-template/:id', (req, res) => {
 
 // ===== Template System APIs =====
 
-const excludedPatterns = ['.git', '.gitignore', '.gitattributes', 'node_modules', '.DS_Store', 'Thumbs.db', 'sessions', '.jsonl', '.deleted.', '.session', '.bak', '.bak.', '.clobbered.', '.fixed', '手动备份'];
+const excludedPatterns = ['.git', '.gitignore', '.gitattributes', 'node_modules', '.DS_Store', 'Thumbs.db', 'sessions', '.jsonl', '.deleted.', '.session', '.bak', '.bak.', '.clobbered.', '.fixed', '手动备份', 'backups', 'browser', 'CacheStorage', 'Service Worker', 'GPUCache', 'Code Cache', 'ImageCache', 'databases', 'IndexedDB', 'Local Storage'];
 const DEFAULT_EXCLUDED_DIRS = ['credentials', 'logs', 'bin', 'tools', 'private_templates', 'manifests', 'snapshots', 'apply_records'];
 const FORCE_EXCLUDED_DIRS = ['credentials'];
 
