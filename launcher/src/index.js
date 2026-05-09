@@ -2690,7 +2690,9 @@ app.post('/template/apply', async (req, res) => {
         addTaggedLog('INFO', '[APPLY]', `路径水合跳过: 用户选择保留本地路径配置`);
       }
 
+      console.log('[APPLY] 调用 applyBuiltinCleanup 前，finalConfig.models.useProxy =', finalConfig?.models?.useProxy);
       finalConfig = applyBuiltinCleanup(finalConfig);
+      console.log('[APPLY] 调用 applyBuiltinCleanup 后，finalConfig.models.useProxy =', finalConfig?.models?.useProxy);
       addTaggedLog('INFO', '[APPLY]', `配置清理完成，models.providers.volcengine.models=${JSON.stringify(finalConfig.models?.providers?.volcengine?.models)}`);
 
       if (!finalConfig.gateway) finalConfig.gateway = {};
