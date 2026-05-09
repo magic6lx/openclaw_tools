@@ -1543,16 +1543,17 @@ function validateAndCleanConfig(configPath) {
       env: { ...process.env, HOME: homedir, USERPROFILE: homedir },
       cwd: homedir
     });
+    addLog('INFO', '配置验证通过');
     return { valid: true };
   } catch (err) {
     const output = err.stdout || err.stderr || err.message || '';
     const invalidPaths = parseDoctorErrors(output);
     if (invalidPaths.length > 0) {
-      console.log(`[CLEANUP] 发现无效字段: ${invalidPaths.join(', ')}`);
+      addLog('WARN', `配置验证失败，发现无效字段: ${invalidPaths.join(', ')}`);
       const config = JSON.parse(readFileSync(configPath, 'utf-8'));
       const { config: cleaned, removed } = removeInvalidFields(config, invalidPaths);
       writeFileSync(configPath, JSON.stringify(cleaned, null, 2), 'utf-8');
-      console.log(`[CLEANUP] 已删除无效字段并保存`);
+      addLog('INFO', `已删除无效字段并保存配置`);
       
       // 生成修复建议
       const suggestions = [];
@@ -1566,8 +1567,14 @@ function validateAndCleanConfig(configPath) {
         }
       }
       
+      // 记录详细的修复建议到日志
+      if (suggestions.length > 0) {
+        addLog('INFO', `配置修复建议:\n${suggestions.join('\n')}`);
+      }
+      
       return { valid: false, cleaned: true, invalidPaths, removed, suggestions };
     }
+    addLog('ERROR', `配置验证失败: ${output.substring(0, 500)}`);
     return { valid: false, cleaned: false, error: output };
   }
 }

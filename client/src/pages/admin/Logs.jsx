@@ -40,6 +40,7 @@ function AdminLogs() {
     if (filters.level && log.level !== filters.level) return false;
     if (filters.source && log.source !== filters.source) return false;
     if (filters.deviceId && !log.device_id?.includes(filters.deviceId)) return false;
+    if (filters.configValidation && !log.message?.includes('配置验证') && !log.message?.includes('配置修复')) return false;
     return true;
   });
 
@@ -49,7 +50,17 @@ function AdminLogs() {
     { title: '邀请码', dataIndex: 'invitation_code', width: 120, render: code => code ? <Text copyable={{ text: code }}>{code}</Text> : <Text type="secondary">无</Text> },
     { title: '级别', dataIndex: 'level', width: 80, render: getLevelTag },
     { title: '来源', dataIndex: 'source', width: 100 },
-    { title: '内容', dataIndex: 'message', ellipsis: true }
+    { 
+      title: '内容', 
+      dataIndex: 'message', 
+      ellipsis: true,
+      render: (text) => {
+        if (text?.includes('配置修复建议')) {
+          return <Text type="warning">{text.substring(0, 100)}...</Text>;
+        }
+        return text;
+      }
+    }
   ];
 
   return (
@@ -76,7 +87,14 @@ function AdminLogs() {
             <Select.Option value="gateway">Gateway</Select.Option>
             <Select.Option value="client">Client</Select.Option>
           </Select>
-          <Button icon={<FilterOutlined />} onClick={() => setFilters({ level: '', source: '', deviceId: '' })}>
+          <Button 
+            type={filters.configValidation ? 'primary' : 'default'}
+            icon={<FilterOutlined />}
+            onClick={() => setFilters({...filters, configValidation: !filters.configValidation})}
+          >
+            配置验证日志
+          </Button>
+          <Button icon={<FilterOutlined />} onClick={() => setFilters({ level: '', source: '', deviceId: '', configValidation: false })}>
             清除筛选
           </Button>
         </Space>
@@ -90,8 +108,61 @@ function AdminLogs() {
           loading={loading}
           pagination={{ pageSize: 20, showSizeChanger: true }}
           size="small"
+          onRow={(record) => ({
+            onClick: () => setSelectedLog(record),
+            style: { cursor: 'pointer' }
+          })}
         />
       </Card>
+
+      <Modal
+        title="日志详情"
+        open={!!selectedLog}
+        onCancel={() => setSelectedLog(null)}
+        footer={null}
+        width={800}
+      >
+        {selectedLog && (
+          <div>
+            <Space direction="vertical" style={{ width: '100%' }} size="large">
+              <div>
+                <Text strong>时间：</Text>
+                <Text>{selectedLog.server_timestamp ? new Date(selectedLog.server_timestamp).toLocaleString() : '-'}</Text>
+              </div>
+              <div>
+                <Text strong>设备ID：</Text>
+                <Text copyable>{selectedLog.device_id || '-'}</Text>
+              </div>
+              <div>
+                <Text strong>邀请码：</Text>
+                <Text copyable>{selectedLog.invitation_code || '无'}</Text>
+              </div>
+              <div>
+                <Text strong>级别：</Text>
+                {getLevelTag(selectedLog.level)}
+              </div>
+              <div>
+                <Text strong>来源：</Text>
+                <Text>{selectedLog.source || '-'}</Text>
+              </div>
+              <div>
+                <Text strong>内容：</Text>
+                <pre style={{ 
+                  background: '#f5f5f5', 
+                  padding: 12, 
+                  borderRadius: 4, 
+                  maxHeight: 400, 
+                  overflow: 'auto',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word'
+                }}>
+                  {selectedLog.message}
+                </pre>
+              </div>
+            </Space>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
