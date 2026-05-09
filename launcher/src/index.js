@@ -353,9 +353,13 @@ app.post('/gateway/start', async (req, res) => {
       const cleaned = applyBuiltinCleanup(JSON.parse(JSON.stringify(rawConfig)));
       if (JSON.stringify(cleaned) !== JSON.stringify(rawConfig)) {
         writeFileSync(OPENCLAW_CONFIG_FILE, JSON.stringify(cleaned, null, 2), 'utf-8');
+        console.log('Gateway启动前：已清理 openclaw.json 中的无效字段（useProxy/providers.models）');
         addLog('INFO', 'Gateway启动前：已清理 openclaw.json 中的无效字段（useProxy/providers.models）');
+      } else {
+        console.log('Gateway启动前：配置无需清理');
       }
     } catch (e) {
+      console.log('Gateway启动前：清理配置失败:', e.message);
       addLog('WARN', `Gateway启动前：清理配置失败: ${e.message}`);
     }
   }
@@ -1467,11 +1471,11 @@ const DEFAULT_CLEANUP_RULES = {
 function applyBuiltinCleanup(config) {
   if (!config || typeof config !== 'object') return config;
   const rules = { ...DEFAULT_CLEANUP_RULES };
-  addTaggedLog('INFO', '[CLEANUP]', `开始清理配置，可用规则: ${JSON.stringify(Object.keys(rules))}`);
+  console.log(`[CLEANUP] 开始清理配置，可用规则: ${JSON.stringify(Object.keys(rules))}`);
   for (const [path, rule] of Object.entries(rules)) {
     if (path.includes('*')) {
       const expanded = expandWildcardPaths(config, path);
-      addTaggedLog('INFO', '[CLEANUP]', `通配符路径 ${path} 展开为: ${JSON.stringify(expanded)}`);
+      console.log(`[CLEANUP] 通配符路径 ${path} 展开为: ${JSON.stringify(expanded)}`);
       for (const realPath of expanded) {
         applyRuleOp(config, realPath, rule);
       }
@@ -1479,7 +1483,7 @@ function applyBuiltinCleanup(config) {
       applyRuleOp(config, path, rule);
     }
   }
-  addTaggedLog('INFO', '[CLEANUP]', `清理后 useProxy=${config.models?.useProxy}, volcengine.models=${JSON.stringify(config.models?.providers?.volcengine?.models)}`);
+  console.log(`[CLEANUP] 清理后 useProxy=${config.models?.useProxy}, volcengine.models=${JSON.stringify(config.models?.providers?.volcengine?.models)}`);
   return config;
 }
 
