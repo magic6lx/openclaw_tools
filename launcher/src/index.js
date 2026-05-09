@@ -2687,7 +2687,7 @@ app.post('/template/apply', async (req, res) => {
       }
 
       finalConfig = applyBuiltinCleanup(finalConfig);
-      addTaggedLog('INFO', '[APPLY]', `配置清理完成`);
+      addTaggedLog('INFO', '[APPLY]', `配置清理完成，models.providers.volcengine.models=${JSON.stringify(finalConfig.models?.providers?.volcengine?.models)}`);
 
       if (!finalConfig.gateway) finalConfig.gateway = {};
       if (!finalConfig.gateway.auth) finalConfig.gateway.auth = {};
