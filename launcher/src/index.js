@@ -358,6 +358,20 @@ app.post('/gateway/start', async (req, res) => {
       } else {
         console.log('Gateway启动前：配置无需清理');
       }
+      // 验证并清理其他无效字段
+      console.log('Gateway启动前：验证配置有效性...');
+      let validationResult = validateAndCleanConfig(OPENCLAW_CONFIG_FILE);
+      let retryCount = 0;
+      while (!validationResult.valid && validationResult.cleaned && retryCount < 5) {
+        retryCount++;
+        console.log(`Gateway启动前：第 ${retryCount} 次清理后重新验证...`);
+        validationResult = validateAndCleanConfig(OPENCLAW_CONFIG_FILE);
+      }
+      if (validationResult.valid) {
+        console.log('Gateway启动前：配置验证通过');
+      } else if (validationResult.invalidPaths) {
+        console.log(`Gateway启动前：配置仍有无效字段: ${validationResult.invalidPaths.join(', ')}`);
+      }
     } catch (e) {
       console.log('Gateway启动前：清理配置失败:', e.message);
       addLog('WARN', `Gateway启动前：清理配置失败: ${e.message}`);
@@ -1485,6 +1499,61 @@ function applyBuiltinCleanup(config) {
   }
   console.log(`[CLEANUP] 清理后 useProxy=${config.models?.useProxy}, volcengine.models=${JSON.stringify(config.models?.providers?.volcengine?.models)}`);
   return config;
+}
+
+function parseDoctorErrors(output) {
+  const errors = [];
+  const lines = output.split('\n');
+  for (const line of lines) {
+    const match = line.match(/^([a-zA-Z0-9_.]+):\s*invalid config:/);
+    if (match) {
+      errors.push(match[1]);
+    }
+  }
+  return errors;
+}
+
+function removeInvalidFields(config, invalidPaths) {
+  if (!config || typeof config !== 'object') return config;
+  for (const path of invalidPaths) {
+    const parts = path.split('.');
+    let obj = config;
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (obj === null || typeof obj !== 'object') break;
+      obj = obj[parts[i]];
+    }
+    if (obj && typeof obj === 'object') {
+      const lastPart = parts[parts.length - 1];
+      delete obj[lastPart];
+      console.log(`[CLEANUP] 删除无效字段: ${path}`);
+    }
+  }
+  return config;
+}
+
+function validateAndCleanConfig(configPath) {
+  try {
+    const result = execSync('openclaw doctor --non-interactive', {
+      encoding: 'utf8',
+      timeout: 30000,
+      windowsHide: true,
+      env: { ...process.env, HOME: homedir, USERPROFILE: homedir },
+      cwd: homedir
+    });
+    return { valid: true };
+  } catch (err) {
+    const output = err.stdout || err.stderr || err.message || '';
+    const invalidPaths = parseDoctorErrors(output);
+    if (invalidPaths.length > 0) {
+      console.log(`[CLEANUP] 发现无效字段: ${invalidPaths.join(', ')}`);
+      const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+      const cleaned = removeInvalidFields(config, invalidPaths);
+      writeFileSync(configPath, JSON.stringify(cleaned, null, 2), 'utf-8');
+      console.log(`[CLEANUP] 已删除无效字段并保存`);
+      return { valid: false, cleaned: true, invalidPaths };
+    }
+    return { valid: false, cleaned: false, error: output };
+  }
 }
 
 function sanitizeConfig(config, migration) {
@@ -2756,6 +2825,21 @@ app.post('/template/apply', async (req, res) => {
       }
     } catch (syncErr) {
       addTaggedLog('WARN', `[APPLY] models.providers 同步失败（非致命）: ${syncErr.message}`);
+    }
+
+    // 验证并清理无效字段
+    console.log('[APPLY] 验证配置有效性...');
+    let validationResult = validateAndCleanConfig(OPENCLAW_CONFIG_FILE);
+    let retryCount = 0;
+    while (!validationResult.valid && validationResult.cleaned && retryCount < 5) {
+      retryCount++;
+      console.log(`[APPLY] 第 ${retryCount} 次清理后重新验证...`);
+      validationResult = validateAndCleanConfig(OPENCLAW_CONFIG_FILE);
+    }
+    if (validationResult.valid) {
+      console.log('[APPLY] 配置验证通过');
+    } else if (validationResult.invalidPaths) {
+      console.log(`[APPLY] 配置仍有无效字段: ${validationResult.invalidPaths.join(', ')}`);
     }
 
     try {
