@@ -287,7 +287,7 @@ function Config() {
               selectedCategories,
               configPaths: true
             }),
-            timeout: 120000
+            timeout: 600000
           });
           const data = await res.json();
           if (data.success) {
