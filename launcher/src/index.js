@@ -189,6 +189,12 @@ function addLog(level, message, invitationId = null, deviceIdToUse = globalDevic
   };
   installState.logs.push(logEntry);
 
+  // 输出到控制台
+  const timestamp = new Date().toLocaleTimeString();
+  const levelColors = { INFO: '\x1b[36m', WARN: '\x1b[33m', ERROR: '\x1b[31m', DEBUG: '\x1b[35m' };
+  const reset = '\x1b[0m';
+  console.log(`${levelColors[level] || ''}[${timestamp}] [${level}]${reset} ${cleanMessage}`);
+
   const serverUrl = getServerUrl();
   fetch(`${serverUrl}/api/launcher-logs/upload`, {
     method: 'POST',
@@ -219,6 +225,12 @@ function addTaggedLog(level, tag, message, templateId = null) {
     templateId
   };
   installState.logs.push(logEntry);
+
+  // 输出到控制台
+  const timestamp = new Date().toLocaleTimeString();
+  const levelColors = { INFO: '\x1b[36m', WARN: '\x1b[33m', ERROR: '\x1b[31m', DEBUG: '\x1b[35m' };
+  const reset = '\x1b[0m';
+  console.log(`${levelColors[level] || ''}[${timestamp}] [${level}]${reset} ${taggedMessage}`);
 
   const serverUrl = getServerUrl();
   fetch(`${serverUrl}/api/launcher-logs/upload`, {
