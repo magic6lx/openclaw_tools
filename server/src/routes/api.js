@@ -642,7 +642,7 @@ router.get('/templates/:id/full', authMiddleware, async (req, res) => {
       fileList: template.file_list ? (typeof template.file_list === 'string' ? JSON.parse(template.file_list) : template.file_list) : null,
       fileContents: template.file_payload ? (typeof template.file_payload === 'string' ? JSON.parse(template.file_payload) : template.file_payload) : null,
       configMigration: template.config_migration ? (typeof template.config_migration === 'string' ? JSON.parse(template.config_migration) : template.config_migration) : null,
-      categories: template.manifest ? (typeof template.manifest === 'string' ? JSON.parse(template.manifest) : template.manifest)?.templateManifest?.categories?.map(c => c.name) || [] : [],
+      categories: template.manifest ? (typeof template.manifest === 'string' ? JSON.parse(template.manifest) : template.manifest)?.templateManifest?.categories || [] : [],
       status: template.status,
       createdAt: template.created_at
     };

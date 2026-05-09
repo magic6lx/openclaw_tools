@@ -962,53 +962,35 @@ function Config() {
 
                         <Divider style={{ margin: '12px 0' }}>选择要应用的分类</Divider>
 
-                        {templateDetail.manifest?.templateManifest?.categories?.length > 0 ? (
-                          <div style={{ border: '1px solid #d9d9d9', borderRadius: 4, padding: 12, maxHeight: 300, overflow: 'auto' }}>
-                            {templateDetail.manifest.templateManifest.categories.map(cat => (
-                              <div key={cat.name} style={{ marginBottom: 8, padding: '4px 8px', background: selectedCategories.includes(cat.name) ? '#e6f7ff' : '#fafafa', borderRadius: 4 }}>
-                                <Checkbox
-                                  checked={selectedCategories.includes(cat.name)}
-                                  onChange={(e) => {
-                                    if (e.target.checked) {
-                                      setSelectedCategories([...selectedCategories, cat.name]);
-                                    } else {
-                                      setSelectedCategories(selectedCategories.filter(c => c !== cat.name));
-                                    }
-                                  }}
-                                >
-                                  <Text strong>{cat.label || cat.name}</Text>
-                                  <Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>
-                                    {cat.paths?.join(', ')}
-                                  </Text>
-                                  {cat.source === 'discovered' && <Tag color="blue" style={{ marginLeft: 4 }}>自动发现</Tag>}
-                                  {cat.source === 'preset' && <Tag color="orange" style={{ marginLeft: 4 }}>预设</Tag>}
-                                </Checkbox>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <div style={{ border: '1px solid #d9d9d9', borderRadius: 4, padding: 12 }}>
-                            {(templateDetail.categories || []).map(cat => (
+                        <div style={{ border: '1px solid #d9d9d9', borderRadius: 4, padding: 12, maxHeight: 300, overflow: 'auto' }}>
+                          {(templateDetail.categories || []).map(cat => (
+                            <div key={cat.name} style={{ marginBottom: 8, padding: '4px 8px', background: selectedCategories.includes(cat.name) ? '#e6f7ff' : '#fafafa', borderRadius: 4 }}>
                               <Checkbox
-                                key={cat}
-                                checked={selectedCategories.includes(cat)}
+                                checked={selectedCategories.includes(cat.name)}
                                 onChange={(e) => {
                                   if (e.target.checked) {
-                                    setSelectedCategories([...selectedCategories, cat]);
+                                    setSelectedCategories([...selectedCategories, cat.name]);
                                   } else {
-                                    setSelectedCategories(selectedCategories.filter(c => c !== cat));
+                                    setSelectedCategories(selectedCategories.filter(c => c !== cat.name));
                                   }
                                 }}
-                                style={{ marginBottom: 4, display: 'block' }}
                               >
-                                {cat}
+                                <Text strong>{cat.label || cat.name}</Text>
+                                <Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>
+                                  {cat.paths?.join(', ')}
+                                </Text>
+                                {cat.source === 'discovered' && <Tag color="blue" style={{ marginLeft: 4 }}>自动发现</Tag>}
+                                {cat.source === 'preset' && <Tag color="orange" style={{ marginLeft: 4 }}>预设</Tag>}
                               </Checkbox>
-                            ))}
-                          </div>
-                        )}
+                            </div>
+                          ))}
+                          {(templateDetail.categories || []).length === 0 && (
+                            <Text type="secondary">此模板暂无分类信息</Text>
+                          )}
+                        </div>
 
                         <div style={{ marginTop: 8 }}>
-                          <Button type="link" size="small" onClick={() => setSelectedCategories(templateDetail.manifest?.templateManifest?.categories?.map(c => c.name) || templateDetail.categories || [])}>全选</Button>
+                          <Button type="link" size="small" onClick={() => setSelectedCategories((templateDetail.categories || []).map(c => c.name))}>全选</Button>
                           <Button type="link" size="small" onClick={() => setSelectedCategories([])}>清空</Button>
                         </div>
 
