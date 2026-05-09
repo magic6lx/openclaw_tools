@@ -1449,6 +1449,22 @@ const DEFAULT_CLEANUP_RULES = {
   'models.providers.*.models': { op: 'default', value: [] },
 };
 
+function applyBuiltinCleanup(config) {
+  if (!config || typeof config !== 'object') return config;
+  const rules = { ...DEFAULT_CLEANUP_RULES };
+  for (const [path, rule] of Object.entries(rules)) {
+    if (path.includes('*')) {
+      const expanded = expandWildcardPaths(config, path);
+      for (const realPath of expanded) {
+        applyRuleOp(config, realPath, rule);
+      }
+    } else {
+      applyRuleOp(config, path, rule);
+    }
+  }
+  return config;
+}
+
 function sanitizeConfig(config, migration) {
   if (!config || typeof config !== 'object') return config;
   let effectiveMigration = migration;
@@ -2651,6 +2667,9 @@ app.post('/template/apply', async (req, res) => {
       } else {
         addTaggedLog('INFO', '[APPLY]', `路径水合跳过: 用户选择保留本地路径配置`);
       }
+
+      finalConfig = applyBuiltinCleanup(finalConfig);
+      addTaggedLog('INFO', '[APPLY]', `配置清理完成`);
 
       if (!finalConfig.gateway) finalConfig.gateway = {};
       if (!finalConfig.gateway.auth) finalConfig.gateway.auth = {};
