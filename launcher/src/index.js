@@ -405,6 +405,55 @@ app.post('/gateway/start', async (req, res) => {
     }
   }
 
+  // 清理损坏的插件目录（plugin already exists 错误）
+  const pluginDir = join(OPENCLAW_CONFIG_DIR, 'npm', 'node_modules', '@openclaw');
+  if (existsSync(pluginDir)) {
+    try {
+      const plugins = readdirSync(pluginDir);
+      for (const plugin of plugins) {
+        const pluginPath = join(pluginDir, plugin);
+        try {
+          require('fs').statSync(pluginPath);
+          const pkgJsonPath = join(pluginPath, 'package.json');
+          if (!existsSync(pkgJsonPath)) {
+            rmSync(pluginPath, { recursive: true, force: true });
+            addLog('INFO', `Gateway启动前：清理损坏的插件目录: @openclaw/${plugin}`);
+          }
+        } catch (e) {
+          rmSync(pluginPath, { recursive: true, force: true });
+          addLog('INFO', `Gateway启动前：清理无法访问的插件目录: @openclaw/${plugin}`);
+        }
+      }
+    } catch (e) {
+      addLog('WARN', `Gateway启动前：检查插件目录失败: ${e.message}`);
+    }
+  }
+
+  // 清理损坏的符号链接
+  const pluginSkillsDir = join(OPENCLAW_CONFIG_DIR, 'plugin-skills');
+  if (existsSync(pluginSkillsDir)) {
+    try {
+      const links = readdirSync(pluginSkillsDir);
+      for (const link of links) {
+        const linkPath = join(pluginSkillsDir, link);
+        try {
+          const stat = lstatSync(linkPath);
+          if (stat.isSymbolicLink()) {
+            const target = readlinkSync(linkPath);
+            if (!existsSync(target)) {
+              unlinkSync(linkPath);
+              addLog('INFO', `Gateway启动前：清理无效符号链接: ${link} -> ${target}`);
+            }
+          }
+        } catch (e) {
+          try { unlinkSync(linkPath); } catch (_) {}
+        }
+      }
+    } catch (e) {
+      addLog('WARN', `Gateway启动前：检查符号链接失败: ${e.message}`);
+    }
+  }
+
   // 先执行 openclaw setup --accept-defaults
   try {
     addLog('INFO', '执行 openclaw setup --accept-defaults...');
@@ -3141,6 +3190,87 @@ const ALLOWED_CLI_COMMANDS = [
   'openclaw devices approve',
   'openclaw doctor'
 ];
+
+app.post('/api/plugins/repair', async (req, res) => {
+  try {
+    const { plugin } = req.body;
+    const results = [];
+
+    // 1. 清理损坏的插件目录
+    const pluginDir = join(OPENCLAW_CONFIG_DIR, 'npm', 'node_modules', '@openclaw');
+    if (existsSync(pluginDir)) {
+      const plugins = plugin ? [plugin] : readdirSync(pluginDir);
+      for (const p of plugins) {
+        const pluginPath = join(pluginDir, p);
+        try {
+          const pkgJsonPath = join(pluginPath, 'package.json');
+          if (!existsSync(pkgJsonPath)) {
+            rmSync(pluginPath, { recursive: true, force: true });
+            results.push(`清理损坏的插件目录: @openclaw/${p}`);
+            addLog('INFO', `[PLUGIN] 清理损坏的插件目录: @openclaw/${p}`);
+          } else {
+            if (plugin && plugin === p) {
+              rmSync(pluginPath, { recursive: true, force: true });
+              results.push(`强制删除插件目录: @openclaw/${p}（用于重新安装）`);
+              addLog('INFO', `[PLUGIN] 强制删除插件目录: @openclaw/${p}`);
+            }
+          }
+        } catch (e) {
+          try {
+            rmSync(pluginPath, { recursive: true, force: true });
+            results.push(`清理无法访问的插件目录: @openclaw/${p}`);
+          } catch (e2) {
+            results.push(`清理失败: @openclaw/${p} - ${e2.message}`);
+          }
+        }
+      }
+    }
+
+    // 2. 清理损坏的符号链接
+    const pluginSkillsDir = join(OPENCLAW_CONFIG_DIR, 'plugin-skills');
+    if (existsSync(pluginSkillsDir)) {
+      const links = readdirSync(pluginSkillsDir);
+      for (const link of links) {
+        const linkPath = join(pluginSkillsDir, link);
+        try {
+          const stat = lstatSync(linkPath);
+          if (stat.isSymbolicLink()) {
+            const target = readlinkSync(linkPath);
+            if (!existsSync(target)) {
+              unlinkSync(linkPath);
+              results.push(`清理无效符号链接: ${link}`);
+              addLog('INFO', `[PLUGIN] 清理无效符号链接: ${link} -> ${target}`);
+            }
+          }
+        } catch (e) {
+          try { unlinkSync(linkPath); results.push(`清理损坏链接: ${link}`); } catch (_) {}
+        }
+      }
+    }
+
+    // 3. 重新执行 setup 安装插件
+    try {
+      addLog('INFO', '[PLUGIN] 执行 openclaw setup --accept-defaults 重新安装插件...');
+      const setupOutput = execSync('openclaw setup --accept-defaults', {
+        encoding: 'utf8',
+        timeout: 120000,
+        windowsHide: true,
+        env: { ...process.env, HOME: homedir, USERPROFILE: homedir }
+      });
+      results.push('setup 完成，插件已重新安装');
+      addLog('INFO', `[PLUGIN] setup 完成: ${setupOutput.substring(0, 200)}`);
+    } catch (setupErr) {
+      const output = setupErr.stdout || setupErr.stderr || setupErr.message || '';
+      results.push(`setup 执行完成（可能有警告）: ${output.substring(0, 200)}`);
+      addLog('WARN', `[PLUGIN] setup 警告: ${output.substring(0, 200)}`);
+    }
+
+    res.json({ success: true, results });
+  } catch (err) {
+    addLog('ERROR', `[PLUGIN] 插件修复失败: ${err.message}`);
+    res.json({ success: false, error: err.message });
+  }
+});
 
 app.post('/api/cli/exec', (req, res) => {
   try {
