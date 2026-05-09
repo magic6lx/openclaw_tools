@@ -346,6 +346,20 @@ app.post('/gateway/start', async (req, res) => {
   addLog('INFO', '执行命令: openclaw gateway run');
   addLog('INFO', '目标端口: 18789');
 
+  // 先清理配置文件中的无效字段
+  if (existsSync(OPENCLAW_CONFIG_FILE)) {
+    try {
+      const rawConfig = JSON.parse(readFileSync(OPENCLAW_CONFIG_FILE, 'utf-8'));
+      const cleaned = applyBuiltinCleanup(JSON.parse(JSON.stringify(rawConfig)));
+      if (JSON.stringify(cleaned) !== JSON.stringify(rawConfig)) {
+        writeFileSync(OPENCLAW_CONFIG_FILE, JSON.stringify(cleaned, null, 2), 'utf-8');
+        addLog('INFO', 'Gateway启动前：已清理 openclaw.json 中的无效字段（useProxy/providers.models）');
+      }
+    } catch (e) {
+      addLog('WARN', `Gateway启动前：清理配置失败: ${e.message}`);
+    }
+  }
+
   // 先执行 openclaw setup --accept-defaults
   try {
     addLog('INFO', '执行 openclaw setup --accept-defaults...');
@@ -1182,17 +1196,18 @@ async function loadAndAdaptConfig() {
 
   try {
     const existingConfig = JSON.parse(readFileSync(OPENCLAW_CONFIG_FILE, 'utf-8'));
+    const cleanedConfig = applyBuiltinCleanup(JSON.parse(JSON.stringify(existingConfig)));
     const conflicts = []; // Not interested in conflicts here, just adaptation
 
     // Recursively adapt paths in the existing config
-    const adaptedConfig = mergeConfigRecursive(existingConfig, existingConfig, conflicts, '');
+    const adaptedConfig = mergeConfigRecursive(cleanedConfig, cleanedConfig, conflicts, '');
 
     // Check if any adaptation happened and save if needed
     if (JSON.stringify(adaptedConfig) !== JSON.stringify(existingConfig)) {
       writeFileSync(OPENCLAW_CONFIG_FILE, JSON.stringify(adaptedConfig, null, 2), 'utf-8');
-      addLog('INFO', 'Gateway启动前：openclaw.json 路径已适配并保存。');
+      addLog('INFO', 'Gateway启动前：openclaw.json 已清理无效字段并保存。');
     } else {
-      addLog('INFO', 'Gateway启动前：openclaw.json 路径无需适配。');
+      addLog('INFO', 'Gateway启动前：openclaw.json 无需清理。');
     }
   } catch (e) {
     addLog('ERROR', `Gateway启动前：适配 openclaw.json 路径失败: ${e.message}`);
