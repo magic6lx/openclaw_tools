@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Table, Typography, Button, Space, Tag, Modal, Form, Input, Select, message, Popconfirm, Divider, Row, Col, Checkbox, Collapse, Tooltip, Switch, Spin, Descriptions } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, SendOutlined, ReloadOutlined, CloudDownloadOutlined, SearchOutlined, SaveOutlined, ExportOutlined, CheckOutlined, CloseOutlined, CodeOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, SendOutlined, ReloadOutlined, CloudDownloadOutlined, SearchOutlined, SaveOutlined, ExportOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import QuickSettings from '../../components/QuickSettings';
 import { useConfig, mergeWithDefaults } from '../../hooks/useConfig';
@@ -35,9 +35,6 @@ function Templates() {
   const [selectedManifestForTemplate, setSelectedManifestForTemplate] = useState(null);
   const [viewManifestModalVisible, setViewManifestModalVisible] = useState(false);
   const [viewManifestData, setViewManifestData] = useState(null);
-  const [configMigrationModalVisible, setConfigMigrationModalVisible] = useState(false);
-  const [configMigrationData, setConfigMigrationData] = useState(null);
-  const [configMigrationLoading, setConfigMigrationLoading] = useState(false);
   const [exportFileList, setExportFileList] = useState([]);
   const [showFileListModal, setShowFileListModal] = useState(false);
 
@@ -103,28 +100,6 @@ function Templates() {
       message.error(`动态发现失败: ${err.message}`);
     } finally {
       setDiscovering(false);
-    }
-  };
-
-  const fetchConfigMigration = async (templateId) => {
-    setConfigMigrationLoading(true);
-    setConfigMigrationModalVisible(true);
-    setConfigMigrationData(null);
-    try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(`${API_BASE}/api/templates/${templateId}/config-migration`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const data = await res.json();
-      if (data.success) {
-        setConfigMigrationData(data.data);
-      } else {
-        message.error(data.error || '获取配置迁移规则失败');
-      }
-    } catch (err) {
-      message.error(`获取配置迁移规则失败: ${err.message}`);
-    } finally {
-      setConfigMigrationLoading(false);
     }
   };
 
@@ -617,7 +592,6 @@ function Templates() {
           {r.status === 'approved' && (
             <Button size="small" icon={<SendOutlined />} onClick={() => handleDistribute(r)}>发放</Button>
           )}
-          <Button size="small" icon={<CodeOutlined />} onClick={() => fetchConfigMigration(r.id)}>Migration</Button>
           <Popconfirm title="确认删除？" onConfirm={() => handleDelete(r.id)}>
             <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
           </Popconfirm>
@@ -997,45 +971,6 @@ function Templates() {
             </div>
           ))}
         </div>
-      </Modal>
-
-      <Modal
-        title={`配置迁移规则 - ${configMigrationData?.name || ''}`}
-        open={configMigrationModalVisible}
-        onCancel={() => { setConfigMigrationModalVisible(false); setConfigMigrationData(null); }}
-        footer={[
-          <Button key="close" type="primary" onClick={() => { setConfigMigrationModalVisible(false); setConfigMigrationData(null); }}>
-            关闭
-          </Button>
-        ]}
-        width={700}
-      >
-        {configMigrationLoading ? (
-          <div style={{ textAlign: 'center', padding: 40 }}>
-            <Spin />
-          </div>
-        ) : configMigrationData?.configMigration ? (
-          <div>
-            <Text type="secondary" style={{ marginBottom: 16, display: 'block' }}>
-              以下规则将在应用此模板时自动执行，用于清理残留字段
-            </Text>
-            <pre style={{ background: '#f5f5f5', padding: 16, borderRadius: 8, maxHeight: 500, overflowY: 'auto', fontSize: 12 }}>
-              {JSON.stringify(configMigrationData.configMigration, null, 2)}
-            </pre>
-            <div style={{ marginTop: 16 }}>
-              <Text strong>规则说明：</Text>
-              <ul style={{ marginTop: 8, paddingLeft: 20 }}>
-                <li><Text code>key: null</Text> — 删除指定路径的字段</li>
-                <li><Text code>models.providers.*.fieldName</Text> — 遍历所有 provider，删除其 fieldName 字段</li>
-                <li><Text code>removeProvidersWithoutModels</Text> — 删除缺少 models 数组的空壳 provider</li>
-              </ul>
-            </div>
-          </div>
-        ) : (
-          <div style={{ textAlign: 'center', padding: 40 }}>
-            <Text type="secondary">此模板暂无配置迁移规则</Text>
-          </div>
-        )}
       </Modal>
     </div>
   );
