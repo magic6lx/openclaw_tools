@@ -1452,9 +1452,11 @@ const DEFAULT_CLEANUP_RULES = {
 function applyBuiltinCleanup(config) {
   if (!config || typeof config !== 'object') return config;
   const rules = { ...DEFAULT_CLEANUP_RULES };
+  addTaggedLog('INFO', '[CLEANUP]', `开始清理配置，可用规则: ${JSON.stringify(Object.keys(rules))}`);
   for (const [path, rule] of Object.entries(rules)) {
     if (path.includes('*')) {
       const expanded = expandWildcardPaths(config, path);
+      addTaggedLog('INFO', '[CLEANUP]', `通配符路径 ${path} 展开为: ${JSON.stringify(expanded)}`);
       for (const realPath of expanded) {
         applyRuleOp(config, realPath, rule);
       }
@@ -1462,6 +1464,7 @@ function applyBuiltinCleanup(config) {
       applyRuleOp(config, path, rule);
     }
   }
+  addTaggedLog('INFO', '[CLEANUP]', `清理后 useProxy=${config.models?.useProxy}, volcengine.models=${JSON.stringify(config.models?.providers?.volcengine?.models)}`);
   return config;
 }
 
