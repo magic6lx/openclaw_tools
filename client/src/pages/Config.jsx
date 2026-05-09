@@ -283,7 +283,8 @@ function Config() {
               templateId: templateDetail.id,
               selectedCategories,
               configPaths: true
-            })
+            }),
+            timeout: 120000
           });
           const data = await res.json();
           if (data.success) {
@@ -318,8 +319,9 @@ function Config() {
           }
         } catch (err) {
           message.error(`应用失败: ${err.message}`);
+        } finally {
+          setApplyingWithCategories(false);
         }
-        setApplyingWithCategories(false);
       }
     });
   };
@@ -1027,6 +1029,18 @@ function Config() {
                             重选
                           </Button>
                         </Space>
+                        {applyingWithCategories && (
+                          <div style={{ marginTop: 12 }}>
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                              <Spin size="small" style={{ marginRight: 8 }} />
+                              正在应用模板，请稍候...
+                            </Text>
+                            <br />
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                              💡 如文件较多可能需要较长时间，请勿关闭页面
+                            </Text>
+                          </div>
+                        )}
                       </>
                     )}
                   </>
