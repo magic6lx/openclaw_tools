@@ -872,6 +872,11 @@ app.post('/config/export', (req, res) => {
           for (const cat of tm.categories) {
             if (cat.paths && Array.isArray(cat.paths)) {
               for (const relPath of cat.paths) {
+                const topDir = relPath.split(/\\|\//)[0];
+                if (allExcludedNames.has(topDir)) {
+                  addTaggedLog('WARN', '[EXPORT]', `跳过已排除目录: ${relPath}`);
+                  continue;
+                }
                 const fullPath = join(OPENCLAW_CONFIG_DIR, relPath);
                 readAndEncodeFilesFromDir(fullPath, relPath);
               }
@@ -1873,10 +1878,11 @@ function discoverCategories(stateDir, config, baseManifest) {
 
   const cachedDefaultExcludedDirs = getCachedRule('DEFAULT_EXCLUDED_DIRS', DEFAULT_EXCLUDED_DIRS);
   const cachedForceExcludedDirs = getCachedRule('FORCE_EXCLUDED_DIRS', FORCE_EXCLUDED_DIRS);
+  const cachedExcludedPatterns = getCachedRule('EXCLUDED_PATTERNS', excludedPatterns);
   const cachedDefaultManifest = getCachedRule('DEFAULT_TEMPLATE_MANIFEST', DEFAULT_TEMPLATE_MANIFEST);
   const cachedNormalizePaths = cachedDefaultManifest.normalizePaths || {};
 
-  const excludedDirs = [...cachedDefaultExcludedDirs];
+  const excludedDirs = [...cachedDefaultExcludedDirs, ...cachedExcludedPatterns];
   const excludedSet = new Set(cachedForceExcludedDirs);
   if (baseManifest?.excludedDirs) {
     for (const d of baseManifest.excludedDirs) {
@@ -2483,6 +2489,9 @@ app.post('/template/export', (req, res) => {
   try {
     const { manifestName, categories } = req.body;
     let manifest = null;
+    const cachedExcludedPatterns = getCachedRule('EXCLUDED_PATTERNS', excludedPatterns);
+    const cachedDefaultExcludedDirs = getCachedRule('DEFAULT_EXCLUDED_DIRS', DEFAULT_EXCLUDED_DIRS);
+    const allExcludedNames = new Set([...cachedExcludedPatterns, ...cachedDefaultExcludedDirs]);
 
     if (manifestName) {
       const manifestPath = join(MANIFEST_DIR, `manifest_${manifestName}.json`);
@@ -2533,7 +2542,12 @@ app.post('/template/export', (req, res) => {
       addTaggedLog('INFO', '[EXPORT]', '配置已归一化并脱敏');
     }
 
-    const { fileContents, fileList } = bundleFiles(OPENCLAW_CONFIG_DIR, tm.categories);
+    const { fileContents, fileList } = bundleFiles(OPENCLAW_CONFIG_DIR, tm.categories.filter(cat => {
+      if (cat.paths && Array.isArray(cat.paths)) {
+        return !cat.paths.some(p => allExcludedNames.has(p.split(/\\|\//)[0]));
+      }
+      return true;
+    }));
     addTaggedLog('INFO', '[EXPORT]', `模板导出完成: ${Object.keys(fileContents).length} 个文件, ${tm.categories.length} 个分类`);
 
     let env = null;
