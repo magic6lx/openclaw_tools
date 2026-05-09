@@ -2809,6 +2809,7 @@ app.post('/template/export', (req, res) => {
 });
 
 app.post('/template/apply', async (req, res) => {
+  req.setTimeout(600000);
   try {
     const { templateId, selectedCategories, configPaths } = req.body;
     addTaggedLog('INFO', '[APPLY]', `开始应用模板: templateId=${templateId}, categories=[${selectedCategories?.join(', ')}]`, templateId);
@@ -3312,8 +3313,11 @@ app.get('/config/proxy', (req, res) => {
   }
 });
 
-app.listen(PORT, async () => {
+const server = app.listen(PORT, async () => {
   console.log(`OpenClaw Launcher running on port ${PORT}`);
+  server.timeout = 600000;
+  server.keepAliveTimeout = 600000;
+  server.headersTimeout = 610000;
   try {
     await fetchSystemConfigFromServer();
     await fetchMigrationRulesFromServer();
