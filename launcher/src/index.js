@@ -1533,7 +1533,7 @@ function removeInvalidFields(config, invalidPaths) {
 
 function validateAndCleanConfig(configPath) {
   try {
-    const result = execSync('openclaw doctor --non-interactive', {
+    const result = execSync('openclaw doctor --fix --non-interactive', {
       encoding: 'utf8',
       timeout: 30000,
       windowsHide: true,
