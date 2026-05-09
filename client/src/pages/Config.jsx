@@ -40,6 +40,7 @@ function Config() {
   const [selectedCategories, setSelectedCategories] = useState([]);
   const [templateDetail, setTemplateDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [loadingTemplateId, setLoadingTemplateId] = useState(null);
   const [applyingWithCategories, setApplyingWithCategories] = useState(false);
   const [rollingBack, setRollingBack] = useState(false);
   const [activeRightTab, setActiveRightTab] = useState('templates');
@@ -227,6 +228,7 @@ function Config() {
 
   const fetchTemplateDetail = async (templateId) => {
     setDetailLoading(true);
+    setLoadingTemplateId(templateId);
     try {
       const token = localStorage.getItem('token');
       const res = await fetch(`${SERVER_API}/api/templates/${templateId}/full`, {
@@ -243,6 +245,7 @@ function Config() {
       message.error(`获取模板详情失败: ${err.message}`);
     } finally {
       setDetailLoading(false);
+      setLoadingTemplateId(null);
     }
   };
 
@@ -921,19 +924,22 @@ function Config() {
                         <Card
                           key={template.id}
                           size="small"
-                          hoverable
-                          style={{ marginBottom: 12 }}
-                          onClick={() => fetchTemplateDetail(template.id)}
+                          hoverable={!loadingTemplateId}
+                          loading={loadingTemplateId === template.id}
+                          style={{ marginBottom: 12, opacity: loadingTemplateId && loadingTemplateId !== template.id ? 0.6 : 1 }}
+                          onClick={() => !detailLoading && fetchTemplateDetail(template.id)}
                         >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                            <Text style={{ fontSize: 28 }}>{template.icon}</Text>
-                            <div style={{ flex: 1 }}>
-                              <Text strong>{template.label || template.name}</Text>
-                              <br />
-                              <Text type="secondary" style={{ fontSize: 12 }}>{template.description}</Text>
+                          {!loadingTemplateId || loadingTemplateId !== template.id ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                              <Text style={{ fontSize: 28 }}>{template.icon}</Text>
+                              <div style={{ flex: 1 }}>
+                                <Text strong>{template.label || template.name}</Text>
+                                <br />
+                                <Text type="secondary" style={{ fontSize: 12 }}>{template.description}</Text>
+                              </div>
+                              <EyeOutlined style={{ color: '#1890ff' }} />
                             </div>
-                            <EyeOutlined style={{ color: '#1890ff' }} />
-                          </div>
+                          ) : null}
                         </Card>
                       ))}
                       {templates.length === 0 && (
