@@ -349,6 +349,20 @@ app.post('/gateway/start', async (req, res) => {
   // 先清理配置文件中的无效字段
   if (existsSync(OPENCLAW_CONFIG_FILE)) {
     try {
+      // 删除 last-known-good 备份文件，防止 Gateway 自动恢复无效配置
+      const backupFiles = [
+        join(OPENCLAW_CONFIG_DIR, 'openclaw.json.last-known-good'),
+        join(OPENCLAW_CONFIG_DIR, 'openclaw.json.doctor-invalid-config'),
+        join(OPENCLAW_CONFIG_DIR, 'openclaw.json.backup')
+      ];
+      for (const backupFile of backupFiles) {
+        if (existsSync(backupFile)) {
+          unlinkSync(backupFile);
+          console.log(`Gateway启动前：已删除备份文件 ${basename(backupFile)}`);
+          addLog('INFO', `Gateway启动前：已删除备份文件 ${basename(backupFile)}`);
+        }
+      }
+
       const rawConfig = JSON.parse(readFileSync(OPENCLAW_CONFIG_FILE, 'utf-8'));
       const cleaned = applyBuiltinCleanup(JSON.parse(JSON.stringify(rawConfig)));
       if (JSON.stringify(cleaned) !== JSON.stringify(rawConfig)) {
@@ -371,6 +385,7 @@ app.post('/gateway/start', async (req, res) => {
         console.log('Gateway启动前：配置验证通过');
       } else if (validationResult.invalidPaths) {
         console.log(`Gateway启动前：配置仍有无效字段: ${validationResult.invalidPaths.join(', ')}`);
+        addLog('WARN', `Gateway启动前：配置仍有无效字段: ${validationResult.invalidPaths.join(', ')}`);
       }
     } catch (e) {
       console.log('Gateway启动前：清理配置失败:', e.message);
@@ -1482,8 +1497,66 @@ const DEFAULT_CLEANUP_RULES = {
   'models.providers.*.models': { op: 'default', value: [] },
 };
 
+function cleanInvalidSecretFields(config) {
+  if (!config || typeof config !== 'object') return config;
+  
+  const secretFieldPatterns = ['botToken', 'token', 'apiKey', 'api_key', 'secret', 'password', 'privateKey', 'appToken'];
+  
+  function cleanRecursive(obj, path = '') {
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return;
+    
+    for (const key of Object.keys(obj)) {
+      const currentPath = path ? `${path}.${key}` : key;
+      const value = obj[key];
+      
+      // 检查是否是敏感字段
+      const isSecretField = secretFieldPatterns.some(pattern => 
+        key.toLowerCase().includes(pattern.toLowerCase())
+      );
+      
+      if (isSecretField && value !== null && value !== undefined) {
+        // 如果是空对象，删除它
+        if (typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0) {
+          delete obj[key];
+          console.log(`[CLEANUP] 删除空对象敏感字段: ${currentPath}`);
+          addLog('INFO', `[CLEANUP] 删除空对象敏感字段: ${currentPath}`);
+        }
+        // 如果是对象但缺少必需字段（SecretRef），删除它
+        else if (typeof value === 'object' && !Array.isArray(value)) {
+          const hasSource = 'source' in value;
+          const hasProvider = 'provider' in value;
+          const hasId = 'id' in value;
+          
+          // SecretRef 必须有 source 字段
+          if (!hasSource) {
+            delete obj[key];
+            console.log(`[CLEANUP] 删除无效 SecretRef（缺少 source）: ${currentPath}`);
+            addLog('INFO', `[CLEANUP] 删除无效 SecretRef（缺少 source）: ${currentPath}`);
+          }
+        }
+        // 如果是空字符串，删除它（可选，根据需求）
+        else if (typeof value === 'string' && value.trim() === '') {
+          delete obj[key];
+          console.log(`[CLEANUP] 删除空字符串敏感字段: ${currentPath}`);
+          addLog('INFO', `[CLEANUP] 删除空字符串敏感字段: ${currentPath}`);
+        }
+      }
+      
+      // 递归处理嵌套对象
+      if (typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length > 0) {
+        cleanRecursive(value, currentPath);
+      }
+    }
+  }
+  
+  cleanRecursive(config);
+  return config;
+}
+
 function applyBuiltinCleanup(config) {
   if (!config || typeof config !== 'object') return config;
+  
+  // 1. 应用默认清理规则
   const rules = { ...DEFAULT_CLEANUP_RULES };
   console.log(`[CLEANUP] 开始清理配置，可用规则: ${JSON.stringify(Object.keys(rules))}`);
   for (const [path, rule] of Object.entries(rules)) {
@@ -1497,6 +1570,10 @@ function applyBuiltinCleanup(config) {
       applyRuleOp(config, path, rule);
     }
   }
+  
+  // 2. 清理无效的敏感字段
+  cleanInvalidSecretFields(config);
+  
   console.log(`[CLEANUP] 清理后 useProxy=${config.models?.useProxy}, volcengine.models=${JSON.stringify(config.models?.providers?.volcengine?.models)}`);
   return config;
 }
