@@ -396,7 +396,7 @@ app.post('/gateway/start', async (req, res) => {
   // 先执行 openclaw setup --accept-defaults
   try {
     addLog('INFO', '执行 openclaw setup --accept-defaults...');
-    execSync('openclaw setup --accept-defaults', { encoding: 'utf8', timeout: 30000, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    execSync('openclaw setup --accept-defaults', { encoding: 'utf8', timeout: 120000, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     addLog('INFO', 'openclaw setup 完成。');
   } catch (setupErr) {
     addLog('WARN', `openclaw setup 失败或超时 (可能已配置): ${setupErr.message}`);
@@ -1615,7 +1615,7 @@ function validateAndCleanConfig(configPath) {
   try {
     const result = execSync('openclaw doctor --fix --non-interactive', {
       encoding: 'utf8',
-      timeout: 30000,
+      timeout: 300000,
       windowsHide: true,
       env: { ...process.env, HOME: homedir, USERPROFILE: homedir },
       cwd: homedir
@@ -2946,7 +2946,7 @@ app.post('/template/apply', async (req, res) => {
       addTaggedLog('INFO', '[APPLY]', '执行 openclaw doctor --repair 自动修复...');
       const doctorOutput = execSync('openclaw doctor --repair --non-interactive', {
         encoding: 'utf8',
-        timeout: 60000,
+        timeout: 300000,
         windowsHide: true,
         env: { ...process.env, HOME: homedir, USERPROFILE: homedir }
       });
@@ -2959,7 +2959,7 @@ app.post('/template/apply', async (req, res) => {
       addTaggedLog('INFO', '[APPLY]', '执行 openclaw setup 初始化 workspace...');
       execSync('openclaw setup', {
         encoding: 'utf8',
-        timeout: 30000,
+        timeout: 120000,
         windowsHide: true,
         env: { ...process.env, HOME: homedir, USERPROFILE: homedir }
       });
@@ -2972,7 +2972,7 @@ app.post('/template/apply', async (req, res) => {
       addTaggedLog('INFO', '[APPLY]', '执行 openclaw gateway restart 使认证配置生效...');
       execSync('openclaw gateway restart', {
         encoding: 'utf8',
-        timeout: 30000,
+        timeout: 120000,
         windowsHide: true,
         env: { ...process.env, HOME: homedir, USERPROFILE: homedir }
       });
