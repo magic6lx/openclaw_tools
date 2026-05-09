@@ -1444,8 +1444,22 @@ function migrateContent(content, migration, pathHint) {
   return result;
 }
 
+const DEFAULT_CLEANUP_RULES = {
+  'models.useProxy': null,
+  'models.providers.*.models': { op: 'default', value: [] },
+};
+
 function sanitizeConfig(config, migration) {
-  return migrateContent(config, migration, 'openclaw.json');
+  if (!config || typeof config !== 'object') return config;
+  let effectiveMigration = migration;
+  if (!effectiveMigration || !effectiveMigration.rules) {
+    effectiveMigration = { rules: { ...DEFAULT_CLEANUP_RULES, ...(effectiveMigration || {}) } };
+  } else {
+    effectiveMigration = {
+      rules: { ...DEFAULT_CLEANUP_RULES, ...effectiveMigration.rules }
+    };
+  }
+  return migrateContent(config, effectiveMigration, 'openclaw.json');
 }
 
 const PROXY_RULES = {
