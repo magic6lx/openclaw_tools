@@ -298,6 +298,47 @@ function Config() {
             setSelectedCategories([]);
             setTemplateDetail(null);
 
+            // 显示配置验证结果
+            if (data.configValidation && !data.configValidation.valid) {
+              setTimeout(() => {
+                Modal.warning({
+                  title: '配置验证警告',
+                  width: 600,
+                  content: (
+                    <div>
+                      <Paragraph>模板应用成功，但配置中存在无效字段已被自动清理：</Paragraph>
+                      {data.configValidation.invalidPaths && (
+                        <div style={{ marginBottom: 12 }}>
+                          <Text strong>已删除的字段：</Text>
+                          <ul style={{ marginTop: 4, marginBottom: 0 }}>
+                            {data.configValidation.invalidPaths.map(path => (
+                              <li key={path}><Text code>{path}</Text></li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {data.configValidation.suggestions && data.configValidation.suggestions.length > 0 && (
+                        <div>
+                          <Text strong>修复建议：</Text>
+                          <pre style={{ 
+                            marginTop: 8, 
+                            padding: 12, 
+                            background: '#f5f5f5', 
+                            borderRadius: 4,
+                            fontSize: 11,
+                            maxHeight: 200,
+                            overflow: 'auto'
+                          }}>
+                            {data.configValidation.suggestions.join('\n\n')}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  )
+                });
+              }, 300);
+            }
+
             setTimeout(() => {
               Modal.confirm({
                 title: '模型访问配置',

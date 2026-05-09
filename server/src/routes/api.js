@@ -713,9 +713,9 @@ router.get('/config/presets', (req, res) => {
         },
         channels: {
           whatsapp: { enabled: false, dmPolicy: 'pairing', allowFrom: [] },
-          telegram: { enabled: false, botToken: '', dmPolicy: 'pairing' },
-          discord: { enabled: false, token: '', voice: { enabled: false } },
-          slack: { enabled: false, botToken: '', appToken: '' }
+          telegram: { enabled: false, dmPolicy: 'pairing' },
+          discord: { enabled: false, voice: { enabled: false } },
+          slack: { enabled: false }
         }
       }
     },

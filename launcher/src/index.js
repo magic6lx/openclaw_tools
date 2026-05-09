@@ -1515,6 +1515,7 @@ function parseDoctorErrors(output) {
 
 function removeInvalidFields(config, invalidPaths) {
   if (!config || typeof config !== 'object') return config;
+  const removed = [];
   for (const path of invalidPaths) {
     const parts = path.split('.');
     let obj = config;
@@ -1524,11 +1525,13 @@ function removeInvalidFields(config, invalidPaths) {
     }
     if (obj && typeof obj === 'object') {
       const lastPart = parts[parts.length - 1];
+      const oldValue = obj[lastPart];
       delete obj[lastPart];
       console.log(`[CLEANUP] 删除无效字段: ${path}`);
+      removed.push({ path, oldValue });
     }
   }
-  return config;
+  return { config, removed };
 }
 
 function validateAndCleanConfig(configPath) {
@@ -1547,10 +1550,23 @@ function validateAndCleanConfig(configPath) {
     if (invalidPaths.length > 0) {
       console.log(`[CLEANUP] 发现无效字段: ${invalidPaths.join(', ')}`);
       const config = JSON.parse(readFileSync(configPath, 'utf-8'));
-      const cleaned = removeInvalidFields(config, invalidPaths);
+      const { config: cleaned, removed } = removeInvalidFields(config, invalidPaths);
       writeFileSync(configPath, JSON.stringify(cleaned, null, 2), 'utf-8');
       console.log(`[CLEANUP] 已删除无效字段并保存`);
-      return { valid: false, cleaned: true, invalidPaths };
+      
+      // 生成修复建议
+      const suggestions = [];
+      for (const { path, oldValue } of removed) {
+        if (path.includes('botToken') || path.includes('token')) {
+          suggestions.push(`${path}: 需要设置为字符串或 SecretRef 对象，例如:\n  "${path}": "your-token-here"\n  或\n  "${path}": { "source": "env", "id": "YOUR_ENV_VAR" }`);
+        } else if (path.includes('apiKey')) {
+          suggestions.push(`${path}: 需要设置为字符串，例如:\n  "${path}": "your-api-key-here"`);
+        } else {
+          suggestions.push(`${path}: 已删除，请检查配置文档`);
+        }
+      }
+      
+      return { valid: false, cleaned: true, invalidPaths, removed, suggestions };
     }
     return { valid: false, cleaned: false, error: output };
   }
@@ -2910,7 +2926,13 @@ app.post('/template/apply', async (req, res) => {
         configConflicts
       },
       errors: unbundleErrors,
-      backupPath: snapshotPath
+      backupPath: snapshotPath,
+      configValidation: validationResult ? {
+        valid: validationResult.valid,
+        cleaned: validationResult.cleaned,
+        invalidPaths: validationResult.invalidPaths,
+        suggestions: validationResult.suggestions
+      } : undefined
     });
   } catch (err) {
     addTaggedLog('ERROR', '[APPLY]', `模板应用失败: ${err.message}`);
