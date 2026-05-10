@@ -7,6 +7,7 @@ const { Title, Text, Paragraph } = Typography;
 
 function Operations() {
   const [gatewayStatus, setGatewayStatus] = useState('stopped');
+  const [gatewayStarting, setGatewayStarting] = useState(false);
   const [launcherStatus, setLauncherStatus] = useState('checking');
   const [openclawStatus, setOpenclawStatus] = useState('unknown');
   const [loading, setLoading] = useState(false);
@@ -25,6 +26,7 @@ function Operations() {
         const data = await res.json();
         setLauncherStatus('online');
         setOpenclawStatus(data.openClawStatus || 'unknown');
+        setGatewayStarting(data.gatewayStarting || false);
         setGatewayStatus(data.gatewayRunning ? 'running' : 'stopped');
       } else {
         setLauncherStatus('offline');
@@ -142,6 +144,9 @@ function Operations() {
   };
 
   const getGatewayTag = () => {
+    if (gatewayStarting) {
+      return <Tag icon={<Spin size="small" />} color="processing">启动中</Tag>;
+    }
     if (gatewayStatus === 'running') {
       return <Tag color="green">运行中</Tag>;
     }
@@ -164,7 +169,7 @@ function Operations() {
     return null;
   };
 
-  const canOperateGateway = launcherStatus === 'online' && (openclawStatus === 'running' || openclawStatus === 'installed');
+  const canOperateGateway = launcherStatus === 'online' && (openclawStatus === 'running' || openclawStatus === 'installed') && !gatewayStarting;
 
   const getLogLevelColor = (level) => {
     switch (level) {

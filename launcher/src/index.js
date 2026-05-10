@@ -356,7 +356,21 @@ app.post('/gateway/start', async (req, res) => {
     return res.json({ success: false, message: 'OpenClaw 未安装，请先安装' });
   }
 
+  if (gatewayState.starting) {
+    return res.json({ success: false, message: 'Gateway 正在启动中，请稍候...' });
+  }
+
   gatewayState.starting = true;
+  res.json({
+    success: true,
+    message: 'Gateway 启动中，请稍候...',
+    dashboardUrl: `http://127.0.0.1:${DEFAULT_GATEWAY_PORT}`
+  });
+
+  setImmediate(() => startGatewayInternal());
+}
+
+async function startGatewayInternal() {
   addLog('INFO', '========== 开始启动 Gateway ==========');
   addLog('INFO', '执行命令: openclaw gateway run');
   addLog('INFO', '目标端口: 18789');
@@ -566,18 +580,12 @@ app.post('/gateway/start', async (req, res) => {
       }
     }, 500);
 
-    res.json({
-      success: true,
-      message: 'Gateway 启动命令已执行',
-      dashboardUrl: `http://127.0.0.1:${DEFAULT_GATEWAY_PORT}`,
-      openDashboard: true
-    });
   } catch (err) {
     addLog('ERROR', `Gateway 启动异常: ${err.message}`);
     addLog('ERROR', `异常堆栈: ${err.stack}`);
-    res.json({ success: false, message: `启动失败: ${err.message}` });
+    gatewayState.starting = false;
   }
-});
+}
 
 app.post('/gateway/stop', (req, res) => {
   if (!checkGatewayRunning()) {
