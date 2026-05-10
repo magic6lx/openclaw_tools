@@ -556,6 +556,42 @@ async function startGatewayInternal() {
         gatewayState.dashboardUrl = `http://127.0.0.1:${DEFAULT_GATEWAY_PORT}`;
         addLog('INFO', '========== Gateway 启动成功 ==========');
         addLog('INFO', `Dashboard 地址: ${gatewayState.dashboardUrl}`);
+        
+        setImmediate(async () => {
+          try {
+            addLog('INFO', '自动修复设备令牌...');
+            const devicesOutput = execSync('openclaw devices list --json', {
+              encoding: 'utf8',
+              timeout: 10000,
+              windowsHide: true,
+              stdio: ['ignore', 'pipe', 'pipe']
+            });
+            const devicesData = JSON.parse(devicesOutput);
+            const pairedDevices = devicesData.paired || [];
+            if (pairedDevices.length > 0) {
+              for (const device of pairedDevices) {
+                if (device.roles && device.roles.includes('operator')) {
+                  try {
+                    addLog('INFO', `轮换设备令牌: ${device.id}`);
+                    execSync(`openclaw devices rotate --device ${device.id} --role operator`, {
+                      encoding: 'utf8',
+                      timeout: 10000,
+                      windowsHide: true,
+                      stdio: ['ignore', 'pipe', 'pipe']
+                    });
+                    addLog('INFO', `设备令牌轮换成功: ${device.id}`);
+                  } catch (rotateErr) {
+                    addLog('WARN', `设备令牌轮换失败: ${rotateErr.message}`);
+                  }
+                }
+              }
+            } else {
+              addLog('INFO', '没有已配对设备，跳过令牌轮换');
+            }
+          } catch (devicesErr) {
+            addLog('WARN', `检查设备列表失败: ${devicesErr.message}`);
+          }
+        });
         return;
       }
 
