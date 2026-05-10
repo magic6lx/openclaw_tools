@@ -520,14 +520,18 @@ async function startGatewayInternal() {
       } catch (e) {
         addLog('WARN', `写入 Gateway Token 失败: ${e.message}`);
       }
+    } else {
+      addLog('INFO', `配置文件中已存在 Gateway Token: ${config.gateway.auth.token.substring(0, 8)}...`);
     }
     return config;
   }
 
   try {
     let openClawConfig = getOpenClawConfig();
+    addLog('INFO', `读取配置文件: ${OPENCLAW_CONFIG_FILE}`);
     openClawConfig = ensureGatewayToken(openClawConfig);
     const gatewayToken = openClawConfig?.gateway?.auth?.token || '';
+    addLog('INFO', `Gateway Token 状态: ${gatewayToken ? '已设置' : '未设置'}`);
 
     const env = {
       ...process.env,
@@ -536,7 +540,9 @@ async function startGatewayInternal() {
     };
     if (gatewayToken) {
       env.OPENCLAW_GATEWAY_TOKEN = gatewayToken;
-      addLog('INFO', '已从配置文件读取 Gateway Token，并设置环境变量。');
+      addLog('INFO', '已从配置文件读取 Gateway Token，并设置环境变量 OPENCLAW_GATEWAY_TOKEN');
+    } else {
+      addLog('WARN', 'Gateway Token 为空，无法设置环境变量');
     }
 
     const gatewayProcess = spawn('openclaw', ['gateway', 'run', '--allow-unconfigured'], { // 添加 --allow-unconfigured 参数

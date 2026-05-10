@@ -129,7 +129,7 @@ function Operations() {
       const data = await res.json();
       
       if (data.success && data.token) {
-        Modal.info({
+        Modal.success({
           title: 'Gateway 令牌',
           width: 500,
           content: (
@@ -154,6 +154,8 @@ function Operations() {
             </div>
           ),
           okText: '复制令牌',
+          closable: true,
+          maskClosable: true,
           onOk: () => {
             navigator.clipboard.writeText(data.token);
             message.success('令牌已复制到剪贴板');
