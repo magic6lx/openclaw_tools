@@ -1,12 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Typography, Row, Col, Button, Space, Tag, Spin, message, Alert, Divider } from 'antd';
+import { Card, Typography, Row, Col, Button, Space, Tag, Spin, message, Alert, Divider, Modal } from 'antd';
 import { DownloadOutlined, SettingOutlined, PlayCircleOutlined, CheckCircleOutlined, CloseCircleOutlined, InfoCircleOutlined, RocketOutlined, BugOutlined, GatewayOutlined, MessageOutlined } from '@ant-design/icons';
 import { Link, useNavigate } from 'react-router-dom';
 
 const { Title, Text, Paragraph } = Typography;
 import { LAUNCHER_API, launcherFetch } from '../utils/launcher';
-const LAUNCHER_LAUNCH_URL = 'openclaw://launch';
-const LAUNCHER_INSTALL_PATH = 'C:\\Program Files\\OpenClaw\\launcher.exe';
 
 function Home() {
   const [launcherStatus, setLauncherStatus] = useState('checking');
@@ -72,21 +70,29 @@ function Home() {
   };
 
   const handleLaunchLauncher = () => {
-    try {
-      const iframe = document.createElement('iframe');
-      iframe.style.display = 'none';
-      iframe.src = LAUNCHER_LAUNCH_URL;
-      document.body.appendChild(iframe);
-      setTimeout(() => {
-        document.body.removeChild(iframe);
-      }, 1000);
-      message.success('正在启动Launcher...');
-      setTimeout(() => {
+    Modal.info({
+      title: '启动 Launcher',
+      width: 520,
+      content: (
+        <div style={{ marginTop: 16 }}>
+          <Paragraph>请按照以下步骤手动启动 Launcher：</Paragraph>
+          <ol style={{ paddingLeft: 20 }}>
+            <li>找到下载的 <Text code>OpenClawLauncher-win-x64-v1.0.2.zip</Text> 文件</li>
+            <li>解压到任意目录（如桌面）</li>
+            <li>进入解压后的目录</li>
+            <li>双击运行 <Text code>start.bat</Text></li>
+            <li>等待终端显示 <Text code>Launcher 服务已启动，端口: 3003</Text></li>
+          </ol>
+          <Paragraph type="secondary" style={{ marginTop: 16 }}>
+            启动后此页面会自动检测到 Launcher 运行状态。
+          </Paragraph>
+        </div>
+      ),
+      okText: '我已启动，刷新检测',
+      onOk: () => {
         checkLauncherStatus();
-      }, 3000);
-    } catch (err) {
-      message.error('启动Launcher失败，请手动启动或重新下载');
-    }
+      }
+    });
   };
 
   const getLauncherStatusDisplay = () => {
@@ -197,7 +203,9 @@ function Home() {
                         Launcher 已下载但未启动
                       </Title>
                       <Paragraph style={{ margin: '8px 0 0' }}>
-                        点击"启动Launcher"按钮，或双击桌面上的Launcher图标启动。
+                        请进入解压目录，双击运行 <Text code>start.bat</Text> 启动 Launcher。
+                        <br />
+                        启动后终端会显示 <Text code>Launcher 服务已启动，端口: 3003</Text>。
                       </Paragraph>
                     </div>
                   </>
