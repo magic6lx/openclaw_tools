@@ -197,7 +197,7 @@ function FeishuSetup({ currentConfig, onConfigSaved }) {
             <Text strong style={{ display: 'block', marginBottom: 12, fontSize: 16 }}>快捷登录步骤：</Text>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div><Tag color="blue">1</Tag> 点击下方按钮启动登录命令</div>
-              <div><Tag color="blue">2</Tag> 在弹出的终端窗口中，使用飞书 App 扫描二维码</div>
+              <div><Tag color="blue">2</Tag> 在弹出的终端窗口中，使用飞书 App 扫描二维码（注意，powershell右键属性调整字体为MS Gothic才能扫码）</div>
               <div><Tag color="blue">3</Tag> 扫码成功后，配置将自动写入 openclaw.json</div>
               <div><Tag color="blue">4</Tag> 重启 Gateway 使配置生效</div>
             </div>

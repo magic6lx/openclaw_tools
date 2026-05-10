@@ -12,6 +12,7 @@ function Home() {
   const [launcherStatus, setLauncherStatus] = useState('checking');
   const [openclawStatus, setOpenclawStatus] = useState('unknown');
   const [gatewayStatus, setGatewayStatus] = useState('checking');
+  const [gatewayStarting, setGatewayStarting] = useState(false);
   const [serverStatus, setServerStatus] = useState('checking');
   const [launcherInstalled, setLauncherInstalled] = useState(null);
 
@@ -29,6 +30,7 @@ function Home() {
         setLauncherStatus('online');
         setOpenclawStatus(data.openClawStatus || 'unknown');
         setGatewayStatus(data.gatewayRunning ? 'running' : 'stopped');
+        setGatewayStarting(data.gatewayStarting || false);
         if (!launcherInstalled) {
           setLauncherInstalled(true);
           localStorage.setItem('launcherInstalled', 'true');
@@ -162,6 +164,7 @@ function Home() {
   };
 
   const getGatewayTag = () => {
+    if (gatewayStarting) return <Tag icon={<Spin size="small" />} color="processing">启动中</Tag>;
     if (gatewayStatus === 'checking') return <Tag icon={<Spin size="small" />} color="default">检测中</Tag>;
     if (gatewayStatus === 'running') return <Tag icon={<CheckCircleOutlined />} color="success"><a href="http://127.0.0.1:18789" target="_blank" rel="noopener noreferrer">运行中</a></Tag>;
     if (gatewayStatus === 'stopped') return <Tag icon={<CloseCircleOutlined />} color="error">已停止</Tag>;

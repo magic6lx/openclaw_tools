@@ -46,7 +46,8 @@ const installState = {
 const gatewayState = {
   running: false,
   process: null,
-  dashboardUrl: null
+  dashboardUrl: null,
+  starting: false
 };
 
 let globalDeviceId = null; // Global variable to store device ID
@@ -315,9 +316,10 @@ function getStatus() {
     openClawStatus: installed ? 'installed' : 'not_installed',
     openClawInstalled: installed,
     gatewayRunning: gatewayRunning,
+    gatewayStarting: gatewayState.starting,
     dashboardUrl: gatewayRunning ? `http://127.0.0.1:${DEFAULT_GATEWAY_PORT}` : null,
     launcherRunning: true,
-    deviceId: globalDeviceId, // Add deviceId here
+    deviceId: globalDeviceId,
     checkMethod: 'binary+registry+process+npm'
   };
 }
@@ -354,6 +356,7 @@ app.post('/gateway/start', async (req, res) => {
     return res.json({ success: false, message: 'OpenClaw 未安装，请先安装' });
   }
 
+  gatewayState.starting = true;
   addLog('INFO', '========== 开始启动 Gateway ==========');
   addLog('INFO', '执行命令: openclaw gateway run');
   addLog('INFO', '目标端口: 18789');
@@ -501,6 +504,7 @@ app.post('/gateway/start', async (req, res) => {
         path: err.path
       })}`);
       gatewayState.running = false;
+      gatewayState.starting = false;
       gatewayState.process = null;
     });
 
@@ -519,6 +523,7 @@ app.post('/gateway/start', async (req, res) => {
         }
       }
       gatewayState.running = false;
+      gatewayState.starting = false;
       gatewayState.process = null;
     });
 
@@ -533,6 +538,7 @@ app.post('/gateway/start', async (req, res) => {
       if (checkGatewayRunning()) {
         clearInterval(checkInterval);
         gatewayState.running = true;
+        gatewayState.starting = false;
         gatewayState.dashboardUrl = `http://127.0.0.1:${DEFAULT_GATEWAY_PORT}`;
         addLog('INFO', '========== Gateway 启动成功 ==========');
         addLog('INFO', `Dashboard 地址: ${gatewayState.dashboardUrl}`);
@@ -550,6 +556,7 @@ app.post('/gateway/start', async (req, res) => {
           addLog('ERROR', `进程最后输出: ${lastOutput}`);
         }
         gatewayState.running = false;
+        gatewayState.starting = false;
         gatewayState.process = null;
         return;
       }
@@ -1650,7 +1657,7 @@ function validateAndCleanConfig(configPath) {
   try {
     const result = execSync('openclaw doctor --fix --non-interactive', {
       encoding: 'utf8',
-      timeout: 300000,
+      timeout: 30000,
       windowsHide: true,
       env: { ...process.env, HOME: homedir, USERPROFILE: homedir },
       cwd: homedir
@@ -1659,6 +1666,10 @@ function validateAndCleanConfig(configPath) {
     return { valid: true };
   } catch (err) {
     const output = err.stdout || err.stderr || err.message || '';
+    if (err.error?.code === 'ETIMEDOUT' || output.includes('ETIMEDOUT') || output.includes('timeout')) {
+      addLog('WARN', '配置验证超时（30秒），跳过验证继续启动');
+      return { valid: true, timeout: true };
+    }
     const invalidPaths = parseDoctorErrors(output);
     if (invalidPaths.length > 0) {
       addLog('WARN', `配置验证失败，发现无效字段: ${invalidPaths.join(', ')}`);
