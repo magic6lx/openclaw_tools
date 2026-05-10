@@ -405,19 +405,6 @@ app.post('/gateway/start', async (req, res) => {
     }
   }
 
-  // 清理插件目录（解决 plugin already exists 错误）
-  // openclaw setup 拒绝覆盖已存在的插件，所以必须在 setup 前删除
-  const pluginDir = join(OPENCLAW_CONFIG_DIR, 'npm', 'node_modules', '@openclaw');
-  if (existsSync(pluginDir)) {
-    try {
-      rmSync(pluginDir, { recursive: true, force: true });
-      addLog('INFO', 'Gateway启动前：已清理 @openclaw 插件目录，setup 将重新安装');
-    } catch (e) {
-      addLog('WARN', `Gateway启动前：清理插件目录失败: ${e.message}`);
-    }
-  }
-
-  // 清理损坏的符号链接
   const pluginSkillsDir = join(OPENCLAW_CONFIG_DIR, 'plugin-skills');
   if (existsSync(pluginSkillsDir)) {
     try {
@@ -442,10 +429,9 @@ app.post('/gateway/start', async (req, res) => {
     }
   }
 
-  // 先执行 openclaw setup --accept-defaults
   try {
-    addLog('INFO', '执行 openclaw setup --accept-defaults...');
-    execSync('openclaw setup --accept-defaults', { encoding: 'utf8', timeout: 120000, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    addLog('INFO', '执行 openclaw setup 初始化配置和工作空间...');
+    execSync('openclaw setup', { encoding: 'utf8', timeout: 120000, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     addLog('INFO', 'openclaw setup 完成。');
   } catch (setupErr) {
     addLog('WARN', `openclaw setup 失败或超时 (可能已配置): ${setupErr.message}`);
@@ -3171,7 +3157,7 @@ app.post('/api/plugins/repair', async (req, res) => {
     const { plugin } = req.body;
     const results = [];
 
-    // 1. 清理插件目录（openclaw setup 拒绝覆盖已存在的插件）
+    // 1. 清理插件目录（openclaw plugins install --force 需要先删除旧目录）
     const pluginDir = join(OPENCLAW_CONFIG_DIR, 'npm', 'node_modules', '@openclaw');
     if (existsSync(pluginDir)) {
       try {
@@ -3214,21 +3200,23 @@ app.post('/api/plugins/repair', async (req, res) => {
       }
     }
 
-    // 3. 重新执行 setup 安装插件
+    // 3. 使用 openclaw plugins install --force 重新安装插件
+    const pluginToInstall = plugin || 'feishu';
+    const npmSpec = `@openclaw/${pluginToInstall}`;
     try {
-      addLog('INFO', '[PLUGIN] 执行 openclaw setup --accept-defaults 重新安装插件...');
-      const setupOutput = execSync('openclaw setup --accept-defaults', {
+      addLog('INFO', `[PLUGIN] 执行 openclaw plugins install ${npmSpec} --force 重新安装插件...`);
+      const installOutput = execSync(`openclaw plugins install ${npmSpec} --force`, {
         encoding: 'utf8',
         timeout: 120000,
         windowsHide: true,
         env: { ...process.env, HOME: homedir, USERPROFILE: homedir }
       });
-      results.push('setup 完成，插件已重新安装');
-      addLog('INFO', `[PLUGIN] setup 完成: ${setupOutput.substring(0, 200)}`);
-    } catch (setupErr) {
-      const output = setupErr.stdout || setupErr.stderr || setupErr.message || '';
-      results.push(`setup 执行完成（可能有警告）: ${output.substring(0, 200)}`);
-      addLog('WARN', `[PLUGIN] setup 警告: ${output.substring(0, 200)}`);
+      results.push(`插件 ${npmSpec} 安装完成`);
+      addLog('INFO', `[PLUGIN] 插件安装完成: ${installOutput.substring(0, 200)}`);
+    } catch (installErr) {
+      const output = installErr.stdout || installErr.stderr || installErr.message || '';
+      results.push(`插件安装完成（可能有警告）: ${output.substring(0, 200)}`);
+      addLog('WARN', `[PLUGIN] 插件安装警告: ${output.substring(0, 200)}`);
     }
 
     res.json({ success: true, results });
