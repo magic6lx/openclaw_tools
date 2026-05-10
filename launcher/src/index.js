@@ -504,14 +504,35 @@ async function startGatewayInternal() {
     return null;
   }
 
+  function ensureGatewayToken(config) {
+    if (!config) config = {};
+    if (!config.gateway) config.gateway = {};
+    if (!config.gateway.auth) config.gateway.auth = {};
+    if (!config.gateway.auth.token) {
+      config.gateway.auth.token = crypto.randomBytes(24).toString('hex');
+      addLog('INFO', `自动生成 Gateway Token: ${config.gateway.auth.token.substring(0, 8)}...`);
+      if (!config.gateway.auth.mode) {
+        config.gateway.auth.mode = 'token';
+      }
+      try {
+        writeFileSync(OPENCLAW_CONFIG_FILE, JSON.stringify(config, null, 2), 'utf-8');
+        addLog('INFO', '已将 Gateway Token 写入配置文件');
+      } catch (e) {
+        addLog('WARN', `写入 Gateway Token 失败: ${e.message}`);
+      }
+    }
+    return config;
+  }
+
   try {
-    const openClawConfig = getOpenClawConfig();
+    let openClawConfig = getOpenClawConfig();
+    openClawConfig = ensureGatewayToken(openClawConfig);
     const gatewayToken = openClawConfig?.gateway?.auth?.token || '';
 
     const env = {
       ...process.env,
-      HOME: homedir, // Ensure HOME is set for cross-platform compatibility
-      USERPROFILE: homedir // Ensure USERPROFILE is set for Windows
+      HOME: homedir,
+      USERPROFILE: homedir
     };
     if (gatewayToken) {
       env.OPENCLAW_GATEWAY_TOKEN = gatewayToken;
@@ -3238,6 +3259,22 @@ app.get('/api/diagnostic', (req, res) => {
     env_OPENCLAW_TEST_DIR: process.env.OPENCLAW_TEST_DIR,
     test_dir_files: existsSync(MANIFEST_DIR) ? readdirSync(MANIFEST_DIR).filter(f => f.startsWith('manifest_') && f.endsWith('.json')) : []
   });
+});
+
+app.get('/api/gateway-token', (req, res) => {
+  try {
+    if (existsSync(OPENCLAW_CONFIG_FILE)) {
+      const config = JSON.parse(readFileSync(OPENCLAW_CONFIG_FILE, 'utf-8'));
+      const token = config?.gateway?.auth?.token;
+      if (token) {
+        res.json({ success: true, token });
+        return;
+      }
+    }
+    res.json({ success: false, error: 'Gateway Token 未配置' });
+  } catch (e) {
+    res.json({ success: false, error: e.message });
+  }
 });
 
 const ALLOWED_CLI_COMMANDS = [
