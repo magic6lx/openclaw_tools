@@ -368,7 +368,7 @@ app.post('/gateway/start', async (req, res) => {
   });
 
   setImmediate(() => startGatewayInternal());
-}
+});
 
 async function startGatewayInternal() {
   addLog('INFO', '========== 开始启动 Gateway ==========');
