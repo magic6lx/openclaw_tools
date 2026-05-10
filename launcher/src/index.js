@@ -401,21 +401,35 @@ async function startGatewayInternal() {
       } else {
         console.log('Gateway启动前：配置无需清理');
       }
-      // 验证并清理其他无效字段
+      // 验证并清理其他无效字段（异步执行，不阻塞主线程）
       console.log('Gateway启动前：验证配置有效性...');
-      let validationResult = validateAndCleanConfig(OPENCLAW_CONFIG_FILE);
-      let retryCount = 0;
-      while (!validationResult.valid && validationResult.cleaned && retryCount < 5) {
-        retryCount++;
-        console.log(`Gateway启动前：第 ${retryCount} 次清理后重新验证...`);
-        validationResult = validateAndCleanConfig(OPENCLAW_CONFIG_FILE);
-      }
-      if (validationResult.valid) {
-        console.log('Gateway启动前：配置验证通过');
-      } else if (validationResult.invalidPaths) {
-        console.log(`Gateway启动前：配置仍有无效字段: ${validationResult.invalidPaths.join(', ')}`);
-        addLog('WARN', `Gateway启动前：配置仍有无效字段: ${validationResult.invalidPaths.join(', ')}`);
-      }
+      const doctorProcess = spawn('openclaw', ['doctor', '--fix', '--non-interactive'], {
+        detached: false,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        shell: true,
+        windowsHide: true,
+        timeout: 30000
+      });
+      
+      let doctorOutput = '';
+      doctorProcess.stdout.on('data', (data) => {
+        doctorOutput += data.toString();
+      });
+      doctorProcess.stderr.on('data', (data) => {
+        doctorOutput += data.toString();
+      });
+      
+      doctorProcess.on('close', (code) => {
+        if (code === 0) {
+          addLog('INFO', '配置验证通过');
+        } else {
+          addLog('WARN', `配置验证退出码: ${code}`);
+        }
+      });
+      
+      doctorProcess.on('error', (err) => {
+        addLog('WARN', `配置验证失败: ${err.message}`);
+      });
     } catch (e) {
       console.log('Gateway启动前：清理配置失败:', e.message);
       addLog('WARN', `Gateway启动前：清理配置失败: ${e.message}`);
