@@ -29,6 +29,10 @@ function Home() {
         setLauncherStatus('online');
         setOpenclawStatus(data.openClawStatus || 'unknown');
         setGatewayStatus(data.gatewayRunning ? 'running' : 'stopped');
+        if (!launcherInstalled) {
+          setLauncherInstalled(true);
+          localStorage.setItem('launcherInstalled', 'true');
+        }
       } else {
         setLauncherStatus('offline');
       }
@@ -203,6 +207,7 @@ function Home() {
                       </Title>
                       <Paragraph style={{ margin: '8px 0 0' }}>
                         Launcher是OpenClaw的管理工具，需要先下载并启动才能使用完整功能。
+                        请确保 Launcher 已启动（端口 3003），且浏览器可访问 <Text code>http://127.0.0.1:3003/status</Text>。
                       </Paragraph>
                     </div>
                   </>

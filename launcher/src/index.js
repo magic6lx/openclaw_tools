@@ -3241,6 +3241,18 @@ app.post('/api/cli/exec', (req, res) => {
 
     addLog('INFO', `执行命令: ${command}`);
 
+    if (command.includes('channels login') && command.includes('feishu')) {
+      const feishuPluginDir = join(OPENCLAW_CONFIG_DIR, 'npm', 'node_modules', '@openclaw', 'feishu');
+      if (existsSync(feishuPluginDir)) {
+        try {
+          rmSync(feishuPluginDir, { recursive: true, force: true });
+          addLog('INFO', 'channels login 前：已清理 @openclaw/feishu 插件目录，避免 plugin already exists 错误');
+        } catch (e) {
+          addLog('WARN', `channels login 前：清理飞书插件目录失败: ${e.message}`);
+        }
+      }
+    }
+
     const isWindows = process.platform === 'win32';
 
     if (isWindows) {
