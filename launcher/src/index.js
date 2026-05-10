@@ -448,10 +448,35 @@ async function startGatewayInternal() {
 
   try {
     addLog('INFO', '执行 openclaw setup 初始化配置和工作空间...');
-    execSync('openclaw setup', { encoding: 'utf8', timeout: 120000, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
-    addLog('INFO', 'openclaw setup 完成。');
+    const setupProcess = spawn('openclaw', ['setup'], {
+      detached: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: true,
+      windowsHide: true,
+      timeout: 120000
+    });
+    
+    let setupOutput = '';
+    setupProcess.stdout.on('data', (data) => {
+      setupOutput += data.toString();
+    });
+    setupProcess.stderr.on('data', (data) => {
+      setupOutput += data.toString();
+    });
+    
+    setupProcess.on('close', (code) => {
+      if (code === 0) {
+        addLog('INFO', 'openclaw setup 完成。');
+      } else {
+        addLog('WARN', `openclaw setup 退出码: ${code}, 输出: ${setupOutput}`);
+      }
+    });
+    
+    setupProcess.on('error', (err) => {
+      addLog('WARN', `openclaw setup 失败: ${err.message}`);
+    });
   } catch (setupErr) {
-    addLog('WARN', `openclaw setup 失败或超时 (可能已配置): ${setupErr.message}`);
+    addLog('WARN', `openclaw setup 启动失败: ${setupErr.message}`);
   }
 
   function getOpenClawConfig() {
