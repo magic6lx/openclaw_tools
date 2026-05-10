@@ -405,27 +405,15 @@ app.post('/gateway/start', async (req, res) => {
     }
   }
 
-  // 清理损坏的插件目录（plugin already exists 错误）
+  // 清理插件目录（解决 plugin already exists 错误）
+  // openclaw setup 拒绝覆盖已存在的插件，所以必须在 setup 前删除
   const pluginDir = join(OPENCLAW_CONFIG_DIR, 'npm', 'node_modules', '@openclaw');
   if (existsSync(pluginDir)) {
     try {
-      const plugins = readdirSync(pluginDir);
-      for (const plugin of plugins) {
-        const pluginPath = join(pluginDir, plugin);
-        try {
-          require('fs').statSync(pluginPath);
-          const pkgJsonPath = join(pluginPath, 'package.json');
-          if (!existsSync(pkgJsonPath)) {
-            rmSync(pluginPath, { recursive: true, force: true });
-            addLog('INFO', `Gateway启动前：清理损坏的插件目录: @openclaw/${plugin}`);
-          }
-        } catch (e) {
-          rmSync(pluginPath, { recursive: true, force: true });
-          addLog('INFO', `Gateway启动前：清理无法访问的插件目录: @openclaw/${plugin}`);
-        }
-      }
+      rmSync(pluginDir, { recursive: true, force: true });
+      addLog('INFO', 'Gateway启动前：已清理 @openclaw 插件目录，setup 将重新安装');
     } catch (e) {
-      addLog('WARN', `Gateway启动前：检查插件目录失败: ${e.message}`);
+      addLog('WARN', `Gateway启动前：清理插件目录失败: ${e.message}`);
     }
   }
 
@@ -3183,33 +3171,24 @@ app.post('/api/plugins/repair', async (req, res) => {
     const { plugin } = req.body;
     const results = [];
 
-    // 1. 清理损坏的插件目录
+    // 1. 清理插件目录（openclaw setup 拒绝覆盖已存在的插件）
     const pluginDir = join(OPENCLAW_CONFIG_DIR, 'npm', 'node_modules', '@openclaw');
     if (existsSync(pluginDir)) {
-      const plugins = plugin ? [plugin] : readdirSync(pluginDir);
-      for (const p of plugins) {
-        const pluginPath = join(pluginDir, p);
-        try {
-          const pkgJsonPath = join(pluginPath, 'package.json');
-          if (!existsSync(pkgJsonPath)) {
+      try {
+        if (plugin) {
+          const pluginPath = join(pluginDir, plugin);
+          if (existsSync(pluginPath)) {
             rmSync(pluginPath, { recursive: true, force: true });
-            results.push(`清理损坏的插件目录: @openclaw/${p}`);
-            addLog('INFO', `[PLUGIN] 清理损坏的插件目录: @openclaw/${p}`);
-          } else {
-            if (plugin && plugin === p) {
-              rmSync(pluginPath, { recursive: true, force: true });
-              results.push(`强制删除插件目录: @openclaw/${p}（用于重新安装）`);
-              addLog('INFO', `[PLUGIN] 强制删除插件目录: @openclaw/${p}`);
-            }
+            results.push(`删除插件目录: @openclaw/${plugin}`);
+            addLog('INFO', `[PLUGIN] 删除插件目录: @openclaw/${plugin}`);
           }
-        } catch (e) {
-          try {
-            rmSync(pluginPath, { recursive: true, force: true });
-            results.push(`清理无法访问的插件目录: @openclaw/${p}`);
-          } catch (e2) {
-            results.push(`清理失败: @openclaw/${p} - ${e2.message}`);
-          }
+        } else {
+          rmSync(pluginDir, { recursive: true, force: true });
+          results.push('清理全部 @openclaw 插件目录');
+          addLog('INFO', '[PLUGIN] 清理全部 @openclaw 插件目录');
         }
+      } catch (e) {
+        results.push(`清理失败: ${e.message}`);
       }
     }
 
