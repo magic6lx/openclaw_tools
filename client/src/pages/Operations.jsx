@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Card, Typography, Row, Col, Button, Space, Tag, message, Modal, Spin } from 'antd';
-import { PlayCircleOutlined, StopOutlined, SyncOutlined, ExclamationCircleOutlined, DeleteOutlined } from '@ant-design/icons';
+import { Card, Typography, Row, Col, Button, Space, Tag, message, Modal, Spin, Input } from 'antd';
+import { PlayCircleOutlined, StopOutlined, SyncOutlined, ExclamationCircleOutlined, DeleteOutlined, KeyOutlined, CopyOutlined } from '@ant-design/icons';
 import { LAUNCHER_API, launcherFetch } from '../utils/launcher';
 
 const { Title, Text, Paragraph } = Typography;
@@ -123,6 +123,50 @@ function Operations() {
     setLogs([]);
   };
 
+  const handleGetGatewayToken = async () => {
+    try {
+      const res = await launcherFetch('/api/gateway-token');
+      const data = await res.json();
+      
+      if (data.success && data.token) {
+        Modal.info({
+          title: 'Gateway 令牌',
+          width: 500,
+          content: (
+            <div style={{ marginTop: 16 }}>
+              <Paragraph type="secondary">
+                请复制以下令牌，粘贴到 Control UI 设置中进行认证：
+              </Paragraph>
+              <Input.TextArea
+                value={data.token}
+                readOnly
+                autoSize={{ minRows: 2, maxRows: 4 }}
+                style={{ fontFamily: 'monospace', marginTop: 8 }}
+              />
+              <Paragraph type="secondary" style={{ marginTop: 16 }}>
+                操作步骤：
+              </Paragraph>
+              <ol style={{ paddingLeft: 20, margin: 0 }}>
+                <li>打开 <a href="http://127.0.0.1:18789" target="_blank" rel="noopener noreferrer">http://127.0.0.1:18789</a></li>
+                <li>点击右上角设置图标</li>
+                <li>在认证设置中粘贴令牌</li>
+              </ol>
+            </div>
+          ),
+          okText: '复制令牌',
+          onOk: () => {
+            navigator.clipboard.writeText(data.token);
+            message.success('令牌已复制到剪贴板');
+          }
+        });
+      } else {
+        message.error(data.error || '获取令牌失败，请确保 Gateway 已启动');
+      }
+    } catch (err) {
+      message.error(`获取令牌失败: ${err.message}`);
+    }
+  };
+
   const getLauncherTag = () => {
     if (launcherStatus === 'checking' || loading) {
       return <Tag icon={<Spin size="small" />} color="default">检测中</Tag>;
@@ -238,6 +282,13 @@ function Operations() {
                   loading={actionLoading}
                 >
                   重启
+                </Button>
+                <Button
+                  icon={<KeyOutlined />}
+                  onClick={handleGetGatewayToken}
+                  disabled={launcherStatus !== 'online'}
+                >
+                  获取令牌
                 </Button>
               </Space>
             </div>
