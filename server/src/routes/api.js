@@ -333,6 +333,9 @@ router.post('/proxy/chat', authMiddleware, async (req, res) => {
         'UPDATE invitations SET token_proxy = JSON_SET(IFNULL(token_proxy, \'{}\'), \'$.quota.used\', ?) WHERE id = ?',
         [quota.used + tokensUsed, req.user.id]
       );
+      console.log(`[Token代理] 非Stream请求记录: model=${model}, input=${data.usage.prompt_tokens}, output=${data.usage.completion_tokens}`);
+    } else {
+      console.warn(`[Token代理] 非Stream请求完成但无usage数据: model=${model}, provider=${provider}, responseKeys=${Object.keys(data).join(',')}`);
     }
 
     res.json(data);
@@ -410,6 +413,7 @@ router.post('/proxy/:provider/chat/completions', authMiddleware, async (req, res
 
     let requestBody = { model, messages, temperature: temperature || 0.7, max_tokens: max_tokens || 2000 };
     if (stream !== undefined) requestBody.stream = stream;
+    if (stream) requestBody.stream_options = { include_usage: true };
 
     let headers = { 'Content-Type': 'application/json' };
 
@@ -447,6 +451,9 @@ router.post('/proxy/:provider/chat/completions', authMiddleware, async (req, res
                 'UPDATE invitations SET token_proxy = JSON_SET(IFNULL(token_proxy, \'{}\'), \'$.quota.used\', ?) WHERE id = ?',
                 [quota.used + tokensUsed, req.user.id]
               );
+              console.log(`[Token代理] Stream请求记录: model=${model}, input=${usageData.prompt_tokens}, output=${usageData.completion_tokens}`);
+            } else {
+              console.warn(`[Token代理] Stream请求完成但无usage数据: model=${model}, provider=${provider}`);
             }
             res.end();
             break;
