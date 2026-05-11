@@ -430,9 +430,20 @@ router.post('/proxy/:provider/chat/completions', authMiddleware, async (req, res
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
-      const reader = response.body;
-      reader.on('data', (chunk) => res.write(chunk));
-      reader.on('end', () => res.end());
+      const reader = response.body.getReader();
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            res.end();
+            break;
+          }
+          res.write(value);
+        }
+      } catch (err) {
+        console.error('Stream reading error:', err);
+        res.end();
+      }
       return;
     }
 
