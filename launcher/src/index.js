@@ -328,6 +328,17 @@ app.get('/status', (req, res) => {
   res.json(getStatus());
 });
 
+app.get('/status/detailed', async (req, res) => {
+  const basicStatus = getStatus();
+  const healthCheck = await checkGatewayHealth();
+  res.json({
+    ...basicStatus,
+    gatewayHealth: healthCheck.healthy,
+    gatewayResponsive: healthCheck.responsive,
+    gatewayHealthError: healthCheck.error || null
+  });
+});
+
 function checkGatewayRunning() {
   try {
     const result = execSync('netstat -ano | findstr ":18789"', { encoding: 'utf8', timeout: 3000, windowsHide: true });
@@ -338,6 +349,73 @@ function checkGatewayRunning() {
   }
 
   return false;
+}
+
+async function checkGatewayHealth() {
+  try {
+    const response = await fetch(`http://127.0.0.1:${DEFAULT_GATEWAY_PORT}/__openclaw__/health`, {
+      method: 'GET',
+      timeout: 5000
+    });
+    if (response.ok) {
+      return { healthy: true, responsive: true };
+    }
+  } catch (e) {
+    // Gateway 端口在监听，但无法响应
+    if (checkGatewayRunning()) {
+      return { healthy: false, responsive: false, error: e.message };
+    }
+  }
+  return { healthy: false, responsive: false };
+}
+
+let healthMonitorInterval = null;
+let consecutiveHealthFailures = 0;
+const MAX_HEALTH_FAILURES = 3;
+
+function startGatewayHealthMonitor() {
+  if (healthMonitorInterval) {
+    clearInterval(healthMonitorInterval);
+  }
+  
+  consecutiveHealthFailures = 0;
+  addLog('INFO', '启动 Gateway 健康监控（每60秒检查一次）');
+  
+  healthMonitorInterval = setInterval(async () => {
+    if (!gatewayState.running) {
+      return;
+    }
+    
+    try {
+      const health = await checkGatewayHealth();
+      
+      if (!health.healthy || !health.responsive) {
+        consecutiveHealthFailures++;
+        addLog('WARN', `Gateway 健康检查失败 (${consecutiveHealthFailures}/${MAX_HEALTH_FAILURES}): ${health.error || '无响应'}`);
+        
+        if (consecutiveHealthFailures >= MAX_HEALTH_FAILURES) {
+          addLog('ERROR', '⚠️ Gateway 连续健康检查失败，可能需要重启');
+          // 可以选择自动重启 Gateway，但需要谨慎
+          // restartGateway();
+        }
+      } else {
+        if (consecutiveHealthFailures > 0) {
+          addLog('INFO', '✅ Gateway 健康检查恢复正常');
+        }
+        consecutiveHealthFailures = 0;
+      }
+    } catch (e) {
+      addLog('ERROR', `健康检查异常: ${e.message}`);
+    }
+  }, 60000); // 每60秒检查一次
+}
+
+function stopGatewayHealthMonitor() {
+  if (healthMonitorInterval) {
+    clearInterval(healthMonitorInterval);
+    healthMonitorInterval = null;
+    addLog('INFO', '已停止 Gateway 健康监控');
+  }
 }
 
 app.post('/gateway/start', async (req, res) => {
@@ -545,12 +623,12 @@ async function startGatewayInternal() {
       addLog('WARN', 'Gateway Token 为空，无法设置环境变量');
     }
 
-    const gatewayProcess = spawn('openclaw', ['gateway', 'run', '--allow-unconfigured'], { // 添加 --allow-unconfigured 参数
-      detached: false,
+    const gatewayProcess = spawn('openclaw', ['gateway', 'run', '--allow-unconfigured'], {
+      detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
       shell: true,
       windowsHide: true,
-      env: env // 传递环境变量
+      env: env
     });
 
     gatewayState.process = gatewayProcess;
@@ -563,6 +641,16 @@ async function startGatewayInternal() {
         hasOutput = true;
         lastOutput = msg;
         addLog('INFO', `[Gateway stdout] ${msg}`);
+        
+        if (msg.includes('liveness warning') && msg.includes('event_loop_delay')) {
+          const delayMatch = msg.match(/eventLoopDelayMaxMs=([0-9.]+)/);
+          if (delayMatch) {
+            const maxDelay = parseFloat(delayMatch[1]);
+            if (maxDelay > 5000) {
+              addLog('WARN', `⚠️ Gateway 事件循环延迟过高: ${maxDelay.toFixed(1)}ms，可能影响响应速度`);
+            }
+          }
+        }
       }
     });
 
@@ -589,6 +677,8 @@ async function startGatewayInternal() {
     });
 
     gatewayProcess.on('close', (code, signal) => {
+      stopGatewayHealthMonitor();
+      
       addLog('INFO', `Gateway 进程已退出，退出码: ${code}, 信号: ${signal}`);
       if (code !== 0 && code !== null) {
         addLog('ERROR', '========== Gateway 启动失败 ==========');
@@ -657,6 +747,9 @@ async function startGatewayInternal() {
           } catch (devicesErr) {
             addLog('WARN', `检查设备列表失败: ${devicesErr.message}`);
           }
+          
+          // 启动定期健康检查
+          startGatewayHealthMonitor();
         });
         return;
       }
@@ -690,6 +783,8 @@ async function startGatewayInternal() {
 }
 
 app.post('/gateway/stop', (req, res) => {
+  stopGatewayHealthMonitor();
+  
   if (!checkGatewayRunning()) {
     gatewayState.running = false;
     gatewayState.process = null;
@@ -707,8 +802,18 @@ app.post('/gateway/stop', (req, res) => {
     addLog('WARN', `正常停止命令超时，尝试强制终止...`);
 
     try {
-      execSync('taskkill /F /IM openclaw.exe', { encoding: 'utf8', timeout: 5000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
-      addLog('INFO', 'Gateway 进程已强制终止');
+      // openclaw 是 npm 安装的 Node.js 包，进程名为 node.exe
+      // 通过端口号找到对应的 PID 再终止
+      const netstatOutput = execSync('netstat -ano | findstr ":18789.*LISTENING"', { encoding: 'utf8', timeout: 5000, windowsHide: true });
+      const pidMatch = netstatOutput.match(/(\d+)\s*$/m);
+      if (pidMatch) {
+        const pid = pidMatch[1].trim();
+        addLog('INFO', `找到 Gateway 进程 PID: ${pid}，正在终止...`);
+        execSync(`taskkill /F /PID ${pid}`, { encoding: 'utf8', timeout: 5000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+        addLog('INFO', `Gateway 进程 (PID: ${pid}) 已强制终止`);
+      } else {
+        addLog('WARN', '未找到监听 18789 端口的进程');
+      }
       gatewayState.running = false;
       gatewayState.process = null;
       gatewayState.dashboardUrl = null;
@@ -1705,6 +1810,32 @@ function cleanInvalidSecretFields(config) {
   return config;
 }
 
+function cleanBaseUrlFields(config) {
+  if (!config || typeof config !== 'object') return config;
+  
+  function cleanRecursive(obj, path = '') {
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return;
+    
+    for (const key of Object.keys(obj)) {
+      const currentPath = path ? `${path}.${key}` : key;
+      const value = obj[key];
+      
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        cleanRecursive(value, currentPath);
+      } else if (key === 'baseUrl' && typeof value === 'string') {
+        const cleaned = value.replace(/[`\s]/g, '').trim();
+        if (cleaned !== value) {
+          addLog('INFO', `清理 baseUrl 字段: ${currentPath} = "${value}" -> "${cleaned}"`);
+          obj[key] = cleaned;
+        }
+      }
+    }
+  }
+  
+  cleanRecursive(config);
+  return config;
+}
+
 function applyBuiltinCleanup(config) {
   if (!config || typeof config !== 'object') return config;
   
@@ -1725,6 +1856,9 @@ function applyBuiltinCleanup(config) {
   
   // 2. 清理无效的敏感字段
   cleanInvalidSecretFields(config);
+  
+  // 3. 清理 baseUrl 字段中的反引号和多余空格
+  cleanBaseUrlFields(config);
   
   console.log(`[CLEANUP] 清理后 useProxy=${config.models?.useProxy}, volcengine.models=${JSON.stringify(config.models?.providers?.volcengine?.models)}`);
   return config;
