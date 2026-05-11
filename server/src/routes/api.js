@@ -48,7 +48,7 @@ router.put('/invitations/:id/token-proxy', authMiddleware, adminMiddleware, asyn
 
     await query('UPDATE invitations SET token_proxy = ? WHERE id = ?', [JSON.stringify(updatedProxy), id]);
 
-    logService.addLog('INFO', `Token代理配置已更新: invitation_id=${id}, enabled=${updatedProxy.enabled}`);
+    console.log(`[Token代理] 配置已更新: invitation_id=${id}, enabled=${updatedProxy.enabled}`);
 
     res.json({ success: true, tokenProxy: updatedProxy });
   } catch (err) {
