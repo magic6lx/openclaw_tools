@@ -160,7 +160,8 @@ function Invitations() {
               googleKey: r.tokenProxy?.providers?.google?.apiKey || '',
               googleBase: r.tokenProxy?.providers?.google?.apiBase || '',
               volcengineKey: r.tokenProxy?.providers?.volcengine?.apiKey || '',
-              volcengineBase: r.tokenProxy?.providers?.volcengine?.apiBase || ''
+              volcengineBase: r.tokenProxy?.providers?.volcengine?.apiBase || '',
+              tokenLimit: r.tokenProxy?.quota?.total || 100000
             });
             setProxyModalVisible(true);
           }}>
@@ -248,7 +249,10 @@ function Invitations() {
                 body: JSON.stringify({
                   enabled: values.enabled,
                   providers,
-                  quota: selectedInvitation.tokenProxy?.quota || { used: 0, total: values.tokenLimit || 100000 }
+                  quota: {
+                    used: selectedInvitation.tokenProxy?.quota?.used || 0,
+                    total: values.tokenLimit || selectedInvitation.tokenProxy?.quota?.total || 100000
+                  }
                 })
               });
               const data = await res.json();
@@ -266,6 +270,9 @@ function Invitations() {
         >
           <Form.Item name="enabled" valuePropName="checked" label="启用Token代理">
             <Switch />
+          </Form.Item>
+          <Form.Item label="Token上限" name="tokenLimit" rules={[{ required: true }]}>
+            <InputNumber min={1000} step={1000} style={{ width: '100%' }} />
           </Form.Item>
           <Divider>OpenAI</Divider>
           <Row gutter={16}>
