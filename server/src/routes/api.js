@@ -431,14 +431,41 @@ router.post('/proxy/:provider/chat/completions', authMiddleware, async (req, res
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
       const reader = response.body.getReader();
+      let usageData = null;
       try {
         while (true) {
           const { done, value } = await reader.read();
           if (done) {
+            if (usageData) {
+              const db = require('../db');
+              const tokensUsed = (usageData.prompt_tokens || 0) + (usageData.completion_tokens || 0);
+              await db.query(
+                'INSERT INTO token_usage (device_id, invitation_id, model, input_tokens, output_tokens) VALUES (?, ?, ?, ?, ?)',
+                [req.user.deviceId || '', req.user.id || null, model, usageData.prompt_tokens || 0, usageData.completion_tokens || 0]
+              );
+              await db.query(
+                'UPDATE invitations SET token_proxy = JSON_SET(IFNULL(token_proxy, \'{}\'), \'$.quota.used\', ?) WHERE id = ?',
+                [quota.used + tokensUsed, req.user.id]
+              );
+            }
             res.end();
             break;
           }
           res.write(value);
+          const chunkStr = new TextDecoder().decode(value);
+          const lines = chunkStr.split('\n');
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const dataStr = line.slice(6).trim();
+              if (dataStr === '[DONE]') continue;
+              try {
+                const parsed = JSON.parse(dataStr);
+                if (parsed.usage) {
+                  usageData = parsed.usage;
+                }
+              } catch (e) {}
+            }
+          }
         }
       } catch (err) {
         console.error('Stream reading error:', err);
