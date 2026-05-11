@@ -30,6 +30,33 @@ router.post('/invitations', authMiddleware, adminMiddleware, createInvitation);
 router.put('/invitations/:id', authMiddleware, adminMiddleware, updateInvitation);
 router.delete('/invitations/:id', authMiddleware, adminMiddleware, deleteInvitation);
 
+router.put('/invitations/:id/token-proxy', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { enabled, providers, quota } = req.body;
+
+    const invitations = await query('SELECT token_proxy FROM invitations WHERE id = ?', [id]);
+    const tokenProxyRaw = invitations?.[0]?.token_proxy;
+    const currentProxy = tokenProxyRaw ? (typeof tokenProxyRaw === 'string' ? JSON.parse(tokenProxyRaw) : tokenProxyRaw) : {};
+
+    const updatedProxy = {
+      ...currentProxy,
+      enabled: enabled !== undefined ? enabled : currentProxy.enabled,
+      providers: providers || currentProxy.providers || {},
+      quota: quota || currentProxy.quota || { total: 100000, used: 0 }
+    };
+
+    await query('UPDATE invitations SET token_proxy = ? WHERE id = ?', [JSON.stringify(updatedProxy), id]);
+
+    logService.addLog('INFO', `Token代理配置已更新: invitation_id=${id}, enabled=${updatedProxy.enabled}`);
+
+    res.json({ success: true, tokenProxy: updatedProxy });
+  } catch (err) {
+    console.error('更新Token代理配置失败:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 router.post('/logs/upload', async (req, res) => {
   try {
     const { deviceId, logs } = req.body;
