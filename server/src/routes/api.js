@@ -259,7 +259,7 @@ router.put('/proxy/state', authMiddleware, async (req, res) => {
 
 router.post('/proxy/chat', authMiddleware, async (req, res) => {
   try {
-    const { model, messages, temperature, max_tokens } = req.body;
+    const { model } = req.body;
     const invitations = await require('../db').query(
       'SELECT token_proxy FROM invitations WHERE id = ?',
       [req.user.id]
@@ -291,12 +291,7 @@ router.post('/proxy/chat', authMiddleware, async (req, res) => {
 
     const apiBase = PROVIDER_API_BASE[providerName] || providerConfig.apiBase || 'https://api.openai.com/v1';
 
-    let requestBody = {
-      model,
-      messages,
-      temperature: temperature || 0.7,
-      max_tokens: max_tokens || 2000
-    };
+    const requestBody = { ...req.body };
 
     let headers = {
       'Content-Type': 'application/json',
@@ -306,13 +301,9 @@ router.post('/proxy/chat', authMiddleware, async (req, res) => {
     if (providerName === 'anthropic') {
       headers['x-api-key'] = providerConfig.apiKey;
       delete headers['Authorization'];
-      requestBody = {
-        model,
-        messages,
-        temperature: temperature || 0.7,
-        max_tokens: max_tokens || 2000
-      };
     }
+
+    console.log(`[Token代理] /proxy/chat 请求参数: model=${model}, provider=${providerName}, keys=${Object.keys(req.body).join(',')}`);
 
     const response = await fetch(`${apiBase}/chat/completions`, {
       method: 'POST',
@@ -335,7 +326,7 @@ router.post('/proxy/chat', authMiddleware, async (req, res) => {
       );
       console.log(`[Token代理] 非Stream请求记录: model=${model}, input=${data.usage.prompt_tokens}, output=${data.usage.completion_tokens}`);
     } else {
-      console.warn(`[Token代理] 非Stream请求完成但无usage数据: model=${model}, provider=${provider}, responseKeys=${Object.keys(data).join(',')}`);
+      console.warn(`[Token代理] 非Stream请求完成但无usage数据: model=${model}, provider=${providerName}, responseKeys=${Object.keys(data).join(',')}`);
     }
 
     res.json(data);
@@ -384,7 +375,7 @@ router.get('/proxy/usage', authMiddleware, async (req, res) => {
 router.post('/proxy/:provider/chat/completions', authMiddleware, async (req, res) => {
   try {
     const { provider } = req.params;
-    const { model, messages, temperature, max_tokens, stream } = req.body;
+    const { model, stream } = req.body;
 
     const invitations = await query(
       'SELECT token_proxy FROM invitations WHERE id = ?',
@@ -411,9 +402,10 @@ router.post('/proxy/:provider/chat/completions', authMiddleware, async (req, res
 
     const apiBase = PROVIDER_API_BASE[provider] || providerConfig.apiBase || 'https://api.openai.com/v1';
 
-    let requestBody = { model, messages, temperature: temperature || 0.7, max_tokens: max_tokens || 2000 };
-    if (stream !== undefined) requestBody.stream = stream;
-    if (stream) requestBody.stream_options = { include_usage: true };
+    const requestBody = { ...req.body };
+    if (stream) {
+      requestBody.stream_options = { include_usage: true };
+    }
 
     let headers = { 'Content-Type': 'application/json' };
 
@@ -423,6 +415,8 @@ router.post('/proxy/:provider/chat/completions', authMiddleware, async (req, res
     } else {
       headers['Authorization'] = `Bearer ${providerConfig.apiKey}`;
     }
+
+    console.log(`[Token代理] /proxy/${provider}/chat/completions 请求参数: model=${model}, stream=${stream}, keys=${Object.keys(req.body).join(',')}`);
 
     const response = await fetch(`${apiBase}/chat/completions`, {
       method: 'POST',
