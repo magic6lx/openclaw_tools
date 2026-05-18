@@ -21,6 +21,7 @@ CREATE TABLE invitations (
   used_devices INT DEFAULT 0 COMMENT '已使用设备数',
   status ENUM('active', 'disabled') DEFAULT 'active' COMMENT '状态',
   role ENUM('admin', 'user') DEFAULT 'user' COMMENT '角色',
+  token_expires_days INT DEFAULT 30 COMMENT 'Token过期天数',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_code (code),

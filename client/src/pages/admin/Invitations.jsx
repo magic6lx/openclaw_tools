@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Table, Typography, Button, Space, Tag, Modal, Form, Input, InputNumber, Switch, Row, Col, Divider, message, Popconfirm, Progress } from 'antd';
-import { PlusOutlined, DeleteOutlined, StopOutlined, PlayCircleOutlined, LinkOutlined, ApiOutlined } from '@ant-design/icons';
+import { Card, Table, Typography, Button, Space, Tag, Modal, Form, Input, InputNumber, Switch, Row, Col, Divider, message, Popconfirm, Progress, Tooltip } from 'antd';
+import { PlusOutlined, DeleteOutlined, StopOutlined, PlayCircleOutlined, LinkOutlined, ApiOutlined, EditOutlined } from '@ant-design/icons';
 
 const { Title, Text } = Typography;
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
@@ -9,8 +9,10 @@ function Invitations() {
   const [invitations, setInvitations] = useState([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [proxyModalVisible, setProxyModalVisible] = useState(false);
+  const [expiresModalVisible, setExpiresModalVisible] = useState(false);
   const [selectedInvitation, setSelectedInvitation] = useState(null);
   const [proxyForm] = Form.useForm();
+  const [expiresForm] = Form.useForm();
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -35,7 +37,8 @@ function Invitations() {
           createdAt: inv.created_at ? inv.created_at.split('T')[0] : '',
           user: inv.user_email || null,
           role: inv.role,
-          tokenProxy: inv.token_proxy
+          tokenProxy: inv.token_proxy,
+          tokenExpiresDays: inv.token_expires_days || 30
         })));
       }
     } catch (err) {
@@ -134,6 +137,27 @@ function Invitations() {
     { title: '用户', dataIndex: 'user', width: 180, render: u => u || <Text type="secondary">未使用</Text> },
     { title: '设备使用', width: 120, render: (_, r) => `${r.usedDevices} / ${r.maxDevices}` },
     { title: '状态', dataIndex: 'status', width: 80, render: getStatusTag },
+    { 
+      title: 'Token有效期', 
+      width: 120, 
+      render: (_, r) => (
+        <Space>
+          <Text>{r.tokenExpiresDays}天</Text>
+          <Tooltip title="编辑有效期">
+            <Button 
+              size="small" 
+              type="text" 
+              icon={<EditOutlined />} 
+              onClick={() => {
+                setSelectedInvitation(r);
+                expiresForm.setFieldsValue({ tokenExpiresDays: r.tokenExpiresDays });
+                setExpiresModalVisible(true);
+              }}
+            />
+          </Tooltip>
+        </Space>
+      )
+    },
     { title: 'Token代理', width: 160, render: (_, r) => {
       if (!r.tokenProxy?.enabled) return <Tag type="secondary">未启用</Tag>;
       const used = r.tokenProxy?.quota?.used || 0;
@@ -328,6 +352,57 @@ function Invitations() {
           </Row>
           <Form.Item>
             <Button type="primary" htmlType="submit">保存</Button>
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="编辑Token有效期"
+        open={expiresModalVisible}
+        onCancel={() => setExpiresModalVisible(false)}
+        footer={null}
+        width={400}
+      >
+        <Form
+          form={expiresForm}
+          layout="vertical"
+          onFinish={async (values) => {
+            try {
+              const token = localStorage.getItem('token');
+              const res = await fetch(`${API_BASE}/api/invitations/${selectedInvitation.id}`, {
+                method: 'PUT',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify({ tokenExpiresDays: values.tokenExpiresDays })
+              });
+              const data = await res.json();
+              if (data.success) {
+                message.success('有效期更新成功');
+                setExpiresModalVisible(false);
+                fetchInvitations();
+              } else {
+                message.error(data.error || '更新失败');
+              }
+            } catch (err) {
+              message.error('更新失败');
+            }
+          }}
+        >
+          <Form.Item 
+            name="tokenExpiresDays" 
+            label="Token有效期（天数）" 
+            rules={[{ required: true, message: '请输入有效期' }]}
+            extra="用户登录后生成的 Token 将在指定天数后过期，需要重新登录"
+          >
+            <InputNumber min={1} max={365} style={{ width: '100%' }} addonAfter="天" />
+          </Form.Item>
+          <Form.Item>
+            <Space>
+              <Button type="primary" htmlType="submit">保存</Button>
+              <Button onClick={() => setExpiresModalVisible(false)}>取消</Button>
+            </Space>
           </Form.Item>
         </Form>
       </Modal>

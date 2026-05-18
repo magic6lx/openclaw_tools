@@ -66,16 +66,18 @@ async function login(req, res) {
       );
     }
 
+    const tokenExpiresDays = invitation.token_expires_days || 30;
     const token = jwt.sign({
       id: invitation.id,
       code: invitation.code,
       role: invitation.role,
       deviceId: deviceId || null
-    }, JWT_SECRET, { expiresIn: '7d' });
+    }, JWT_SECRET, { expiresIn: `${tokenExpiresDays}d` });
 
     res.json({
       success: true,
       token,
+      tokenExpiresDays,
       user: {
         id: invitation.id,
         code: invitation.code.slice(0, 4) + '****',
@@ -118,11 +120,12 @@ async function createInvitation(req, res) {
 async function updateInvitation(req, res) {
   try {
     const { id } = req.params;
-    const { status, maxDevices } = req.body;
+    const { status, maxDevices, tokenExpiresDays } = req.body;
     const updates = [];
     const params = [];
     if (status) { updates.push('status = ?'); params.push(status); }
-    if (maxDevices) { updates.push('max_devices = ?'); params.push(maxDevices); }
+    if (maxDevices !== undefined) { updates.push('max_devices = ?'); params.push(maxDevices); }
+    if (tokenExpiresDays !== undefined) { updates.push('token_expires_days = ?'); params.push(tokenExpiresDays); }
     if (updates.length === 0) return res.status(400).json({ error: '没有要更新的字段' });
     params.push(id);
     await query(`UPDATE invitations SET ${updates.join(', ')} WHERE id = ?`, params);
